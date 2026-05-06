@@ -126,10 +126,10 @@ function buildProgressPayload(sessionId, codeLines, lineIdx, modelPool) {
 }
 
 function flattenArgs(args) {
-  if (!args || typeof args !== 'object') return String(args || '')
+  if (!args || typeof args !== 'object') return String(args || '').split('\n')[0]
   return Object.values(args).map(v => {
     if (typeof v === 'object' && v !== null) return flattenArgs(v)
-    return String(v)
+    return String(v).split('\n')[0]
   }).join(' ')
 }
 
@@ -145,7 +145,15 @@ function formatNotifyMessage(progress) {
     const latestTool = f.tools?.[f.tools.length - 1]
     if (latestTool) {
       let argsPreview = ''
-      try { argsPreview = flattenArgs(latestTool.args || {}).slice(0, 40) } catch { argsPreview = '' }
+      try {
+        const args = latestTool.args || {}
+        // Content-heavy tools: show path only, avoid flooding terminal with file content
+        if (['edit', 'write', 'read'].includes(latestTool.tool) && args.path) {
+          argsPreview = String(args.path).slice(0, 60)
+        } else {
+          argsPreview = flattenArgs(args).slice(0, 40)
+        }
+      } catch { argsPreview = '' }
       lines.push(`  ${prefix} ${tag} - ${latestTool.tool}: ${argsPreview}`)
     } else {
       const dur = f.durationMs > 1000 ? ` · ${(f.durationMs / 1000).toFixed(1)}s` : ''
@@ -461,6 +469,24 @@ async function _executeUserCode(
     signal.addEventListener('abort', abortHandler, { once: true })
   }
 
+  // -------------------------------------------------------------------------
+  // Console capture — intercept console.* so LLM output doesn't pollute terminal
+  // -------------------------------------------------------------------------
+
+  const _consoleBuf = []
+  const _consoleOriginals = {}
+  const _captureMethods = ['log', 'warn', 'error', 'info', 'debug', 'trace', 'dir']
+  for (const _m of _captureMethods) {
+    _consoleOriginals[_m] = console[_m]
+    console[_m] = (...args) => {
+      try {
+        const _text = args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')
+        _consoleBuf.push(`[${_m}] ${_text}`)
+        if (_consoleBuf.length > 500) _consoleBuf.splice(0, _consoleBuf.length - 500)
+      } catch {}
+    }
+  }
+
   const taskSpawner = async (prompt, schema) => {
     if (userAbort.signal.aborted) {
       throw new Error('Plan execution aborted by user')
@@ -499,8 +525,11 @@ async function _executeUserCode(
     )
 
     const result = await runner(taskSpawner)
-    return result
+    return { returnValue: result, _console: _consoleBuf.join('\n') }
   } finally {
+    for (const _m of _captureMethods) {
+      console[_m] = _consoleOriginals[_m]
+    }
     if (signal && abortHandler) {
       signal.removeEventListener('abort', abortHandler)
     }
@@ -552,7 +581,7 @@ export async function executePlan(code, ctx, pi, signal, onUpdate) {
 
   try {
     emitProgress(ctx, sessionId, onUpdate, codeLines, -1, modelPool)
-    const result = await _executeUserCode(
+    const { returnValue, _console } = await _executeUserCode(
       code,
       ctx,
       pi,
@@ -562,7 +591,7 @@ export async function executePlan(code, ctx, pi, signal, onUpdate) {
       codeLines,
       modelPool,
     )
-    return result
+    return { result: returnValue, _console }
   } finally {
     unsubTerminalInput?.()
     modelPool?.cancelAll('Plan execution aborted')

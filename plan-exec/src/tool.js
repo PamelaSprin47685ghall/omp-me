@@ -175,27 +175,41 @@ export async function createPlanAndExecuteTool(pi) {
       const start = Date.now()
 
       try {
-        const result = await executePlan(params.code, ctx, pi, signal, onUpdate)
+        const planResult = await executePlan(params.code, ctx, pi, signal, onUpdate)
 
         const duration = Date.now() - start
+        const { result, _console } = planResult
+
+        const content = [
+          {
+            type: 'text',
+            text: JSON.stringify(result, null, 2),
+          },
+        ]
+        if (_console) {
+          content.push({
+            type: 'text',
+            text: `Console output:\n${_console}`,
+          })
+        }
 
         return {
-          content: [
-            {
-              type: 'text',
-              text: JSON.stringify(result, null, 2),
-            },
-          ],
+          content,
           details: { result, durationMs: duration },
         }
       } catch (err) {
         const duration = Date.now() - start
         const reason = err?.message ?? String(err)
+        const _console = err._console || ''
+        let errorText = `Plan execution failed after ${duration}ms.\n\nReason: ${reason}`
+        if (_console) {
+          errorText += `\n\nConsole output:\n${_console}`
+        }
         return {
           content: [
             {
               type: 'text',
-              text: `Plan execution failed after ${duration}ms.\n\nReason: ${reason}`,
+              text: errorText,
             },
           ],
           details: { error: reason, durationMs: duration },
