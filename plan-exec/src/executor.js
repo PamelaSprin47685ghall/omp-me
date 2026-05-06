@@ -128,7 +128,7 @@ function buildProgressPayload(sessionId, codeLines, lineIdx, modelPool) {
 function emitProgress(sessionId, onUpdate, codeLines, lineIdx, modelPool) {
   if (!onUpdate) return;
   const progress = buildProgressPayload(sessionId, codeLines, lineIdx, modelPool);
-  onUpdate({ details: { progress } });
+  onUpdate({ content: [], details: { progress } });
 }
 
 // ---------------------------------------------------------------------------
