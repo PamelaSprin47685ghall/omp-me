@@ -134,7 +134,7 @@ Rules:
 • task() returns a Promise that resolves when the sub-agent calls its return tool
 • Sub-agents inherit the parent session's model, tools, and context
 • You MAY nest: a sub-agent can call plan_exec again
-• Return the final result from main${concurrencySection}`
+• Return the final result from main${concurrencySection}${gastownSection}`
 }
 
 const TOOL_PROMPT_SNIPPET =
