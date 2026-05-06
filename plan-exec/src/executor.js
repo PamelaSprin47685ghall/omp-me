@@ -125,6 +125,14 @@ function buildProgressPayload(sessionId, codeLines, lineIdx, modelPool) {
   };
 }
 
+function flattenArgs(args) {
+  if (!args || typeof args !== 'object') return String(args || '')
+  return Object.values(args).map(v => {
+    if (typeof v === 'object' && v !== null) return flattenArgs(v)
+    return String(v)
+  }).join(' ')
+}
+
 function formatNotifyMessage(progress) {
   const { forks, slotUsage } = progress
   const completed = forks.filter(f => f.status === 'completed' || f.status === 'failed')
@@ -137,7 +145,7 @@ function formatNotifyMessage(progress) {
     const latestTool = f.tools?.[f.tools.length - 1]
     if (latestTool) {
       let argsPreview = ''
-      try { argsPreview = JSON.stringify(latestTool.args || {}).slice(0, 40) } catch { argsPreview = '{}' }
+      try { argsPreview = flattenArgs(latestTool.args || {}).slice(0, 40) } catch { argsPreview = '' }
       lines.push(`  ${prefix} ${tag} - ${latestTool.tool}: ${argsPreview}`)
     } else {
       const dur = f.durationMs > 1000 ? ` · ${(f.durationMs / 1000).toFixed(1)}s` : ''
