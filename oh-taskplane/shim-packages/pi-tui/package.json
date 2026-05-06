@@ -1,0 +1,7 @@
+{
+  "name": "@mariozechner/pi-tui",
+  "version": "0.0.0-shim",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./index.js" }
+}
