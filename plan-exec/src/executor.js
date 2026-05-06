@@ -125,10 +125,34 @@ function buildProgressPayload(sessionId, codeLines, lineIdx, modelPool) {
   };
 }
 
-function emitProgress(sessionId, onUpdate, codeLines, lineIdx, modelPool) {
+function formatNotifyMessage(progress) {
+  const { forks, slotUsage } = progress
+  const completed = forks.filter(f => f.status === 'completed' || f.status === 'failed')
+  const slotInfo = slotUsage ? ` · slot ${slotUsage.used}/${slotUsage.total}` : ''
+  const lines = [`Plan & Execute: ${completed.length}/${forks.length} forks done${slotInfo}`]
+  for (const f of forks) {
+    const isRunning = f.status === 'starting' || f.status === 'running'
+    const prefix = isRunning ? '>' : '-'
+    const tag = f.model ? `${f.model}#${f.id}` : `#${f.id}`
+    const latestTool = f.tools?.[f.tools.length - 1]
+    if (latestTool) {
+      let argsPreview = ''
+      try { argsPreview = JSON.stringify(latestTool.args || {}).slice(0, 40) } catch { argsPreview = '{}' }
+      lines.push(`  ${prefix} ${tag} - ${latestTool.tool}: ${argsPreview}`)
+    } else {
+      const dur = f.durationMs > 1000 ? ` · ${(f.durationMs / 1000).toFixed(1)}s` : ''
+      const status = isRunning ? 'running' : 'completed'
+      lines.push(`  ${prefix} ${tag} - ${status}${dur}`)
+    }
+  }
+  return lines.join('\n')
+}
+
+function emitProgress(ctx, sessionId, onUpdate, codeLines, lineIdx, modelPool) {
   if (!onUpdate) return;
   const progress = buildProgressPayload(sessionId, codeLines, lineIdx, modelPool);
   onUpdate({ content: [], details: { progress } });
+  try { ctx?.ui?.notify?.(formatNotifyMessage(progress), 'info') } catch {}
 }
 
 // ---------------------------------------------------------------------------
@@ -279,7 +303,7 @@ async function spawnTaskFork(
     tools: [],
   }
   addFork(parentSessionId, forkRecord)
-  emitProgress(parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
+  emitProgress(ctx, parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
 
   let childSession = null
   let unsubscribe = null
@@ -329,11 +353,11 @@ async function spawnTaskFork(
             break
           }
         }
-        emitProgress(parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
+        emitProgress(ctx, parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
       })
     }
 
-    emitProgress(parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
+    emitProgress(ctx, parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
 
     await abortablePrompt(childSession, prompt, childAbort.signal)
     throwIfAborted()
@@ -347,7 +371,7 @@ async function spawnTaskFork(
 
       while (childSession.isStreaming) {
         await new Promise((r) => setTimeout(r, 200))
-        emitProgress(parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
+        emitProgress(ctx, parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
         if (resolved || parentAborted || childAbort.signal.aborted) break
       }
 
@@ -355,7 +379,7 @@ async function spawnTaskFork(
       if (parentAborted || childAbort.signal.aborted) break
 
       emptyTurnCount++
-      emitProgress(parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
+      emitProgress(ctx, parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
       await abortablePrompt(
         childSession,
         'ERROR: You must call the `return` tool to submit your result and finish this task. Do not output prose — call the tool.',
@@ -377,12 +401,12 @@ async function spawnTaskFork(
     forkRecord.status = 'completed'
     const result = await resultPromise
 
-    emitProgress(parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
+    emitProgress(ctx, parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
 
     return result
   } catch (err) {
     forkRecord.status = 'failed'
-    emitProgress(parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
+    emitProgress(ctx, parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
     throw err
   } finally {
     forkRecord.status = resolved ? 'completed' : 'failed'
@@ -519,7 +543,7 @@ export async function executePlan(code, ctx, pi, signal, onUpdate) {
   }
 
   try {
-    emitProgress(sessionId, onUpdate, codeLines, -1, modelPool)
+    emitProgress(ctx, sessionId, onUpdate, codeLines, -1, modelPool)
     const result = await _executeUserCode(
       code,
       ctx,

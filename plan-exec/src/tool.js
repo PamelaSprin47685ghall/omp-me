@@ -208,78 +208,9 @@ export async function createPlanAndExecuteTool(pi) {
       const { isPartial, spinnerFrame } = options
       const progress = result.details?.progress
 
-      // Streaming progress — render fork tree
+      // Streaming progress — empty box, content sent via ui.notify
       if (progress && progress.forks) {
-        let cached
-        return {
-          render(width) {
-            const key = `${isPartial}:${spinnerFrame ?? 0}:${width}`
-            if (cached?.key === key) return cached.lines
-
-            const lines = []
-            const { forks, codeLine, slotUsage } = progress
-
-            // Code context block at the very top
-            if (codeLine) {
-              const prev = codeLine.prevLine != null ? `  ${codeLine.prevLine}` : null
-              const cur  = `> ${codeLine.line}`
-              const next = codeLine.nextLine != null ? `  ${codeLine.nextLine}` : null
-              const ctxLines = [prev, cur, next].filter(l => l !== null)
-              const maxLen = Math.max(width - 4, 24)
-              for (const l of ctxLines) {
-                const display = l.length > maxLen ? l.slice(0, maxLen - 1) + '…' : l
-                lines.push(theme.fg('dim', display))
-              }
-              lines.push('') // blank line separator
-            }
-            const completed = forks.filter(f => f.status === 'completed' || f.status === 'failed')
-            const active = forks.filter(f => f.status === 'starting' || f.status === 'running')
-            const slotInfo = slotUsage ? ` · slot ${slotUsage.used}/${slotUsage.total}` : ''
-            const spinner = active.length > 0 ? theme.status.running + ' ' : ''
-            const header = `${spinner}plan_exec · ${completed.length}/${forks.length} done${slotInfo}`
-            lines.push(theme.fg('accent', header))
-
-            for (let i = 0; i < forks.length; i++) {
-              const f = forks[i]
-              const isLast = i === forks.length - 1
-              const treePre = theme.fg('dim', isLast ? theme.tree.last : theme.tree.branch)
-              const contPre = isLast ? '   ' : `${theme.fg('dim', theme.tree.vertical)}  `
-
-              let icon, color
-              switch (f.status) {
-                case 'completed':
-                  icon = theme.status.success; color = 'success'; break
-                case 'failed':
-                case 'aborted':
-                  icon = theme.status.error; color = 'error'; break
-                default:
-                  icon = theme.status.running; color = 'accent'
-              }
-
-              const tag = `${f.model}#${f.id}`
-              const dur = f.durationMs > 1000 ? ` · ${(f.durationMs / 1000).toFixed(1)}s` : ''
-              lines.push(` ${treePre} ${theme.fg(color, icon)} ${theme.fg('accent', tag)}${dur}`)
-
-              // Render latest tool for running forks only
-              if ((f.status === 'starting' || f.status === 'running') && f.tools && f.tools.length > 0) {
-                for (const t of f.tools.slice(-1)) {
-                  const toolDur = t.endMs && t.startMs ? ` · ${((t.endMs - t.startMs) / 1000).toFixed(1)}s` : ''
-                  const toolIcon = t.isError ? theme.status.error : (t.endMs ? theme.status.success : theme.status.running)
-                  let argsPreview = ''
-                  try { argsPreview = JSON.stringify(t.args || {}).slice(0, 36) } catch { argsPreview = '{}' }
-                  const toolLine = `${t.tool}${argsPreview}${toolDur}`
-                  lines.push(` ${contPre} ${theme.fg('dim', toolIcon)} ${theme.fg('dim', toolLine)}`)
-                }
-              }
-
-
-            }
-
-            cached = { key, lines }
-            return lines
-          },
-          invalidate() { cached = undefined },
-        }
+        return { render() { return [] } }
       }
 
       // Final (non-streaming) result
