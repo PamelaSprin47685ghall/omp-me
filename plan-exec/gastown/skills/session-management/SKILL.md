@@ -1,6 +1,6 @@
 ---
 name: session-management
-description: Manage agent sessions including initialization, handoffs, revival (seance), and persistent identity for Polecats and Crew agents.
+description: Manage Polecat identity persistence and Crew context maintenance across topology transitions and session teardowns.
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, Agent, AskUserQuestion
 ---
 
@@ -8,36 +8,26 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, Agent, 
 
 ## Overview
 
-Manage agent sessions in Gas Town: initialize new sessions, handle handoffs between agents, revive dead sessions (seance), and maintain persistent identity across ephemeral Polecat sessions.
+Manage agent session lifecycle in Gas Town. Polecats are transient but their identity persists. Crew Leads are persistent and their context must survive across beads, review rounds, and TDD cycles. The Witness manages per-rig state and attestation logs.
 
-## When to Use
+## Polecat Identity
 
-- Initializing new agent sessions
-- Handing off work between agents
-- Reviving a dead or stuck agent session
-- Managing Polecat identity persistence across sessions
+- Each Polecat has a persistent `AGENT_ID` across sessions.
+- Telemetry (test count, coverage, lint issues, elapsed time) accumulates per identity.
+- Partial progress on a bead is checkpointed before teardown.
 
-## Session Operations
+## Crew Context
 
-1. **Init**: Start new session with role and hook setup
-2. **Attach**: Connect agent to Mayor for coordination
-3. **Handoff**: Transfer work between agents with context
-4. **Seance**: Revive a dead agent's session state
-5. **Resume**: Continue from last checkpoint
+- Crew Leads maintain deep context across multiple beads in a convoy.
+- Context must survive topology transitions (e.g., a bead moving from task to review-loop).
+- Architectural decisions, interface choices, and schema designs are preserved.
 
-## Agent Session Types
+## Witness Attestation
 
-- **Crew**: Long-lived sessions, full state persistence
-- **Polecat**: Ephemeral sessions, persistent identity, state via hooks
-- **Dog**: Infrastructure sessions, minimal state
-
-## Key Commands
-
-- `gt mayor attach` - Attach to Mayor coordination
-- `gt handoff` - Hand off work to another agent
-- `gt seance` - Revive dead session
-- `gt prime` - Prime agent with context
+- The Witness records review-loop rounds, TDD cycle phases, and gate votes.
+- Attestation logs are immutable and used for dispute resolution.
+- Logs include: deliverable snapshot, reviewer IDs, verdicts, confidence scores, timestamps.
 
 ## Tool Use
 
-Used within agent coordination and patrol monitoring processes.
+Invoke via process: `methodologies/gastown/gastown-patrol` (session health checks)

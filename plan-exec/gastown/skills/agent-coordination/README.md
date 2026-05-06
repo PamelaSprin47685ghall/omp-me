@@ -1,21 +1,22 @@
 # Agent Coordination Skill
 
-Multi-agent coordination adapted from [Gas Town](https://github.com/steveyegge/gastown) by Steve Yegge.
+Master-level multi-agent coordination adapted from [Gas Town](https://github.com/steveyegge/gastown) by Steve Yegge.
 
 ## Purpose
 
-Assign work to agents, manage handoffs, and enforce GUPP through hook-based work distribution.
+Coordinate Crew Leads, Polecats, and Refinery across DAG, gatekeeper, review-loop, and TDD-loop topologies with topology-aware dispatch, context preservation, and smart recovery.
 
 ## Process Flow
 
-1. Identify available agents (Crew, Polecats)
-2. Match beads to agent capabilities
-3. Feed work to agent hooks
-4. Monitor agent progress
-5. Handle handoffs and nudges
+1. Analyse topology requirements (DAG, gatekeeper, review-loop, tdd-loop, convoy)
+2. Match agent roles to topology nodes using the Agent Topology Matrix
+3. Dispatch agents with topology-specific context
+4. Preserve context across topology transitions
+5. Monitor progress and execute topology-aware recovery
+6. Track attribution across DAG branches, review rounds, and TDD cycles
 
 ## Integration
 
-- **Input from:** `convoy-management` or Mayor orchestrator
-- **Output to:** Agent execution, `patrol-monitoring` for oversight
-- **Process file:** `../../gastown-orchestrator.js` (assign-workers task)
+- **Input from:** `work-decomposition` (DAG nodes with topology hints)
+- **Output to:** `convoy-management`, `gastown-dag`, `gastown-review-loop`, `gastown-tdd-loop`
+- **Used by:** Mayor orchestrator

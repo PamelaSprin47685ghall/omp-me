@@ -1,142 +1,58 @@
 /**
- * @process methodologies/gastown/gastown-molecule
- * @description DURABLE WORKFLOW TEMPLATE — Feel free to use inside ANY subtask.
- *   This is not a Gas Town role; it is a reusable pattern for defining
- *   multi-step durable workflows with checkpointing. A subtask may call
- *   taskjs(path.join(GASTOWN_HOME, 'gastown-molecule.js'), { formulaSpec: ... })
- *   and the molecule will execute the steps, retry on failure, and return.
- *   You may nest molecules inside molecules (a molecule step can itself
- *   be a taskjs() call to this same file with a new formula).
- * @args { formulaSpec?: object, steps?: array, variables?: object, checkpointInterval?: number }
- * @outputs { success: boolean, moleculeId: string, stepsCompleted: number, checkpoints: array, result: object }
+ * GAS TOWN — 分子协议
  *
- * Attribution: Adapted from https://github.com/steveyegge/gastown by Steve Yegge
+ * 签名：async function main(task)
+ * task(prompt: string, schema?) — 直接调用 LLM。
  */
 
-async function main(args, task, taskjs) {
-  const formulaSpec = args?.formulaSpec ?? null
-  const steps = args?.steps ?? []
-  const variables = args?.variables ?? {}
-  const checkpointInterval = args?.checkpointInterval ?? 1
+async function main(task) {
+  const input = await task('返回 molecule 输入：steps（数组）、checkpointInterval、loopUntil（可选）', {
+    type: 'object',
+    properties: {
+      steps: { type: 'array' },
+      checkpointInterval: { type: 'number' },
+      loopUntil: {},
+    }
+  })
+  const { steps, checkpointInterval, loopUntil } = input
 
-  const moleculeId = `mol-${Date.now()}`
-
-  // -------------------------------------------------------------------
-  // If a formulaSpec is provided, validate it; otherwise use inline steps.
-  // -------------------------------------------------------------------
-
-  let resolvedSteps = steps
-  if (formulaSpec) {
-    const formulaResult = await task(
-      `Validate and expand formula. Spec: ${JSON.stringify(formulaSpec)}. Variables: ${JSON.stringify(variables)}`,
-      {
-        type: 'object',
-        properties: {
-          steps: { type: 'array' },
-          variables: { type: 'object' },
-          validationResult: { type: 'object' },
-        },
-      },
-    )
-    resolvedSteps = formulaResult.steps
-  }
-
-  // -------------------------------------------------------------------
-  // Execute steps with optional checkpointing.
-  // Each step can itself be any work: task(), taskjs(), or inline JS.
-  // -------------------------------------------------------------------
-
-  const stepResults = []
   const checkpoints = []
-  const totalSteps = resolvedSteps.length
+  const history = []
 
-  for (let stepIndex = 0; stepIndex < totalSteps; stepIndex++) {
-    const stepDef = resolvedSteps[stepIndex]
+  let i = 0
+  while (i < steps.length) {
+    const step = steps[i]
 
-    // A step definition may declare a nested molecule or a plain task.
-    let stepResult
-    if (stepDef?.type === 'molecule') {
-      // Nested molecule: re-enter the same template with a sub-formula.
-      stepResult = await taskjs(
-        path.join(GASTOWN_HOME, 'gastown-molecule.js'),
-        {
-          formulaSpec: stepDef.nestedFormula,
-          variables: { ...variables, ...stepDef.nestedVariables },
-          checkpointInterval,
-        },
-      )
-    } else {
-      stepResult = await task(
-        `Execute molecule ${moleculeId} step ${stepIndex + 1}/${totalSteps}. Definition: ${JSON.stringify(stepDef)}. Previous outputs: ${JSON.stringify(stepResults.map((s) => s.output))}`,
-        {
-          type: 'object',
-          properties: {
-            success: { type: 'boolean' },
-            output: { type: 'object' },
-            sideEffects: { type: 'array' },
-            duration: { type: 'number' },
-            nextStepOverride: { type: 'number' },
-          },
-        },
-      )
+    let result
+    switch (step.type) {
+      case 'task':       result = await task(`执行分子步骤 ${i}（task）`, { type: 'object' }); break
+      case 'dag':        result = await task(`执行分子步骤 ${i}（dag）`, { type: 'object' }); break
+      case 'gatekeeper': result = await task(`执行分子步骤 ${i}（gatekeeper）`, { type: 'object' }); break
+      case 'review':     result = await task(`执行分子步骤 ${i}（review）`, { type: 'object' }); break
+      case 'tdd':        result = await task(`执行分子步骤 ${i}（tdd）`, { type: 'object' }); break
+      case 'loop':       result = await task(`执行分子步骤 ${i}（loop）`, { type: 'object' }); break
+      default:           throw new Error('Unknown step type: ' + step.type)
     }
 
-    stepResults.push({
-      stepIndex,
-      success: stepResult.success,
-      output: stepResult.output,
-      duration: stepResult.duration,
-    })
+    history.push({ step: i, type: step.type, result })
 
-    // Checkpoint at configured intervals
-    if ((stepIndex + 1) % checkpointInterval === 0) {
-      const checkpoint = await task(
-        `Checkpoint progress for molecule ${moleculeId} at step ${stepIndex + 1}`,
-        {
-          type: 'object',
-          properties: {
-            checkpointId: { type: 'string' },
-            savedAt: { type: 'string' },
-            stateHash: { type: 'string' },
-            recoveryPoint: { type: 'number' },
-          },
-        },
-      )
-      checkpoints.push(checkpoint)
+    if ((i + 1) % (checkpointInterval || 1) === 0) {
+      checkpoints.push({ step: i, hash: await task(`Checkpoint at step ${i}`, { type: 'string' }) })
     }
 
-    // Handle step override (formula can redirect flow)
-    if (stepResult?.nextStepOverride !== undefined && stepResult.nextStepOverride !== null) {
-      stepIndex = stepResult.nextStepOverride - 1 // loop increment compensates
+    if (result.nextStep != null) { i = result.nextStep; continue }
+
+    if (i === steps.length - 1 && loopUntil) {
+      const shouldContinue = await task(`loop-until 检查`, { type: 'boolean' })
+      if (shouldContinue) { i = 0; continue }
     }
+
+    i++
   }
 
-  const completionResult = await task(
-    `Complete molecule ${moleculeId} workflow. All step results: ${JSON.stringify(stepResults)}`,
-    {
-      type: 'object',
-      properties: {
-        result: { type: 'object' },
-        summary: { type: 'string' },
-        artifacts: { type: 'array' },
-        duration: { type: 'number' },
-        attribution: { type: 'object' },
-      },
-    },
-  )
-
-  return {
-    success: stepResults.every((s) => s.success),
-    moleculeId,
-    stepsCompleted: stepResults.filter((s) => s.success).length,
-    totalSteps,
-    checkpoints: checkpoints.map((c) => ({ id: c.checkpointId, savedAt: c.savedAt })),
-    result: completionResult.result,
-    metadata: {
-      processId: 'methodologies/gastown/gastown-molecule',
-      attribution: 'https://github.com/steveyegge/gastown',
-      author: 'Steve Yegge',
-      timestamp: new Date().toISOString(),
-    },
-  }
+  const allOk = history.every(h => h.result?.ok !== false)
+  return await task(`Molecule 完成`, {
+    type: 'object',
+    properties: { ok: {type:'boolean'}, history: {type:'array'}, checkpoints: {type:'array'} }
+  })
 }

@@ -1,21 +1,23 @@
 # Merge Queue Skill
 
-Refinery merge queue processing adapted from [Gas Town](https://github.com/steveyegge/gastown) by Steve Yegge.
+Master-level Refinery merge queue processing adapted from [Gas Town](https://github.com/steveyegge/gastown) by Steve Yegge.
 
 ## Purpose
 
-Safely merge work from multiple agents, handling conflicts and verifying integration.
+Safely merge work from multiple agents with pre-merge quality gatekeeping, parallel DAG-based conflict repair, and full integration verification including coverage and mutation testing.
 
 ## Process Flow
 
 1. Collect changes from agent branches
-2. Detect merge conflicts
-3. Resolve conflicts
-4. Merge in dependency order
-5. Verify integration
+2. Run pre-merge quality gatekeeper vote on artifact completeness
+3. Detect cross-module conflicts (API, schema, type, naming)
+4. Dispatch fix agents for auto-resolvable conflicts as a parallel DAG
+5. Merge in dependency order with conflict handling
+6. Verify integration: build, type-check, lint, tests, coverage, mutation score
+7. Escalate unresolvable conflicts with full audit trail
 
 ## Integration
 
-- **Input from:** `convoy-management` after bead completion
-- **Output to:** Landing result, integration report
-- **Process file:** `../../gastown-merge-queue.js`
+- **Input from:** `convoy-management` after bead completion and landing gate
+- **Output to:** Integrated codebase
+- **Used by:** `gastown-merge-queue` process

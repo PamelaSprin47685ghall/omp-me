@@ -13,10 +13,9 @@ Version: `5.1.0`.
 
 ## How it works
 
-The `plan_exec` tool accepts a string of JavaScript code. Your code defines an `async function main(args, task, taskjs)` and calls `await task(prompt, schema)` to spawn LLM sub-agents, or `await taskjs(filePath, args)` to execute a local JS file.
+The `plan_exec` tool accepts a string of JavaScript code. Your code defines an `async function main(task)` and calls `await task(prompt, schema)` to spawn LLM sub-agents.
 
 - `task()` forks a child LLM session with the same model/tools/context as the parent.
-- `taskjs(filePath, args)` executes a local JS file that defines `async function main(args, task, taskjs)`. The path is resolved relative to the **calling file's directory** (not cwd), so sibling files in the same folder can be referenced naturally.
 - Each LLM fork gets a dedicated `return` tool bound to the schema you provide.
 - The child must call `return(result)` to finish; the result is returned to the orchestrator.
 - Use standard JS control flow: `if`, `for`, `while`, `Promise.all`, `Promise.race`.
@@ -44,7 +43,7 @@ cp -r plan-exec ~/.omp/extensions/
 The LLM can call `plan_exec` with a `code` parameter:
 
 ```javascript
-async function main(args, task, taskjs) {
+async function main(task) {
   const [frontend, backend] = await Promise.all([
     task('Implement React Button component', componentSchema),
     task('Implement Express /api/button route', routeSchema),
@@ -59,32 +58,23 @@ async function main(args, task, taskjs) {
 }
 ```
 
-### Using taskjs() — local JS orchestration files
+### Gas Town 协议模板
+
+`plan-exec/gastown/` 下的 JS 文件是参考性协议模板。每次执行时由 LLM 根据上下文重写 `main(task)`，通过 `task(prompt, schema)` 调用 LLM。
 
 ```javascript
-// Call a pre-written orchestration module and pass it a goal.
-// Import path utilities yourself for cross-platform path joining.
-
-async function main(args, task, taskjs) {
-  const { join } = await import('node:path')
-  const goal = args?.goal ?? 'Implement the requested feature'
-
-  const result = await taskjs(
-    join(GASTOWN_HOME, 'main.js'),
-    { goal },
-  )
-
+async function main(task) {
+  const goal = '实现 OAuth2 + JWT 认证系统'
+  const result = await task(`编排目标：${goal}`, { type: 'object' })
   return result
 }
 ```
 
-Rules:
-- Define `async function main(args, task, taskjs)`. `args` is the payload from the caller; `task` and `taskjs` are injected.
-- Call `await task(prompt, schema)` to fork LLM sub-agents.
-- Call `await taskjs(filePath, args?)` to execute a local JS file that defines `async function main(args, task, taskjs)`.
-- **Path resolution**: filePath is resolved relative to the **calling file's directory**, not cwd. Sibling files in the same folder can be referenced by name.
-- **GASTOWN_HOME**: environment variable always injected into user code. Use `path.join(GASTOWN_HOME, 'main.js')` or `join(GASTOWN_HOME, 'main.js')` after `await import('node:path')`.
-- Return the final result from `main`.
+规则：
+- 定义 `async function main(task)`，`task` 是注入的唯一参数
+- 调用 `await task(prompt, schema)` 派生 LLM 子代理
+- 使用常规 JS 控制流：if/for/while/Promise.all/Promise.race
+- 从 `main` 返回最终结果
 
 ## Operational notes
 

@@ -1,6 +1,6 @@
 ---
 name: formula-authoring
-description: Author TOML-based Formula workflow templates that become Protomolecules and active Molecules in Gas Town's durable workflow system.
+description: Write durable molecule formulas supporting nested topologies: DAG, gatekeeper, review-loop, TDD-loop, and loop-until patterns.
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, Agent, AskUserQuestion
 ---
 
@@ -8,36 +8,39 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, Agent, 
 
 ## Overview
 
-Create and manage TOML-based Formula templates that define repeatable multi-step workflows. Formulas are cooked into Protomolecules (frozen, ready to instantiate) and then activated as Molecules (durable, checkpoint-able workflows).
+Write durable, reusable molecule formulas for Gas Town. A formula defines a sequence of steps, where each step can be:
+- A plain task
+- A nested molecule
+- A delegated DAG
+- A gatekeeper vote
+- A review-loop
+- A TDD-loop
+- A loop-until construct
 
-## When to Use
+## Formula Structure
 
-- Defining repeatable workflow templates
-- Creating multi-step processes with variable binding
-- Building workflows that must survive restarts
-- When NDI (Nondeterministic Idempotence) is needed
-
-## Process
-
-1. **Define** formula steps and variables in TOML format
-2. **Validate** formula structure and dependencies
-3. **Cook** into protomolecule (resolve variables, freeze)
-4. **Test** by instantiating a trial molecule
-5. **Register** in the formula library for reuse
-
-## Formula Lifecycle
-
+```json
+{
+  "steps": [
+    { "type": "task", "task": "Analyse requirements" },
+    { "type": "dag", "graph": { "nodes": [...], "edges": [...] } },
+    { "type": "gatekeeper", "ballots": [...], "mode": "majority" },
+    { "type": "review-loop", "author": {...}, "reviewers": [...] },
+    { "type": "tdd-loop", "red": {...}, "green": {...}, "refactor": {...} },
+    { "type": "loop", "condition": "ctx.result.passed", "body": [...], "maxIterations": 5 },
+    { "type": "molecule", "nestedFormula": {...} }
+  ]
+}
 ```
-Formula (TOML template) -> Protomolecule (frozen) -> Molecule (active, durable)
-```
 
-## Key Concepts
+## Checkpointing
 
-- **Formula**: TOML-based workflow template with variables
-- **Protomolecule**: Frozen template ready to instantiate
-- **Molecule**: Active durable workflow surviving restarts
-- **NDI**: Nondeterministic Idempotence - useful outcomes from unreliable processes
+Set `checkpointInterval` to save progress every N steps. Recovery resumes from the last checkpoint.
+
+## Conditional Branching
+
+Steps can return `nextStepOverride` to jump to a specific step index, enabling conditional branching within a formula.
 
 ## Tool Use
 
-Invoke via babysitter process: `methodologies/gastown/gastown-molecule`
+Invoke via process: `methodologies/gastown/gastown-molecule`

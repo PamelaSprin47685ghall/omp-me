@@ -1,21 +1,22 @@
 # Formula Authoring Skill
 
-TOML-based workflow template authoring adapted from [Gas Town](https://github.com/steveyegge/gastown) by Steve Yegge.
+Master-level molecule formula authoring adapted from [Gas Town](https://github.com/steveyegge/gastown) by Steve Yegge.
 
 ## Purpose
 
-Create repeatable, durable workflow templates using the Formula -> Protomolecule -> Molecule lifecycle.
+Write durable, reusable molecule formulas supporting nested topologies: DAG, gatekeeper, review-loop, TDD-loop, and loop-until patterns with checkpointing and conditional branching.
 
 ## Process Flow
 
-1. Define formula in TOML
-2. Validate structure
-3. Cook into protomolecule
-4. Test via trial molecule
-5. Register for reuse
+1. Define the molecule goal and acceptance criteria
+2. Decompose into steps with type annotations (task, dag, gatekeeper, review-loop, tdd-loop, loop, molecule)
+3. Configure checkpoint intervals for recovery
+4. Add conditional branching via nextStepOverride
+5. Nest sub-molecules for complex workflows
+6. Validate formula structure before execution
 
 ## Integration
 
-- **Input from:** Workflow design or existing formula library
-- **Output to:** `gastown-molecule` process for execution
-- **Process file:** `../../gastown-molecule.js`
+- **Input from:** `work-decomposition` or manual design
+- **Output to:** `gastown-molecule` execution
+- **Used by:** `gastown-molecule` process

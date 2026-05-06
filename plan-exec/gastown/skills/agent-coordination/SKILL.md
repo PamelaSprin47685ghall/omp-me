@@ -1,6 +1,6 @@
 ---
 name: agent-coordination
-description: Coordinate Crew (persistent) and Polecat (transient) agents using Gas Town's hook-based work distribution and GUPP principle.
+description: Coordinate Crew, Polecats, and Refinery across DAG, gatekeeper, review-loop, and TDD-loop topologies with topology-aware dispatch and recovery.
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, Agent, AskUserQuestion
 ---
 
@@ -8,37 +8,36 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, Agent, 
 
 ## Overview
 
-Coordinate multi-agent work using Gas Town's role hierarchy: Mayor assigns, Crew persists, Polecats execute transiently, and hooks drive the GUPP principle ("If there is work on your Hook, YOU MUST RUN IT").
+Coordinate Gas Town agents across advanced topologies. This skill covers:
+- Topology-aware dispatch (which agent type for which topology)
+- Cross-topology context preservation
+- Recovery and reassignment with topology-specific strategies
+- Attribution tracking across DAG branches, review rounds, and TDD cycles
 
 ## When to Use
 
-- Assigning beads to agents
-- Managing agent handoffs
-- Nudging stuck agents
-- Coordinating Crew and Polecat workers
-- Setting up hook hierarchies
+- Assigning agents to nodes in a DAG
+- Configuring review-loop author and reviewer pools
+- Selecting green-phase implementers for TDD loops
+- Reassigning stuck agents with topology-aware recovery
 
-## Agent Types
+## Agent Topology Matrix
 
-- **Crew**: Long-lived, named agents for persistent collaboration
-- **Polecats**: Transient workers with persistent identity but ephemeral sessions
-- **Dogs**: Deacon helpers for infrastructure tasks
+| Topology | Primary | Secondary | Gate / Review |
+|---|---|---|---|
+| DAG | Crew Lead (complex nodes) | Polecat (simple nodes) | Refinery (integration points) |
+| Gatekeeper | Refinery (quality) | Crew Lead (architectural) | Polecat (peer vote) |
+| Review-Loop | Crew Lead (author / senior reviewer) | Polecat (peer reviewer) | Refinery (arbiter) |
+| TDD-Loop | Crew Lead (red-phase design) | Polecat (green-phase implement) | Refinery (coverage gate) |
+| Convoy | Crew Lead (expedition lead) | Polecat (bead workers) | Refinery (landing gate) |
 
-## Hook Hierarchy
+## Recovery Strategies
 
-Three-tier hook system (base -> role -> rig+role):
-1. **Base hooks**: Apply to all agents
-2. **Role hooks**: Apply to agents in a specific role
-3. **Rig+Role hooks**: Apply to agents on a specific rig in a specific role
-
-## Key Commands
-
-- `gt agents` - List available agents
-- `gt feed` - Feed work to an agent's hook
-- `gt handoff` - Hand off work between agents
-- `gt nudge` - Nudge a stuck agent
-- `gt seance` - Revive a dead agent session
+- **DAG node stuck**: Retry with backoff, then reassign to another agent of same role.
+- **Review-loop deadlock**: Inject arbitration agent or reduce reviewer count.
+- **TDD-loop red phase false pass**: Escalate to Crew Lead for test redesign.
+- **Gatekeeper tie**: Apply tie-breaker policy (escalate, random, yes, no).
 
 ## Tool Use
 
-Invoke via babysitter process: `methodologies/gastown/gastown-orchestrator` (assign-workers step)
+Invoke via process: `methodologies/gastown/gastown-orchestrator` (dispatch step)

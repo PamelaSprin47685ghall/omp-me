@@ -1,198 +1,49 @@
 /**
- * @process methodologies/gastown/gastown-merge-queue
- * @description Gas Town Refinery — Integration Compatibility Enforcement
- *   Collects convoy outputs, detects cross-module conflicts, repairs them
- *   by dispatching fix agents, and verifies integration until success.
- * @args { convoyResults: array, goal: string, projectRoot?: string }
- * @outputs { success: boolean, compatible: boolean, fixCount: number, integrationReport: object }
+ * GAS TOWN — 熔炉合并协议
  *
- * Attribution: Adapted from https://github.com/steveyegge/gastown by Steve Yegge
+ * 签名：async function main(task)
+ * task(prompt: string, schema?) — 直接调用 LLM。
  */
 
-async function main(args, task, taskjs) {
-  const { readFile } = await import('node:fs/promises')
-  const { join } = await import('node:path')
-  const agentMd = await readFile(join(GASTOWN_HOME, 'agents/refinery/AGENT.md'), 'utf-8')
-  const as = (task) => `You are acting as the agent defined below. Follow this role definition precisely.\n\n--- AGENT.md START ---\n${agentMd}\n--- AGENT.md END ---\n\nNow execute:\n${task}`
+async function main(task) {
+  const input = await task('返回 merge-queue 输入：convoys（含 beads）、qualityGate config', {
+    type: 'object',
+    properties: {
+      convoys: { type: 'array' },
+      qualityGate: { type: 'object' },
+    }
+  })
+  const { convoys, qualityGate } = input
 
-  const convoyResults = args?.convoyResults ?? []
-  const goal = args?.goal ?? 'Implement feature'
-  const projectRoot = args?.projectRoot ?? '.'
+  // 1. 收集 artifacts
+  const artifacts = convoys.flatMap(c => c.beads || [])
 
-  // ========================================================================
-  // STEP 1: COLLECT ARTIFACTS
-  // ========================================================================
+  // 2. 质量门控
+  const gate = await task(`Merge Queue 质量门控：artifacts=${artifacts.length}，config=${JSON.stringify(qualityGate)}`, {
+    type: 'object',
+    properties: { passed: {type:'boolean'}, tally: {type:'object'} }
+  })
 
-  const artifacts = convoyResults.flatMap((c) =>
-    (c.beads || []).map((b) => ({
-      convoyId: c.convoyId,
-      beadId: b.id || 'unknown',
-      exports: b.exports || {},
-      interfaces: b.interfaces || [],
-      schema: b.schema || {},
-      codeSummary: b.codeSummary || '',
-      files: b.files || [],
-    })),
-  )
-
-  const collectResult = await task(
-    as(`Normalise ${artifacts.length} bead artifacts from ${convoyResults.length} convoys. Goal: ${goal}. Build a module graph of public interfaces, shared schemas, and entry-point files.`),
-    {
-      type: 'object',
-      properties: {
-        normalisedArtifacts: { type: 'array' },
-        sharedInterfaces: { type: 'array' },
-        sharedSchemas: { type: 'array' },
-        moduleGraph: { type: 'object' },
-      },
-    },
-  )
-
-  // ========================================================================
-  // STEP 2: DETECT COMPATIBILITY CONFLICTS
-  // ========================================================================
-
-  const conflictResult = await task(
-    as(`Detect cross-module compatibility conflicts across convoys. Shared interfaces: ${JSON.stringify(collectResult.sharedInterfaces)}. Shared schemas: ${JSON.stringify(collectResult.sharedSchemas)}. Module graph: ${JSON.stringify(collectResult.moduleGraph)}. Report API mismatches, schema drift, naming collisions, type mismatches, and missing dependencies.`),
-    {
-      type: 'object',
-      properties: {
-        conflicts: { type: 'array' },
-        conflictPairs: { type: 'array' },
-        severity: { type: 'object' },
-        autoResolvable: { type: 'array' },
-        manualRequired: { type: 'array' },
-      },
-    },
-  )
-
-  // ========================================================================
-  // STEP 3: REPAIR LOOP — dispatch fix agents until clean
-  // ========================================================================
-
-  const MAX_REPAIR_ROUNDS = 3
-  let repairRounds = 0
-  let resolvedConflicts = 0
-  let unresolvedConflicts = conflictResult.conflicts.length
-  let repairLog = []
-
-  while (unresolvedConflicts > 0 && repairRounds < MAX_REPAIR_ROUNDS) {
-    repairRounds++
-
-    const fixResult = await task(
-      as(`Repair ${unresolvedConflicts} compatibility conflicts in ${projectRoot}. Conflicts: ${JSON.stringify(conflictResult.conflicts)}. Auto-resolvable: ${JSON.stringify(conflictResult.autoResolvable)}. Do NOT just report — actually modify source files to fix the conflicts (align schemas, unify interfaces, rename collisions, add missing type annotations). Run relevant tests to confirm each fix.`),
-      {
-        type: 'object',
-        properties: {
-          fixedCount: { type: 'number' },
-          remainingCount: { type: 'number' },
-          filesModified: { type: 'array' },
-          testResults: { type: 'object' },
-          fixLog: { type: 'array' },
-        },
-      },
-    )
-
-    resolvedConflicts += fixResult.fixedCount
-    unresolvedConflicts = fixResult.remainingCount
-    repairLog.push({
-      round: repairRounds,
-      fixed: fixResult.fixedCount,
-      remaining: fixResult.remainingCount,
-      filesModified: fixResult.filesModified,
-      testResults: fixResult.testResults,
-    })
-
-    if (fixResult.remainingCount === 0) break
+  if (!gate.passed) {
+    return await task(`Merge Queue 被门控拦截`, { type: 'object', properties: { ok: {type:'boolean', const:false}, blockedBy: {type:'string', const:'quality gate'} } })
   }
 
-  // ========================================================================
-  // STEP 4: INTEGRATION VERIFICATION — must pass
-  // ========================================================================
+  // 3. 冲突检测
+  const conflicts = await task(`Merge Queue 冲突检测：artifacts=${JSON.stringify(artifacts)}`, { type: 'array' })
 
-  let integrationResult = await task(
-    as(`Run full integration verification in ${projectRoot}. Build, type-check, lint, and run all tests. Ensure every module produced by the convoys works together. Report any remaining blockers.`),
-    {
-      type: 'object',
-      properties: {
-        allPassed: { type: 'boolean' },
-        testResults: { type: 'object' },
-        buildResult: { type: 'object' },
-        lintResult: { type: 'object' },
-        typeCheckResult: { type: 'object' },
-        compatibilityScore: { type: 'number' },
-        remainingBlockers: { type: 'array' },
-      },
-    },
-  )
+  // 4. 并行修复
+  const fixed = conflicts.length
+    ? await task(`Merge Queue 修复冲突：${JSON.stringify(conflicts)}`, { type: 'array' })
+    : []
 
-  // If integration fails, attempt one more targeted repair pass
-  if (!integrationResult.allPassed && repairRounds < MAX_REPAIR_ROUNDS) {
-    repairRounds++
+  // 5. 集成验证
+  const verify = await task(`Merge Queue 集成验证：合并后完整测试`, {
+    type: 'object',
+    properties: { ok: {type:'boolean'}, testResults: {type:'object'} }
+  })
 
-    const emergencyFix = await task(
-      as(`Emergency fix for remaining integration blockers in ${projectRoot}. Blockers: ${JSON.stringify(integrationResult.remainingBlockers)}. Modify files to resolve them, re-run tests, confirm green.`),
-      {
-        type: 'object',
-        properties: {
-          fixedCount: { type: 'number' },
-          filesModified: { type: 'array' },
-          testResults: { type: 'object' },
-        },
-      },
-    )
-
-    repairLog.push({
-      round: repairRounds,
-      fixed: emergencyFix.fixedCount,
-      remaining: integrationResult.remainingBlockers.length - emergencyFix.fixedCount,
-      filesModified: emergencyFix.filesModified,
-      testResults: emergencyFix.testResults,
-    })
-
-    // Re-verify
-    integrationResult = await task(
-      as(`Re-run integration verification after emergency fixes. Confirm build, type-check, lint, and all tests pass.`),
-      {
-        type: 'object',
-        properties: {
-          allPassed: { type: 'boolean' },
-          testResults: { type: 'object' },
-          buildResult: { type: 'object' },
-          lintResult: { type: 'object' },
-          typeCheckResult: { type: 'object' },
-          compatibilityScore: { type: 'number' },
-          remainingBlockers: { type: 'array' },
-        },
-      },
-    )
-  }
-
-  // ========================================================================
-  // STEP 5: RETURN — success only when integration is green
-  // ========================================================================
-
-  const allClean = unresolvedConflicts === 0 && integrationResult.allPassed
-
-  return {
-    success: allClean,
-    compatible: allClean,
-    fixCount: resolvedConflicts,
-    repairRounds,
-    repairLog,
-    integrationReport: {
-      compatibilityScore: integrationResult.compatibilityScore,
-      testResults: integrationResult.testResults,
-      buildResult: integrationResult.buildResult,
-      lintResult: integrationResult.lintResult,
-      typeCheckResult: integrationResult.typeCheckResult,
-      remainingBlockers: integrationResult.remainingBlockers,
-    },
-    metadata: {
-      processId: 'methodologies/gastown/gastown-merge-queue',
-      attribution: 'https://github.com/steveyegge/gastown',
-      author: 'Steve Yegge',
-      timestamp: new Date().toISOString(),
-    },
-  }
+  return await task(`Merge Queue 完成：ok=${verify.ok}`, {
+    type: 'object',
+    properties: { ok: {type:'boolean'}, merged: {type:'array'}, conflictsFixed: {type:'array'}, gate: {type:'object'}, verify: {type:'object'} }
+  })
 }

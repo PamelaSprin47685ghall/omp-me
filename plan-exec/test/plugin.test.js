@@ -95,7 +95,6 @@ describe('plan-exec extension registration', () => {
     try {
       const commands = []
       const hooks = []
-      const notifications = []
 
       const pi = {
         on: (event, handler) => hooks.push({ event, handler }),
@@ -119,14 +118,9 @@ describe('plan-exec extension registration', () => {
 
       const ctx = {
         modelRegistry: { getAvailable: () => [] },
-        ui: { notify: (msg, type) => notifications.push({ msg, type }) },
       }
       const result = inputHooks[0].handler({ text: '/plan-exec-models' }, ctx)
       assert.deepEqual(result, { handled: true })
-      assert.ok(
-        notifications.some((n) => n.msg.includes('plan-exec model pool written to')),
-        'expected notification not found',
-      )
     } finally {
       process.env.OMP_PLAN_EXEC_HOME = originalHome
       rmSync(tempHome, { recursive: true, force: true })

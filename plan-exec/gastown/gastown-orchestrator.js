@@ -1,191 +1,46 @@
 /**
- * @process methodologies/gastown/gastown-orchestrator
- * @description Gas Town Mayor Orchestrator - Global coordinator that initiates Convoys, assigns agents, monitors execution, and handles escalations following the GUPP principle
- * @args { goal: string, projectRoot?: string, agentPool?: array, maxConvoys?: number, qualityThreshold?: number }
- * @outputs { success: boolean, convoys: array, agentAttribution: object, mergeResults: array, summary: object }
+ * GAS TOWN — 总控编排协议
  *
- * Attribution: Adapted from https://github.com/steveyegge/gastown by Steve Yegge
+ * 签名：async function main(task)
+ * task(prompt: string, schema?) — 直接调用 LLM。
  */
 
-async function main(args, task, taskjs) {
-  const { readFile } = await import('node:fs/promises')
-  const { join } = await import('node:path')
-  const agentMd = await readFile(join(GASTOWN_HOME, 'agents/mayor/AGENT.md'), 'utf-8')
-  const as = (task) => `You are acting as the agent defined below. Follow this role definition precisely.\n\n--- AGENT.md START ---\n${agentMd}\n--- AGENT.md END ---\n\nNow execute:\n${task}`
-
-  const goal = args?.goal ?? 'Implement feature';
-  const projectRoot = args?.projectRoot ?? '.';
-  const agentPool = args?.agentPool ?? ['crew-lead', 'polecat'];
-  const maxConvoys = args?.maxConvoys ?? 3;
-  const qualityThreshold = args?.qualityThreshold ?? 80;
-
-  // ============================================================================
-  // STEP 1: SETUP TOWN
-  // ============================================================================
-
-  const townResult = await task(
-    as(`Setup Gas Town infrastructure for goal: ${goal}`),
-    {
-      type: 'object',
-      properties: {
-        townConfig: { type: 'object' },
-        availableAgents: { type: 'array' },
-        hookHierarchy: { type: 'object' },
-        gitState: { type: 'object' }
-      }
+async function main(task) {
+  const input = await task('返回 orchestrator 输入：goal、topologyHint（可选）', {
+    type: 'object',
+    properties: {
+      goal: { type: 'string' },
+      topologyHint: { type: 'string' },
     }
-  );
+  })
+  const { goal } = input
 
-  // ============================================================================
-  // STEP 2: ANALYZE WORK (MEOW Decomposition)
-  // ============================================================================
+  // 1. 拓扑选择
+  const analysis = await task(`总控分析目标：${goal}`, { type: 'object', properties: { topology: {type:'string'} } })
+  const topology = analysis.topology || 'dag'
 
-  const analysisResult = await task(
-    as(`Analyze work and decompose into MEOWs for: ${goal}`),
-    {
-      type: 'object',
-      properties: {
-        meows: { type: 'array' },
-        dependencies: { type: 'object' },
-        estimatedConvoys: { type: 'number' },
-        complexity: { type: 'string' }
-      }
-    }
-  );
+  // 2. 分解
+  const work = await task(`总控分解：topology=${topology}，goal=${goal}`, { type: 'object' })
 
-  // ============================================================================
-  // STEP 3-5: CREATE AND EXECUTE CONVOYS
-  // ============================================================================
-
-  const convoyResults = [];
-  const allMergeResults = [];
-  const agentAttribution = {};
-  const convoyCount = Math.min(analysisResult.estimatedConvoys, maxConvoys);
-
-  for (let i = 0; i < convoyCount; i++) {
-    // Create convoy
-    const convoy = await task(
-      as(`Create Convoy ${i + 1}/${convoyCount} from MEOWs`),
-      {
-        type: 'object',
-        properties: {
-          convoyId: { type: 'string' },
-          beads: { type: 'array' },
-          assignmentPlan: { type: 'object' },
-          hooks: { type: 'array' }
-        }
-      }
-    );
-
-    // Assign workers
-    const assignments = await task(
-      as(`Assign workers to Convoy ${convoy.convoyId}`),
-      {
-        type: 'object',
-        properties: {
-          assignments: { type: 'array' },
-          crewAssignments: { type: 'array' },
-          polecatAssignments: { type: 'array' },
-          hookSetup: { type: 'object' }
-        }
-      }
-    );
-
-    // Monitor execution
-    const monitorResult = await task(
-      as(`Monitor Convoy ${convoy.convoyId} execution`),
-      {
-        type: 'object',
-        properties: {
-          progress: { type: 'object' },
-          stuckAgents: { type: 'array' },
-          completedBeads: { type: 'array' },
-          pendingBeads: { type: 'array' },
-          healthStatus: { type: 'string' }
-        }
-      }
-    );
-
-    // Handle stuck agents
-    if (monitorResult.stuckAgents.length > 0) {
-      for (const stuckAgent of monitorResult.stuckAgents) {
-        await task(
-          as(`Handle escalation for stuck agent ${stuckAgent} in Convoy ${convoy.convoyId}`),
-          {
-            type: 'object',
-            properties: {
-              resolution: { type: 'string' },
-              action: { type: 'string' },
-              reassignment: { type: 'object' },
-              nudgeMessage: { type: 'string' }
-            }
-          }
-        );
-      }
-    }
-
-    // Merge review
-    const mergeResult = await task(
-      as(`Review merged results for Convoy ${convoy.convoyId}`),
-      {
-        type: 'object',
-        properties: {
-          approved: { type: 'boolean' },
-          qualityScore: { type: 'number' },
-          issues: { type: 'array' },
-          attribution: { type: 'object' }
-        }
-      }
-    );
-
-    convoyResults.push({ convoy, assignments, monitorResult, mergeResult });
-    allMergeResults.push(mergeResult);
-
-    // Collect attribution
-    for (const assignment of assignments.assignments) {
-      const agentId = assignment.agentId || 'unknown';
-      if (!agentAttribution[agentId]) {
-        agentAttribution[agentId] = { beadsCompleted: 0, convoys: [] };
-      }
-      agentAttribution[agentId].beadsCompleted += 1;
-      agentAttribution[agentId].convoys.push(convoy.convoyId);
-    }
+  // 3. 执行
+  let result
+  switch (topology) {
+    case 'dag':         result = await task(`执行 DAG：${JSON.stringify(work.graph)}`, { type: 'object' }); break
+    case 'gatekeeper':  result = await task(`执行 Gatekeeper：${JSON.stringify(work.ballots)}`, { type: 'object' }); break
+    case 'review-loop': result = await task(`执行 Review-Loop`, { type: 'object' }); break
+    case 'tdd-loop':    result = await task(`执行 TDD-Loop`, { type: 'object' }); break
+    case 'convoy':      result = await task(`执行 Convoy：goal=${goal}`, { type: 'object' }); break
+    default:            result = await task(`执行 DAG：${JSON.stringify(work.graph)}`, { type: 'object' })
   }
 
-  // ============================================================================
-  // STEP 7: COMPLETION SUMMARY
-  // ============================================================================
+  // 4. 集成验证
+  const verify = await task(`集成验证：topology=${topology}`, { type: 'object', properties: { ok: {type:'boolean'} } })
 
-  const summaryResult = await task(
-    as(`Generate completion summary for goal: ${goal}`),
-    {
-      type: 'object',
-      properties: {
-        summary: { type: 'object' },
-        totalBeads: { type: 'number' },
-        agentScores: { type: 'object' },
-        lessonsLearned: { type: 'array' }
-      }
-    }
-  );
+  // 5. 巡逻
+  const patrol = await task(`执行 Patrol`, { type: 'object' })
 
-  return {
-    success: true,
-    goal: goal,
-    convoys: convoyResults.map(c => ({
-      convoyId: c.convoy.convoyId,
-      beadCount: c.convoy.beads.length,
-      qualityScore: c.mergeResult.qualityScore,
-      approved: c.mergeResult.approved
-    })),
-    agentAttribution,
-    mergeResults: allMergeResults,
-    summary: summaryResult.summary,
-    metadata: {
-      processId: 'methodologies/gastown/gastown-orchestrator',
-      attribution: 'https://github.com/steveyegge/gastown',
-      author: 'Steve Yegge',
-      timestamp: new Date().toISOString()
-    }
-  };
+  return await task(`编排完成`, {
+    type: 'object',
+    properties: { ok: {type:'boolean'}, topology: {type:'string'}, result: {type:'object'}, verify: {type:'object'}, patrol: {type:'object'} }
+  })
 }

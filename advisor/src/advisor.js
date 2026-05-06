@@ -483,6 +483,15 @@ function registerAdvisorCommand(pi) {
 // ---------------------------------------------------------------------------
 
 export default function advisorExtension(pi) {
+  // ── input event handler to prevent loading animation for /advisor ──
+  pi.on('input', async (event, ctx) => {
+    const text = event.text.trim();
+    if (text === '/advisor') {
+      await runAdvisorCommand(pi, ctx);
+      return { handled: true };
+    }
+  });
+
   registerAdvisorTool(pi);
   registerAdvisorCommand(pi);
   registerAdvisorBeforeAgentStart(pi);

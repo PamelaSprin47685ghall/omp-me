@@ -81,41 +81,6 @@ function buildReturnTool(schema, resolver) {
   }
 }
 
-function refreshUI(sessionId, ctx, codeLines, lineIdx, modelPool) {
-  const forks = getActiveForksForSession(sessionId) || [];
-  const active = forks.filter((f) => f.status === 'starting' || f.status === 'running');
-
-  // Dismiss stale notification when no active forks remain
-  if (active.length === 0) {
-    ctx?.ui?.notify?.('', 'info');
-    return;
-  }
-
-  let activeLabel;
-  if (modelPool) {
-    const labels = active.map((f) => {
-      if (f.type === 'js') {
-        return `js#${f.id}:${basename(f.filePath || 'unknown')}`
-      }
-      return `${f.modelKey || 'model'}#${f.id}`
-    });
-    activeLabel = `[${labels.join(' ')} / ${modelPool.totalSlots}]`;
-  } else {
-    activeLabel = `[${active.map((f) => `#${f.id}`).join(' ')}]`;
-  }
-
-  let snippet = '';
-  if (codeLines && lineIdx >= 0 && lineIdx < codeLines.length) {
-    const prev = lineIdx > 0 ? `  ${codeLines[lineIdx - 1]}\n` : '';
-    const curr = `> ${codeLines[lineIdx]}\n`;
-    const next =
-      lineIdx < codeLines.length - 1 ? `  ${codeLines[lineIdx + 1]}\n` : '';
-    snippet = `\n${prev}${curr}${next}`;
-  }
-  const msg = `[plan-exec] Active: ${activeLabel}${snippet}`.trimEnd();
-  ctx?.ui?.notify?.(msg, 'info');
-}
-
 function getCurrentCodeLineIndex() {
   const stack = new Error().stack || '';
   const lines = stack.split('\n');
@@ -128,6 +93,44 @@ function getCurrentCodeLineIndex() {
     }
   }
   return -1;
+}
+
+function buildProgressPayload(sessionId, codeLines, lineIdx, modelPool) {
+  const forks = getActiveForksForSession(sessionId) || [];
+  const forkInfos = forks.map((f) => ({
+    id: f.id,
+    status: f.status,
+    model: f.modelKey || 'model',
+    lineIdx: f.lineIdx,
+    durationMs: Date.now() - f.startedAt,
+  }));
+
+  let codeLine = null;
+  if (codeLines && lineIdx >= 0 && lineIdx < codeLines.length) {
+    codeLine = {
+      index: lineIdx,
+      line: codeLines[lineIdx],
+      prevLine: lineIdx > 0 ? codeLines[lineIdx - 1] : undefined,
+      nextLine: lineIdx < codeLines.length - 1 ? codeLines[lineIdx + 1] : undefined,
+    };
+  }
+
+  return {
+    forks: forkInfos,
+    codeLine,
+    slotUsage: modelPool
+      ? { used: modelPool.busyCount, total: modelPool.totalSlots }
+      : undefined,
+  };
+}
+
+function emitProgress(sessionId, onUpdate, codeLines, lineIdx, modelPool) {
+  if (!onUpdate) return;
+  const progress = buildProgressPayload(sessionId, codeLines, lineIdx, modelPool);
+  onUpdate({
+    content: [{ type: 'text', text: '' }],
+    details: { progress },
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -171,7 +174,9 @@ function buildSessionOptions(ctx, pi, returnTool, parentDepth, modelOverride) {
       options.systemPrompt = parentPrompt
     }
   }
-  const activeTools = ctx?.session?.getActiveToolNames?.() ?? pi?.getActiveTools?.()
+  const activeTools = (ctx?.session?.getActiveToolNames?.() ?? pi?.getActiveTools?.())?.filter(
+    (t) => t !== 'task',
+  )
   if (activeTools?.length > 0) {
     options.toolNames = activeTools
   }
@@ -184,19 +189,6 @@ function buildSessionOptions(ctx, pi, returnTool, parentDepth, modelOverride) {
   if (tools.length > 0) options.customTools = tools
 
   return options
-}
-
-// ---------------------------------------------------------------------------
-// File helper — read a JS file for taskjs()
-// ---------------------------------------------------------------------------
-
-async function resolveFileCode(filePath, cwd) {
-  const { default: fs } = await import('node:fs/promises')
-  const { default: path } = await import('node:path')
-  const resolved = path.resolve(cwd ?? process.cwd(), filePath)
-  const code = await fs.readFile(resolved, 'utf-8')
-
-  return { resolved, code }
 }
 
 // ---------------------------------------------------------------------------
@@ -288,6 +280,7 @@ async function spawnTaskFork(
     modelKey: modelOverride ? modelOverride.id : undefined,
   }
   addFork(parentSessionId, forkRecord)
+  emitProgress(parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
 
   let childSession = null
 
@@ -309,8 +302,7 @@ async function spawnTaskFork(
     childSession = factoryResult.session
     forkRecord.session = childSession
     forkRecord.status = 'running'
-
-    refreshUI(parentSessionId, ctx, codeLines, lineIdx, modelPool)
+    emitProgress(parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
 
     await abortablePrompt(childSession, prompt, childAbort.signal)
     throwIfAborted()
@@ -324,6 +316,7 @@ async function spawnTaskFork(
 
       while (childSession.isStreaming) {
         await new Promise((r) => setTimeout(r, 200))
+        emitProgress(parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
         if (resolved || parentAborted || childAbort.signal.aborted) break
       }
 
@@ -331,6 +324,7 @@ async function spawnTaskFork(
       if (parentAborted || childAbort.signal.aborted) break
 
       emptyTurnCount++
+      emitProgress(parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
       await abortablePrompt(
         childSession,
         'ERROR: You must call the `return` tool to submit your result and finish this task. Do not output prose — call the tool.',
@@ -352,7 +346,7 @@ async function spawnTaskFork(
     forkRecord.status = 'completed'
     const result = await resultPromise
 
-    refreshUI(parentSessionId, ctx, codeLines, lineIdx, modelPool)
+    emitProgress(parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
 
     return result
   } catch (err) {
@@ -375,7 +369,7 @@ async function spawnTaskFork(
 }
 
 // ---------------------------------------------------------------------------
-// Core execution — runs user JS with injected task() and taskjs()
+// Core execution — runs user JS with injected task()
 // ---------------------------------------------------------------------------
 
 async function _executeUserCode(
@@ -388,7 +382,6 @@ async function _executeUserCode(
   codeLines,
   modelPool,
   options = {},
-  args = undefined,
 ) {
   const userAbort = new AbortController()
   let abortHandler
@@ -428,68 +421,6 @@ async function _executeUserCode(
     }
   }
 
-  const taskjsSpawner = async (filePath, args) => {
-    if (userAbort.signal.aborted) {
-      throw new Error('Plan execution aborted by user')
-    }
-
-    // taskjs(filePath, args) resolves relative to the CALLING file, not cwd.
-    // If the calling file is known (via options.filePath), resolve against
-    // its directory; otherwise fall back to ctx.cwd. This lets nested
-    // orchestration files use sibling paths naturally.
-    const { resolved, code: fileCode } = await resolveFileCode(
-      filePath,
-      options?.filePath ? dirname(options.filePath) : ctx?.cwd,
-    )
-
-    const sessionId = ctx?.sessionManager?.getSessionId?.()
-    const forkId = ++nextForkId
-    const forkRecord = {
-      id: forkId,
-      type: 'js',
-      filePath: resolved,
-      status: 'starting',
-      controller: null,
-      startedAt: Date.now(),
-      lineIdx: getCurrentCodeLineIndex(),
-    }
-    addFork(sessionId, forkRecord)
-
-    const childAbort = new AbortController()
-    const childHandler = () => childAbort.abort()
-    userAbort.signal.addEventListener('abort', childHandler, { once: true })
-
-    try {
-      forkRecord.controller = childAbort
-      forkRecord.status = 'running'
-      refreshUI(sessionId, ctx, codeLines, forkRecord.lineIdx, modelPool)
-
-      const result = await _executeUserCode(
-        fileCode,
-        ctx,
-        pi,
-        childAbort.signal,
-        onUpdate,
-        (parentDepth ?? 0) + 1,
-        codeLines,
-        modelPool,
-        { filePath: resolved },
-        args,
-      )
-
-      forkRecord.status = 'completed'
-      refreshUI(sessionId, ctx, codeLines, forkRecord.lineIdx, modelPool)
-      return result
-    } catch (err) {
-      forkRecord.status = 'failed'
-      throw err
-    } finally {
-      userAbort.signal.removeEventListener('abort', childHandler)
-      try { childAbort.abort() } catch {}
-      removeFork(sessionId, forkRecord)
-    }
-  }
-
   try {
     const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
     const dirInjection = options?.filePath
@@ -497,13 +428,11 @@ async function _executeUserCode(
       : ''
     const gastownInjection = `const GASTOWN_HOME = ${JSON.stringify(process.env.GASTOWN_HOME)};\n`
     const runner = new AsyncFunction(
-      '__args__',
       '__task__',
-      '__taskjs__',
-      `"use strict";\n${dirInjection}${gastownInjection}${code}\n;if (typeof main !== 'function') { throw new Error('The provided code must define an async function named "main".'); }\nreturn main(__args__, __task__, __taskjs__);\n//# sourceURL=plan-exec-user-code.js`
+      `"use strict";\n${dirInjection}${gastownInjection}${code}\n;if (typeof main !== 'function') { throw new Error('The provided code must define an async function named "main".'); }\nreturn main(__task__);\n//# sourceURL=plan-exec-user-code.js`
     )
 
-    const result = await runner(args, taskSpawner, taskjsSpawner)
+    const result = await runner(taskSpawner)
     return result
   } finally {
     if (signal && abortHandler) {
@@ -517,7 +446,7 @@ async function _executeUserCode(
 // Public execute entry — runs the orchestration code (outermost layer)
 // ---------------------------------------------------------------------------
 
-export async function executePlan(code, ctx, pi, signal, onUpdate, args) {
+export async function executePlan(code, ctx, pi, signal, onUpdate) {
   if (!pi?.pi?.createAgentSession) {
     throw new Error(
       'plan_exec requires @oh-my-pi/pi-coding-agent but it is not available',
@@ -541,13 +470,6 @@ export async function executePlan(code, ctx, pi, signal, onUpdate, args) {
   const modelsConfig = loadModelsConfig()
   const modelPool = createModelPool(modelsConfig)
 
-  if (modelPool && ctx?.ui?.notify) {
-    ctx.ui.notify(
-      `[plan-exec] Concurrency limited to ${modelPool.totalSlots} slot(s) from ~/.omp/plan-exec/models.json`,
-      'info',
-    )
-  }
-
   // Intercept Escape to abort all forks (only at the outermost layer)
   let unsubTerminalInput
   if (sessionId && typeof ctx?.ui?.onTerminalInput === 'function') {
@@ -556,7 +478,6 @@ export async function executePlan(code, ctx, pi, signal, onUpdate, args) {
         abortAllForks(sessionId)
         userAbort.abort()
         modelPool?.cancelAll('Plan execution aborted by user')
-        ctx?.ui?.notify?.('[plan-exec] Aborted by user', 'info')
         return { consume: true }
       }
       return undefined
@@ -564,6 +485,7 @@ export async function executePlan(code, ctx, pi, signal, onUpdate, args) {
   }
 
   try {
+    emitProgress(sessionId, onUpdate, codeLines, -1, modelPool)
     const result = await _executeUserCode(
       code,
       ctx,
@@ -573,8 +495,6 @@ export async function executePlan(code, ctx, pi, signal, onUpdate, args) {
       0,
       codeLines,
       modelPool,
-      undefined,
-      args,
     )
     return result
   } finally {

@@ -1,6 +1,6 @@
 ---
 name: issue-tracking
-description: Track beads as git-backed issues with persistent attribution, supporting Gas Town's bead lifecycle and convoy progress monitoring.
+description: Track beads, review rounds, TDD cycles, gate votes, and conflict repairs as first-class issues with full audit trail.
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, Agent, AskUserQuestion
 ---
 
@@ -8,32 +8,31 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, Agent, 
 
 ## Overview
 
-Track work through Gas Town's bead system: git-backed atomic work units that carry persistent attribution. Each bead is an issue/task with full lifecycle tracking from creation through completion.
+Track all work units and quality events in Gas Town as issues. This includes:
+- Beads (nodes in a DAG)
+- Review-loop rounds (author iterations, reviewer feedback)
+- TDD cycles (red-green-refactor iterations)
+- Gate votes (ballots, tie-breaks, deadlocks)
+- Conflict repairs (fix agents, files modified, test results)
 
-## When to Use
+## Issue Types
 
-- Creating new beads for a convoy
-- Tracking bead progress and status
-- Managing bead dependencies
-- Collecting attribution data for agent evaluation
+| Type | Source | Fields |
+|---|---|---|
+| Bead | DAG node | id, type, status, assignedAgent, dependencies, acceptanceCriteria |
+| Review Round | review-loop | round, deliverable, reviews, feedback, accepted |
+| TDD Cycle | tdd-loop | cycle, redResult, greenResult, refactorResult, testsPassed |
+| Gate Vote | gatekeeper | voterId, vote, confidence, reason, timestamp |
+| Conflict Repair | merge-queue | round, conflict, fixAgent, filesModified, testResults |
 
-## Bead Lifecycle
+## Audit Trail
 
-1. **Created**: Bead defined with scope and acceptance criteria
-2. **Assigned**: Bead placed on agent's hook
-3. **In Progress**: Agent actively working (GUPP enforced)
-4. **Review**: Work complete, awaiting merge review
-5. **Done**: Merged and verified (`gt done`)
-6. **Destroyed**: Wisps only - cleaned up after landing
-
-## Attribution
-
-All work carries persistent attribution:
-- Which agent completed the bead
-- Time taken and quality score
-- Used for A/B testing agent configurations
-- Feeds into agent evaluation and scoring
+Every issue transition is logged with:
+- Timestamp
+- Agent identity
+- Topology context
+- Before/after state
 
 ## Tool Use
 
-Used within convoy management and orchestrator processes.
+Invoke via process: `methodologies/gastown/gastown-orchestrator` (tracking step)

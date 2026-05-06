@@ -1,6 +1,6 @@
 ---
 name: patrol-monitoring
-description: Continuous monitoring using Deacon/Witness patterns for agent health checks, stuck detection, and automated recovery.
+description: Continuous event-driven monitoring using Deacon/Witness patterns for agent health checks, progress-delta stuck detection, predictive failure analysis, and automated recovery.
 allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, Agent, AskUserQuestion
 ---
 
@@ -8,34 +8,39 @@ allowed-tools: Read, Write, Edit, Bash, Grep, Glob, WebFetch, WebSearch, Agent, 
 
 ## Overview
 
-Continuous monitoring using Gas Town's Deacon/Witness pattern. The Deacon supervises overall health, the Witness manages per-rig agent lifecycle, and the Boot (Dog) watches the Deacon itself.
+Master-level continuous monitoring using Gas Town's Deacon/Witness pattern with event-driven telemetry. The Deacon supervises overall health via event logs and progress deltas, the Witness manages per-rig agent lifecycle and attests reviews/votes/gates, and the Boot (Dog) watches the Deacon itself.
 
 ## When to Use
 
-- During active convoy execution
-- When agents may become stuck or unresponsive
-- For long-running multi-agent workflows
-- When automated recovery is desired
+- During active convoy, DAG, review-loop, or TDD-loop execution
+- When predictive failure alerts are needed before collapse
+- After topology changes or agent reassignments
+- Before and after merge-queue execution
 
 ## Process
 
-1. **Health check** all active agents and convoys
-2. **Detect** stuck or unresponsive agents via heartbeats
-3. **Recover** - restart, reassign, or escalate as needed
-4. **Report** patrol findings with trend analysis
+1. **Event ingestion**: Scan event logs for anomalies (errors, criticals, stalls).
+2. **Health check**: Assess heartbeats, progress deltas, DAG completion rates, review-loop round counts, gate latencies.
+3. **Predictive analysis**: Run trend regression on health history; alert on declining slopes.
+4. **Stuck detection**: Identify agents with unchanged metrics across cycles.
+5. **Recovery**: Execute retry-with-backoff, reassign, split-work, or escalate.
+6. **Report**: Generate patrol summary with trend analysis and recommendations.
 
-## Monitoring Roles
+## Monitoring Dimensions
 
-- **Deacon**: Daemon supervisor, monitors overall health
-- **Witness**: Per-rig lifecycle manager for workers
-- **Boot (Dog)**: Watches the Deacon every 5 minutes
+- **Agent health**: Heartbeats, error rates, session state.
+- **DAG progress**: Node completion rate, critical path lag, parallel branch balance.
+- **Review-loop status**: Round counts, rejection rates, arbitration triggers.
+- **TDD-cycle status**: Cycle counts, red-phase validity, coverage trends.
+- **Gate latency**: Time from ballot cast to resolution; deadlock detection.
 
 ## Recovery Modes
 
-- **restart**: Restart the stuck agent session
-- **reassign**: Move beads to a different agent
-- **escalate**: Alert human for manual intervention
+- **retry-with-backoff**: Transient errors; exponential backoff.
+- **reassign**: Agent permanently stuck or crashed.
+- **split-work**: Bead too large; partition into sub-beads and parallelise.
+- **escalate**: Unresolvable or architectural blockers.
 
 ## Tool Use
 
-Invoke via babysitter process: `methodologies/gastown/gastown-patrol`
+Invoke via process: `methodologies/gastown/gastown-patrol`

@@ -1,22 +1,23 @@
 # Work Decomposition Skill
 
-MEOW-based work decomposition adapted from [Gas Town](https://github.com/steveyegge/gastown) by Steve Yegge.
+Master-level work decomposition adapted from [Gas Town](https://github.com/steveyegge/gastown) by Steve Yegge.
 
 ## Purpose
 
-Break goals into trackable atomic work units (beads and wisps) with clear dependencies.
+Break high-level goals into DAG nodes with dependency edges, topology assignments, and acceptance criteria for master-level orchestration.
 
 ## Process Flow
 
-1. Analyze goal and context
-2. Identify decomposition seams
-3. Create MEOWs with boundaries
-4. Classify as beads or wisps
-5. Map dependencies
-6. Estimate and prioritize
+1. Analyse the goal and project context
+2. Identify sub-goals and classify by type (task, review-loop, tdd-loop, gate, convoy)
+3. Map dependencies between sub-goals (data flow, ordering, shared interfaces)
+4. Assign topology to each node based on risk and quality requirements
+5. Define acceptance criteria with verifiable metrics (coverage, test pass, review accepted)
+6. Estimate effort and flag critical paths
+7. Validate the graph is acyclic
 
 ## Integration
 
-- **Input from:** User goal or Mayor orchestrator
-- **Output to:** `convoy-management` skill
-- **Process file:** `../../gastown-orchestrator.js` (analyze-work task)
+- **Input from:** Mayor orchestrator or manual goal specification
+- **Output to:** `agent-coordination`, `convoy-management`, `gastown-dag`
+- **Used by:** `gastown-orchestrator` process

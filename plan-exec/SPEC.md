@@ -16,7 +16,7 @@ Version: `5.1.0`.
 ### plan_exec tool
 
 - **Parameters**: `{ code: string }`
-  - `code`: An async function named `main` that receives `task` as its parameter.
+  - `code`: An async function named `main` that receives `task` as its only parameter.
 - **Behavior**: Runs the provided JS in a sandboxed `AsyncFunction`. Injects `task(prompt, schema?)` which spawns a child agent session.
 - **Tool output**: Formatted text with execution duration and result preview (truncated at 800 chars).
 - **Tool details**: `{ result, durationMs }` on success; `{ error, durationMs }` on failure.
@@ -26,19 +26,7 @@ Version: `5.1.0`.
 - **Signature**: `async task(prompt: string, schema?: JSONSchema): Promise<unknown>`
 - **Fork**: Creates a child LLM session via `pi.pi.createAgentSession`.
 - **Return tool**: Dynamically generated per fork, bound to the provided schema.
-- **Inheritance**: Child inherits parent `modelRegistry`, `model`, `thinkingLevel`, `hasUI`, `providerSessionId`, `systemPrompt`, active `toolNames`, and `taskDepth`.
-
-### taskjs() primitive
-
-- **Signature**: `async taskjs(filePath: string, args?: any): Promise<unknown>`
-- **Execution**: Reads the JS file from disk and executes its `async function main(args, task, taskjs)` directly in a nested JS runtime (no LLM round-trip).
-- **Path resolution**: filePath is resolved relative to the **directory of the calling JS file** (tracked via `options.filePath` in `_executeUserCode`). This lets orchestration files reference sibling modules naturally without hard-coding absolute paths.
-  - Example: in `plan-exec/gastown/main.js`, `taskjs('gastown-convoy.js')` resolves to `plan-exec/gastown/gastown-convoy.js`
-  - Falls back to `ctx.cwd` only when the caller is top-level code (not loaded from a file)
-- **Args passing**: The optional `args` are forwarded as the first argument to the callee's `main(args, task, taskjs)`.
-- **Validation**: Runtime check `typeof main !== 'function'`; throws if the file does not define `main`.
-- **Fork tracking**: The nested execution is tracked as a `type: 'js'` fork in the active fork registry and participates in UI refresh and abort propagation.
-- **Nesting**: A file executed via `taskjs()` can call `task()` (LLM fork) and `taskjs()` (further nested files). Depth is tracked via `taskDepth`.
+- **Inheritance**: Child inherits parent `modelRegistry`, `model`, `thinkingLevel`, `hasUI`, `providerSessionId`, `systemPrompt`, and active `toolNames`.
 
 ## Error handling
 

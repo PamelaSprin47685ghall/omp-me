@@ -1,147 +1,59 @@
 /**
- * @process methodologies/gastown/gastown-convoy
- * @description Gas Town Convoy Lifecycle - Create, assign, track, and land convoys of related beads (atomic work units)
- * @args { goal: string, beadSpecs?: array, agentPool?: array, trackingMode?: string, landingStrategy?: string }
- * @outputs { success: boolean, convoyId: string, beads: array, completedBeads: array, landingResult: object }
+ * GAS TOWN — 远征队协议
  *
- * Attribution: Adapted from https://github.com/steveyegge/gastown by Steve Yegge
+ * 签名：async function main(task)
+ * task(prompt: string, schema?) — 直接调用 LLM。
  */
 
-async function main(args, task, taskjs) {
-  const { readFile } = await import('node:fs/promises')
-  const { join } = await import('node:path')
-  const agentMd = await readFile(join(GASTOWN_HOME, 'agents/crew-lead/AGENT.md'), 'utf-8')
-  const as = (task) => `You are acting as the agent defined below. Follow this role definition precisely.\n\n--- AGENT.md START ---\n${agentMd}\n--- AGENT.md END ---\n\nNow execute:\n${task}`
+async function main(task) {
+  const input = await task('返回 convoy 输入：goal、beads（带 dependencies）、land gate config', {
+    type: 'object',
+    properties: {
+      goal: { type: 'string' },
+      beads: { type: 'array' },
+      gateConfig: { type: 'object' },
+    }
+  })
+  const { goal, beads, gateConfig } = input
 
-  const goal = args?.goal ?? 'Implement feature';
-  const beadSpecs = args?.beadSpecs ?? [];
-  const agentPool = args?.agentPool ?? ['polecat', 'crew-lead'];
-  const trackingMode = args?.trackingMode ?? 'active';
-  const landingStrategy = args?.landingStrategy ?? 'squash';
+  // 内部直接当 DAG 执行
+  const nodes = beads.map(b => ({ id: b.id, run: b.run }))
+  const edges = []
+  for (const b of beads) {
+    for (const dep of b.dependencies || []) edges.push({ from: dep, to: b.id })
+  }
 
-  const convoyId = `convoy-${Date.now()}`;
+  const indeg = new Map()
+  for (const n of nodes) indeg.set(n.id, 0)
+  for (const e of edges) indeg.set(e.to, indeg.get(e.to) + 1)
 
-  // ============================================================================
-  // STEP 1: DECOMPOSE WORK
-  // ============================================================================
+  const done = new Set(), fail = new Set(), out = {}
+  let ready = nodes.filter(n => indeg.get(n.id) === 0).map(n => n.id)
 
-  const decomposition = await task(
-    as(`Decompose goal into beads and wisps: ${goal}`),
-    {
-      type: 'object',
-      properties: {
-        beads: { type: 'array' },
-        wisps: { type: 'array' },
-        dependencies: { type: 'object' },
-        estimatedEffort: { type: 'object' }
+  while (ready.length) {
+    const next = [...ready]; ready = []
+    await Promise.all(next.map(async id => {
+      try {
+        out[id] = await task(`执行 convoy bead ${id}，目标：${goal}`, { type: 'object' })
+        done.add(id)
+      } catch (err) {
+        fail.add(id); out[id] = { failed: true }
       }
-    }
-  );
-
-  // ============================================================================
-  // STEP 2: CREATE BEADS
-  // ============================================================================
-
-  const beadsResult = await task(
-    as(`Create git-backed beads for convoy ${convoyId}. Bead specs: ${JSON.stringify(decomposition.beads)}`),
-    {
-      type: 'object',
-      properties: {
-        beads: { type: 'array' },
-        hooks: { type: 'array' },
-        issueRefs: { type: 'array' },
-        branchNames: { type: 'array' }
+      for (const e of edges.filter(e => e.from === id)) {
+        if (indeg.get(e.to) > 0) indeg.set(e.to, indeg.get(e.to) - 1)
+        if (indeg.get(e.to) === 0 && !fail.has(id)) ready.push(e.to)
       }
-    }
-  );
+    }))
+  }
 
-  // ============================================================================
-  // STEP 3: ASSIGN TO AGENTS
-  // ============================================================================
+  // 着陆门控
+  const gate = await task(`Convoy 着陆门控：config=${JSON.stringify(gateConfig)}，beads=${JSON.stringify(out)}`, {
+    type: 'object',
+    properties: { passed: {type:'boolean'}, tally: {type:'object'} }
+  })
 
-  const assignments = await task(
-    as(`Assign beads to agents. Pool: ${JSON.stringify(agentPool)}, Dependencies: ${JSON.stringify(decomposition.dependencies)}`),
-    {
-      type: 'object',
-      properties: {
-        assignments: { type: 'array' },
-        unassigned: { type: 'array' },
-        loadBalance: { type: 'object' },
-        feedMessages: { type: 'array' }
-      }
-    }
-  );
-
-  // ============================================================================
-  // STEP 4: TRACK PROGRESS
-  // ============================================================================
-
-  const tracking = await task(
-    as(`Track progress for convoy ${convoyId} (mode: ${trackingMode})`),
-    {
-      type: 'object',
-      properties: {
-        completed: { type: 'array' },
-        inProgress: { type: 'array' },
-        blocked: { type: 'array' },
-        percentComplete: { type: 'number' },
-        timeline: { type: 'object' }
-      }
-    }
-  );
-
-  // ============================================================================
-  // STEP 5: VERIFY COMPLETION
-  // ============================================================================
-
-  const verification = await task(
-    as(`Verify all beads complete for convoy ${convoyId}. Completed: ${tracking.completed.length}`),
-    {
-      type: 'object',
-      properties: {
-        allComplete: { type: 'boolean' },
-        testResults: { type: 'object' },
-        qualityScore: { type: 'number' },
-        blockers: { type: 'array' }
-      }
-    }
-  );
-
-  // ============================================================================
-  // STEP 6: LAND CONVOY
-  // ============================================================================
-
-  const landingResult = await task(
-    as(`Land convoy ${convoyId} via ${landingStrategy}. Branches: ${JSON.stringify(beadsResult.branchNames)}`),
-    {
-      type: 'object',
-      properties: {
-        landed: { type: 'boolean' },
-        mergeCommit: { type: 'string' },
-        conflicts: { type: 'array' },
-        attribution: { type: 'object' },
-        cleanedWisps: { type: 'array' }
-      }
-    }
-  );
-
-  return {
-    success: landingResult.landed,
-    convoyId,
-    beads: beadsResult.beads,
-    completedBeads: tracking.completed,
-    landingResult: {
-      landed: landingResult.landed,
-      mergeCommit: landingResult.mergeCommit,
-      conflicts: landingResult.conflicts,
-      cleanedWisps: landingResult.cleanedWisps
-    },
-    attribution: landingResult.attribution,
-    metadata: {
-      processId: 'methodologies/gastown/gastown-convoy',
-      attribution: 'https://github.com/steveyegge/gastown',
-      author: 'Steve Yegge',
-      timestamp: new Date().toISOString()
-    }
-  };
+  return await task(`Convoy 完成：ok=${fail.size === 0 && gate.passed}`, {
+    type: 'object',
+    properties: { ok: {type:'boolean'}, beads: {type:'array'}, failed: {type:'array'}, gate: {type:'object'} }
+  })
 }

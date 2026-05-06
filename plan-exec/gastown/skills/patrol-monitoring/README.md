@@ -1,20 +1,22 @@
 # Patrol Monitoring Skill
 
-Deacon/Witness monitoring adapted from [Gas Town](https://github.com/steveyegge/gastown) by Steve Yegge.
+Master-level Deacon/Witness monitoring adapted from [Gas Town](https://github.com/steveyegge/gastown) by Steve Yegge.
 
 ## Purpose
 
-Continuous health monitoring with automated recovery for multi-agent workflows.
+Continuous event-driven health monitoring with progress-delta stuck detection, predictive failure analysis, and smart recovery across all Gas Town topologies.
 
 ## Process Flow
 
-1. Run health checks
-2. Detect stuck agents
-3. Execute recovery actions
-4. Generate patrol report
+1. Ingest event logs for anomalies (errors, criticals, stalls)
+2. Run health checks on agents, DAG nodes, review loops, TDD cycles, gates
+3. Detect stuck agents by progress deltas, not just heartbeats
+4. Predict failures via trend regression on health history
+5. Execute recovery: retry-with-backoff, reassign, split-work, escalate
+6. Generate patrol reports with trend analysis and predictive alerts
 
 ## Integration
 
-- **Input from:** Active convoy execution
-- **Output to:** Recovery actions, patrol reports
-- **Process file:** `../../gastown-patrol.js`
+- **Input from:** Active convoy, DAG, review-loop, tdd-loop, or gatekeeper execution
+- **Output to:** Recovery actions, escalation alerts, patrol reports
+- **Used by:** `gastown-patrol` process
