@@ -17,10 +17,10 @@ const SESSION_END = "session_end";
 const SESSION_SHUTDOWN = "session_shutdown";
 
 export default async function ohTaskplaneAdaptor(pi) {
-	// Resolve taskplane's extension entry via filesystem path.
-	// AGENTS.md: use file:// paths, not package-name specifiers.
+	// Resolve taskplane's extension entry from the npm-installed package.
+	// AGENTS.md: use file:// paths, not bare package-name specifiers.
 	const __dirname = fileURLToPath(new URL(".", import.meta.url));
-	const extPath = join(__dirname, "..", "taskplane", "extensions", "taskplane", "extension.ts");
+	const extPath = join(__dirname, "node_modules", "taskplane", "extensions", "taskplane", "extension.ts");
 
 	const { default: taskplaneExtension } = await import("file://" + extPath);
 
