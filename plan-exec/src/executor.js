@@ -44,10 +44,10 @@ export function abortAllForks(sessionId) {
   for (const fork of forks) {
     try {
       fork.controller?.abort()
-    } catch {}
+    } catch { }
     try {
       fork.session?.abort?.()
-    } catch {}
+    } catch { }
   }
 }
 
@@ -75,7 +75,7 @@ function buildReturnTool(schema, resolver) {
       resolver(params.result)
       try {
         childCtx?.abort?.()
-      } catch {}
+      } catch { }
       return { content: [], display: false }
     },
   }
@@ -160,7 +160,7 @@ function emitProgress(ctx, sessionId, onUpdate, codeLines, lineIdx, modelPool) {
   if (!onUpdate) return;
   const progress = buildProgressPayload(sessionId, codeLines, lineIdx, modelPool);
   onUpdate({ content: [], details: { progress } });
-  try { ctx?.ui?.notify?.(formatNotifyMessage(progress), 'info') } catch {}
+  try { ctx?.ui?.notify?.(formatNotifyMessage(progress), 'info') } catch { }
 }
 
 // ---------------------------------------------------------------------------
@@ -193,7 +193,7 @@ function buildSessionOptions(ctx, pi, returnTool, parentDepth, modelOverride) {
     if (level) options.thinkingLevel = level
   }
   if (ctx?.hasUI) {
-    options.hasUI = true // child session messages appear directly in chat UI
+    options.hasUI = false // child session messages appear directly in chat UI
   }
   if (ctx?.sessionManager?.getSessionId) {
     options.providerSessionId = ctx.sessionManager.getSessionId()
@@ -241,7 +241,7 @@ async function abortablePrompt(session, text, signal) {
     const onAbort = () => reject(new Error('Plan execution aborted by user'))
     signal.addEventListener('abort', onAbort, { once: true })
   })
-  abortPromise.catch(() => {}) // Suppress unhandled rejection from finally-cleanup abort
+  abortPromise.catch(() => { }) // Suppress unhandled rejection from finally-cleanup abort
 
   await Promise.race([promptPromise, abortPromise])
 }
@@ -423,14 +423,14 @@ async function spawnTaskFork(
     }
     // NOTE: do NOT removeFork here — keep completed forks visible in the plan_exec box
     if (unsubscribe) {
-      try { unsubscribe() } catch {}
+      try { unsubscribe() } catch { }
     }
     try {
       childAbort.abort()
-    } catch {}
+    } catch { }
     try {
       childSession?.abort?.()
-    } catch {}
+    } catch { }
   }
 }
 
@@ -488,7 +488,7 @@ async function _executeUserCode(
   }
 
   try {
-    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor
+    const AsyncFunction = Object.getPrototypeOf(async function () { }).constructor
     const dirInjection = options?.filePath
       ? `const __dirname = ${JSON.stringify(dirname(options.filePath))};\nconst __filename = ${JSON.stringify(options.filePath)};\n`
       : ''
@@ -504,7 +504,7 @@ async function _executeUserCode(
     if (signal && abortHandler) {
       signal.removeEventListener('abort', abortHandler)
     }
-    try { userAbort.abort() } catch {}
+    try { userAbort.abort() } catch { }
   }
 }
 
@@ -566,6 +566,6 @@ export async function executePlan(code, ctx, pi, signal, onUpdate) {
   } finally {
     unsubTerminalInput?.()
     modelPool?.cancelAll('Plan execution aborted')
-    try { userAbort.abort() } catch {}
+    try { userAbort.abort() } catch { }
   }
 }
