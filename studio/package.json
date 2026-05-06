@@ -1,0 +1,21 @@
+{
+  "name": "omp-studio",
+  "version": "0.7.0",
+  "description": "Two-pane browser workspace for oh-my-pi with prompt/response editing, annotations, critiques, prompt/response history, and live Markdown/LaTeX/code preview",
+  "type": "module",
+  "license": "MIT",
+  "keywords": [
+    "oh-my-pi",
+    "extension",
+    "studio"
+  ],
+  "files": [
+    "index.js",
+    "client",
+    "shared",
+    "themes"
+  ],
+  "dependencies": {
+    "ws": "^8.20.0"
+  }
+}
