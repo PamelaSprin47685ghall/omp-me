@@ -38,12 +38,12 @@ function buildGastownSection() {
   const roles = ['mayor', 'deacon', 'refinery', 'crew-lead', 'polecat', 'witness']
 
   const jsBlocks = files.map((f) =>
-`=== ${f} ===
+    `=== ${f} ===
 ${readGastownFile(f)}
 `).join('\n')
 
   const agentBlocks = roles.map((r) =>
-`=== agents/${r}/AGENT.md ===
+    `=== agents/${r}/AGENT.md ===
 ${readAgentFile(r)}
 `).join('\n')
 
@@ -86,7 +86,7 @@ const TOOL_PROMPT_SNIPPET =
 const TOOL_PROMPT_GUIDELINES = [
   'Use plan_exec when a task naturally breaks into multiple subtasks that can be orchestrated with JS control flow.',
   'Pass a JSON Schema to task() to guarantee structured output from the sub-agent.',
-  'Use Promise.all([]) to run independent subtasks in parallel. The runtime automatically queues excess calls if the model pool is exhausted — do not throttle manually.',
+  'Use Promise.all([]) to run independent subtasks in parallel. The runtime automatically queues excess calls if the model pool is exhausted — do not throttle or set timeout manually.',
   'Write an async function named main that receives task as its only parameter and returns the final result.',
 ]
 
@@ -188,6 +188,18 @@ export async function createPlanAndExecuteTool(pi) {
               const tag = `${f.model}#${f.id}`
               const dur = f.durationMs > 1000 ? ` · ${(f.durationMs / 1000).toFixed(1)}s` : ''
               lines.push(` ${treePre} ${theme.fg(color, icon)} ${theme.fg('accent', tag)}${dur}`)
+
+              // Render recent tools for this fork
+              if (f.tools && f.tools.length > 0) {
+                for (const t of f.tools.slice(-3)) {
+                  const toolDur = t.endMs && t.startMs ? ` · ${((t.endMs - t.startMs) / 1000).toFixed(1)}s` : ''
+                  const toolIcon = t.isError ? theme.status.error : (t.endMs ? theme.status.success : theme.status.running)
+                  let argsPreview = ''
+                  try { argsPreview = JSON.stringify(t.args || {}).slice(0, 36) } catch { argsPreview = '{}' }
+                  const toolLine = `${t.tool}${argsPreview}${toolDur}`
+                  lines.push(` ${contPre} ${theme.fg('dim', toolIcon)} ${theme.fg('dim', toolLine)}`)
+                }
+              }
 
               // Code line snippet under each fork
               if (codeLine && f.lineIdx >= 0 && f.lineIdx === codeLine.index) {

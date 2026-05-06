@@ -103,6 +103,7 @@ function buildProgressPayload(sessionId, codeLines, lineIdx, modelPool) {
     model: f.modelKey || 'model',
     lineIdx: f.lineIdx,
     durationMs: Date.now() - f.startedAt,
+    tools: f.tools || [],
   }));
 
   let codeLine = null;
@@ -127,10 +128,7 @@ function buildProgressPayload(sessionId, codeLines, lineIdx, modelPool) {
 function emitProgress(sessionId, onUpdate, codeLines, lineIdx, modelPool) {
   if (!onUpdate) return;
   const progress = buildProgressPayload(sessionId, codeLines, lineIdx, modelPool);
-  onUpdate({
-    content: [{ type: 'text', text: '' }],
-    details: { progress },
-  });
+  onUpdate({ details: { progress } });
 }
 
 // ---------------------------------------------------------------------------
@@ -163,7 +161,7 @@ function buildSessionOptions(ctx, pi, returnTool, parentDepth, modelOverride) {
     if (level) options.thinkingLevel = level
   }
   if (ctx?.hasUI) {
-    options.hasUI = ctx.hasUI
+    options.hasUI = false // fork sessions must not print outside the plan_exec box
   }
   if (ctx?.sessionManager?.getSessionId) {
     options.providerSessionId = ctx.sessionManager.getSessionId()
@@ -278,11 +276,13 @@ async function spawnTaskFork(
     startedAt: Date.now(),
     lineIdx,
     modelKey: modelOverride ? modelOverride.id : undefined,
+    tools: [],
   }
   addFork(parentSessionId, forkRecord)
   emitProgress(parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
 
   let childSession = null
+  let unsubscribe = null
 
   function throwIfAborted() {
     if (!resolved && parentAborted) {
@@ -302,6 +302,37 @@ async function spawnTaskFork(
     childSession = factoryResult.session
     forkRecord.session = childSession
     forkRecord.status = 'running'
+
+    // Subscribe to child session events to capture tool work for display inside the plan_exec box
+    if (typeof childSession.subscribe === 'function') {
+      unsubscribe = childSession.subscribe((event) => {
+        if (!event || !event.type) return
+        switch (event.type) {
+          case 'tool_execution_start': {
+            forkRecord.tools.push({
+              tool: event.toolName || event.name || '?',
+              args: event.toolArgs || event.args || {},
+              startMs: Date.now(),
+            })
+            break
+          }
+          case 'tool_execution_end': {
+            const last = forkRecord.tools[forkRecord.tools.length - 1]
+            if (last && last.tool === event.toolName && !last.endMs) {
+              last.endMs = Date.now()
+              last.result = event.result
+              last.isError = event.isError
+            }
+            if (forkRecord.tools.length > 20) {
+              forkRecord.tools = forkRecord.tools.slice(-20)
+            }
+            break
+          }
+        }
+        emitProgress(parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
+      })
+    }
+
     emitProgress(parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
 
     await abortablePrompt(childSession, prompt, childAbort.signal)
@@ -351,14 +382,17 @@ async function spawnTaskFork(
     return result
   } catch (err) {
     forkRecord.status = 'failed'
+    emitProgress(parentSessionId, onUpdate, codeLines, lineIdx, modelPool)
     throw err
   } finally {
     forkRecord.status = resolved ? 'completed' : 'failed'
     if (parentSignal && parentAbortHandler) {
       parentSignal.removeEventListener('abort', parentAbortHandler)
     }
-    removeFork(parentSessionId, forkRecord)
-
+    // NOTE: do NOT removeFork here — keep completed forks visible in the plan_exec box
+    if (unsubscribe) {
+      try { unsubscribe() } catch {}
+    }
     try {
       childAbort.abort()
     } catch {}
