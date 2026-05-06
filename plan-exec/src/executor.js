@@ -193,7 +193,7 @@ function buildSessionOptions(ctx, pi, returnTool, parentDepth, modelOverride) {
     if (level) options.thinkingLevel = level
   }
   if (ctx?.hasUI) {
-    options.hasUI = false // fork sessions must not print outside the plan_exec box
+    options.hasUI = true // child session messages appear directly in chat UI
   }
   if (ctx?.sessionManager?.getSessionId) {
     options.providerSessionId = ctx.sessionManager.getSessionId()
