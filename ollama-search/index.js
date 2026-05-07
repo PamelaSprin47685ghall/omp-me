@@ -6,7 +6,7 @@ const OLLAMA_API_BASE = 'https://ollama.com/api'
 const ENV_KEY = 'OLLAMA_API_KEY'
 
 function keyFile() {
-  return join(process.env.OMP_OLLAMA_SEARCH_HOME || homedir(), '.omp', 'agent', 'ollama.json')
+  return join(process.env.OMP_web_search_HOME || homedir(), '.omp', 'agent', 'ollama.json')
 }
 
 let storedKey = ''
@@ -47,7 +47,7 @@ function executeOllamaKeyCommand(args, ctx) {
   storedKey = key
 
   try {
-    mkdirSync(join(process.env.OMP_OLLAMA_SEARCH_HOME || homedir(), '.omp', 'agent'), { recursive: true })
+    mkdirSync(join(process.env.OMP_web_search_HOME || homedir(), '.omp', 'agent'), { recursive: true })
     writeFileSync(keyFile(), JSON.stringify({ [ENV_KEY]: key }, null, 2), 'utf-8')
     try { chmodSync(keyFile(), 0o600) } catch { /* best-effort permission set */ }
   } catch { /* skip if read-only env */ }
@@ -78,9 +78,9 @@ export default async function ollamaSearchExtension(pi) {
       },
     })
 
-    // ── ollama_search tool ──
+    // ── web_search tool ──
     pi.registerTool({
-      name: 'ollama_search',
+      name: 'web_search',
       label: 'Ollama Search',
       description:
         'Search the web using Ollama\'s cloud search API (https://ollama.com/api/web_search). ' +
@@ -129,9 +129,9 @@ export default async function ollamaSearchExtension(pi) {
       },
     })
 
-    // ── ollama_fetch tool ──
+    // ── web_fetch tool ──
     pi.registerTool({
-      name: 'ollama_fetch',
+      name: 'web_fetch',
       label: 'Ollama Fetch',
       description:
         'Fetch and extract content from a URL using Ollama\'s cloud API (https://ollama.com/api/web_fetch). ' +
