@@ -17,6 +17,17 @@ const SESSION_END = "session_end";
 const SESSION_SHUTDOWN = "session_shutdown";
 
 export default async function ohTaskplaneAdaptor(pi) {
+	// Register a before-taskplane session_start handler that suppresses
+	// the "Run: pi update" notification — that message targets the original
+	// pi CLI, not oh-my-pi.
+	pi.on("session_start", (_event, ctx) => {
+		const _orig = ctx.ui.notify.bind(ctx.ui);
+		ctx.ui.notify = (msg, type) => {
+			if (typeof msg === "string" && msg.includes("pi update")) return;
+			_orig(msg, type);
+		};
+	});
+
 	// Resolve taskplane's extension entry from the npm-installed package.
 	// AGENTS.md: use file:// paths, not bare package-name specifiers.
 	const __dirname = fileURLToPath(new URL(".", import.meta.url));
