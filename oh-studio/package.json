@@ -1,0 +1,21 @@
+{
+  "name": "oh-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "pi-studio adaptor for oh-my-pi — local browser workspace for prompts and documents",
+  "type": "module",
+  "exports": "./index.js",
+  "keywords": [
+    "oh-my-pi",
+    "pi",
+    "extension",
+    "pi-studio",
+    "studio",
+    "workspace",
+    "markdown"
+  ],
+  "dependencies": {
+    "@mariozechner/pi-coding-agent": "file:./shim-packages/pi-coding-agent",
+    "pi-studio": "^0.7.0"
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "oh-tau-mirror",
+  "version": "0.1.0",
+  "private": true,
+  "description": "tau-mirror adaptor for oh-my-pi — Web UI that mirrors your terminal session in the browser",
+  "type": "module",
+  "exports": "./index.js",
+  "keywords": [
+    "oh-my-pi",
+    "pi",
+    "extension",
+    "tau-mirror",
+    "tau",
+    "web-ui",
+    "mirror"
+  ],
+  "dependencies": {
+    "tau-mirror": "^1.0.7"
+  }
+}
