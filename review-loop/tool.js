@@ -46,9 +46,9 @@ export function createRenderResult(Text) {
 			return new Text(theme.fg("success", `✓ done${s}${r}`), 0, 0);
 		}
 		if (d.status === "confirming") {
-			const s = d.lastSummary ? ` ${d.lastSummary}` : "";
 			const r = d.reasonDone ? `: ${d.reasonDone}` : "";
-			return new Text(theme.fg("accent", `? confirm done${s}${r}`), 0, 0);
+			const summary = d.lastSummary ? `\n${d.lastSummary}` : "";
+			return new Text(theme.fg("accent", `? confirm done${summary}${r}`), 0, 0);
 		}
 		if (d.status === "running") {
 			const s = d.lastSummary ? ` ${d.lastSummary}` : "";

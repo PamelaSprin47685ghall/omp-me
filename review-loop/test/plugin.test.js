@@ -4,7 +4,7 @@
  * Follows the same pattern as ollama-search/test/plugin.test.js.
  */
 
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import assert from "node:assert/strict";
 import reviewLoopExtension from "../index.js";
 
