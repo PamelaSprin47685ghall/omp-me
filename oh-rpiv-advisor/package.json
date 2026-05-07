@@ -1,0 +1,23 @@
+{
+  "name": "oh-rpiv-advisor",
+  "version": "0.1.0",
+  "private": true,
+  "description": "rpiv-advisor adaptor for oh-my-pi — escalate to a stronger reviewer model for guidance",
+  "type": "module",
+  "exports": "./index.js",
+  "keywords": [
+    "oh-my-pi",
+    "pi",
+    "extension",
+    "rpiv-advisor",
+    "advisor"
+  ],
+  "dependencies": {
+    "@juicesharp/rpiv-advisor": "^1.1.5",
+    "@mariozechner/pi-ai": "file:./shim-packages/pi-ai",
+    "@mariozechner/pi-coding-agent": "file:./shim-packages/pi-coding-agent",
+    "@mariozechner/pi-tui": "file:./shim-packages/pi-tui",
+    "@sinclair/typebox": "^0.34.0",
+    "typebox": "file:./shim-packages/typebox"
+  }
+}
