@@ -1,6 +1,5 @@
-oh-my-pi/
-babysitter/
-pi-studio/
+ref/
 node_modules/
 .pi/
+bun.lock
 
