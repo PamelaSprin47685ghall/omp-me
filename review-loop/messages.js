@@ -25,7 +25,7 @@ export function buildConfirmMessage(state) {
         '- Check: 1) Code quality  2) Design defects  3) Code vulnerabilities  4) User experience  5) Whether the goal is fully completed',
         '',
         'Only call loop_control("done") if the review sub-agent confirms ALL checks pass.',
-        'If the review finds any issues or the goal is not fully met, call loop_control("next") to continue working.',
+        'If the review finds any issues or the goal is not fully met, IMMEDIATELY call loop_control("next") before working.',
     ].join('\n');
 }
 
