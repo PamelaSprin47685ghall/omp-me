@@ -281,7 +281,7 @@ async function executeAdvisor(ctx, pi, signal, onUpdate) {
     const piAi = await import("file://" + streamPath);
     const response = await piAi.completeSimple(
       advisor,
-      { systemPrompt: getAdvisorSystemPrompt(), messages, tools: [] },
+      { systemPrompt: [getAdvisorSystemPrompt()], messages, tools: [] },
       { apiKey, signal, reasoning: effort },
     );
 
