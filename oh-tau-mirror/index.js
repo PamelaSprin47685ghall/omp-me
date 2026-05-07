@@ -18,8 +18,8 @@
  * information for the user.
  */
 
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
 // Suppress tau-mirror's console noise entirely
@@ -34,19 +34,17 @@ console.error = () => {};
 // but have no direct equivalent in oh-my-pi's ExtensionAPI.
 // ---------------------------------------------------------------------------
 
-const UNSUPPORTED_EVENTS = new Set([
-	"model_select",
-]);
+const UNSUPPORTED_EVENTS = new Set(['model_select']);
 
 export default async function ohTauMirrorAdaptor(pi) {
-	// Resolve tau-mirror's extension entry from the npm-installed package.
-	const __dirname = fileURLToPath(new URL(".", import.meta.url));
-	const extPath = join(__dirname, "node_modules", "tau-mirror", "extensions", "mirror-server.ts");
+    // Resolve tau-mirror's extension entry from the npm-installed package.
+    const __dirname = fileURLToPath(new URL('.', import.meta.url));
+    const extPath = join(__dirname, 'node_modules', 'tau-mirror', 'extensions', 'mirror-server.ts');
 
-	const { default: tauMirrorExtension } = await import("file://" + extPath);
+    const { default: tauMirrorExtension } = await import('file://' + extPath);
 
-	const bridge = createBridge(pi);
-	tauMirrorExtension(bridge);
+    const bridge = createBridge(pi);
+    tauMirrorExtension(bridge);
 }
 
 /**
@@ -67,41 +65,41 @@ export default async function ohTauMirrorAdaptor(pi) {
  * model_select is silently dropped — oh-my-pi doesn't fire this event.
  */
 export function createBridge(pi) {
-	return {
-		registerCommand(name, opts) {
-			pi.registerCommand(name, opts);
-		},
+    return {
+        registerCommand(name, opts) {
+            pi.registerCommand(name, opts);
+        },
 
-		on(event, handler) {
-			if (UNSUPPORTED_EVENTS.has(event)) {
-				// oh-my-pi does not fire model_select; handler never runs.
-				return;
-			}
-			pi.on(event, handler);
-		},
+        on(event, handler) {
+            if (UNSUPPORTED_EVENTS.has(event)) {
+                // oh-my-pi does not fire model_select; handler never runs.
+                return;
+            }
+            pi.on(event, handler);
+        },
 
-		sendUserMessage(content, opts) {
-			pi.sendUserMessage(content, opts);
-		},
+        sendUserMessage(content, opts) {
+            pi.sendUserMessage(content, opts);
+        },
 
-		setModel(model) {
-			return pi.setModel(model);
-		},
+        setModel(model) {
+            return pi.setModel(model);
+        },
 
-		getSessionName() {
-			return pi.getSessionName();
-		},
+        getSessionName() {
+            return pi.getSessionName();
+        },
 
-		setSessionName(name) {
-			return pi.setSessionName(name);
-		},
+        setSessionName(name) {
+            return pi.setSessionName(name);
+        },
 
-		getThinkingLevel() {
-			return pi.getThinkingLevel();
-		},
+        getThinkingLevel() {
+            return pi.getThinkingLevel();
+        },
 
-		setThinkingLevel(level) {
-			pi.setThinkingLevel(level);
-		},
-	};
+        setThinkingLevel(level) {
+            pi.setThinkingLevel(level);
+        },
+    };
 }

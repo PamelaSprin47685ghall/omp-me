@@ -17,8 +17,8 @@
  * bare package specifiers.
  */
 
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 // ---------------------------------------------------------------------------
 // Inject the `pi.pi` module reference needed for pi.pi.convertToLlm().
@@ -31,34 +31,32 @@ import { fileURLToPath } from "node:url";
  */
 let _piMod = null;
 async function getPiMod() {
-	if (!_piMod) {
-		const { homedir } = await import("node:os");
-		const { join: joinPath } = await import("node:path");
-		const base = joinPath(homedir(), ".bun/install/global/node_modules/@oh-my-pi");
-		const piAgentPath = joinPath(base, "pi-coding-agent/src/index.ts");
-		_piMod = await import("file://" + piAgentPath);
-	}
-	return _piMod;
+    if (!_piMod) {
+        const { homedir } = await import('node:os');
+        const { join: joinPath } = await import('node:path');
+        const base = joinPath(homedir(), '.bun/install/global/node_modules/@oh-my-pi');
+        const piAgentPath = joinPath(base, 'pi-coding-agent/src/index.ts');
+        _piMod = await import('file://' + piAgentPath);
+    }
+    return _piMod;
 }
 
 // ---------------------------------------------------------------------------
 // Bridge
 // ---------------------------------------------------------------------------
 
-const UNSUPPORTED_EVENTS = new Set([
-	"model_select",
-]);
+const UNSUPPORTED_EVENTS = new Set(['model_select']);
 
 export default async function ohRpivAdvisorAdaptor(pi) {
-	// Resolve rpiv-advisor's extension entry from the npm-installed package.
-	const __dirname = fileURLToPath(new URL(".", import.meta.url));
-	const extPath = join(__dirname, "node_modules", "@juicesharp", "rpiv-advisor", "index.ts");
+    // Resolve rpiv-advisor's extension entry from the npm-installed package.
+    const __dirname = fileURLToPath(new URL('.', import.meta.url));
+    const extPath = join(__dirname, 'node_modules', '@juicesharp', 'rpiv-advisor', 'index.ts');
 
-	const { default: rpivAdvisorExtension } = await import("file://" + extPath);
+    const { default: rpivAdvisorExtension } = await import('file://' + extPath);
 
-	const piMod = await getPiMod();
-	const bridge = createBridge(pi, piMod);
-	rpivAdvisorExtension(bridge);
+    const piMod = await getPiMod();
+    const bridge = createBridge(pi, piMod);
+    rpivAdvisorExtension(bridge);
 }
 
 /**
@@ -66,77 +64,77 @@ export default async function ohRpivAdvisorAdaptor(pi) {
  * @mariozechner/pi-coding-agent ExtensionAPI that rpiv-advisor expects.
  */
 export function createBridge(pi, piMod) {
-	return {
-		// Module access — used by rpiv-advisor for pi.pi.convertToLlm()
-		pi: piMod,
-		typebox: pi.typebox,
+    return {
+        // Module access — used by rpiv-advisor for pi.pi.convertToLlm()
+        pi: piMod,
+        typebox: pi.typebox,
 
-		// Tool registration
-		registerTool(toolDef) {
-			pi.registerTool(toolDef);
-		},
+        // Tool registration
+        registerTool(toolDef) {
+            pi.registerTool(toolDef);
+        },
 
-		// Command registration
-		registerCommand(name, opts) {
-			pi.registerCommand(name, opts);
-		},
+        // Command registration
+        registerCommand(name, opts) {
+            pi.registerCommand(name, opts);
+        },
 
-		// Event subscription — map where names differ, drop unsupported
-		on(event, handler) {
-			if (UNSUPPORTED_EVENTS.has(event)) return;
-			pi.on(event, handler);
-		},
+        // Event subscription — map where names differ, drop unsupported
+        on(event, handler) {
+            if (UNSUPPORTED_EVENTS.has(event)) return;
+            pi.on(event, handler);
+        },
 
-		// Messaging
-		sendMessage(msg, opts) {
-			pi.sendMessage(msg, opts);
-		},
+        // Messaging
+        sendMessage(msg, opts) {
+            pi.sendMessage(msg, opts);
+        },
 
-		sendUserMessage(content, opts) {
-			pi.sendUserMessage(content, opts);
-		},
+        sendUserMessage(content, opts) {
+            pi.sendUserMessage(content, opts);
+        },
 
-		appendEntry(customType, data) {
-			pi.appendEntry(customType, data);
-		},
+        appendEntry(customType, data) {
+            pi.appendEntry(customType, data);
+        },
 
-		// Model / Session
-		setModel(model) {
-			return pi.setModel(model);
-		},
+        // Model / Session
+        setModel(model) {
+            return pi.setModel(model);
+        },
 
-		getSessionName() {
-			return pi.getSessionName();
-		},
+        getSessionName() {
+            return pi.getSessionName();
+        },
 
-		setSessionName(name) {
-			return pi.setSessionName(name);
-		},
+        setSessionName(name) {
+            return pi.setSessionName(name);
+        },
 
-		getThinkingLevel() {
-			return pi.getThinkingLevel();
-		},
+        getThinkingLevel() {
+            return pi.getThinkingLevel();
+        },
 
-		setThinkingLevel(level) {
-			pi.setThinkingLevel(level);
-		},
+        setThinkingLevel(level) {
+            pi.setThinkingLevel(level);
+        },
 
-		// Tools
-		getActiveTools() {
-			return pi.getActiveTools();
-		},
+        // Tools
+        getActiveTools() {
+            return pi.getActiveTools();
+        },
 
-		getAllTools() {
-			return pi.getAllTools();
-		},
+        getAllTools() {
+            return pi.getAllTools();
+        },
 
-		setActiveTools(toolNames) {
-			return pi.setActiveTools(toolNames);
-		},
+        setActiveTools(toolNames) {
+            return pi.setActiveTools(toolNames);
+        },
 
-		// Label
-		setLabel(label) {
-			pi.setLabel(label);
-		},
-	};
+        // Label
+        setLabel(label) {
+            pi.setLabel(label);
+        },
+    };
 }

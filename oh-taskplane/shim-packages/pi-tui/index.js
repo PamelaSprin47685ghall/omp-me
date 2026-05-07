@@ -5,15 +5,12 @@
  * Same approach as advisor: `homedir()/.bun/install/global/node_modules/...`
  */
 
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 
-const TUI_PATH = join(
-	homedir(),
-	".bun/install/global/node_modules/@oh-my-pi/pi-tui/src/index.ts",
-);
+const TUI_PATH = join(homedir(), '.bun/install/global/node_modules/@oh-my-pi/pi-tui/src/index.ts');
 
-const _mod = await import("file://" + TUI_PATH);
+const _mod = await import('file://' + TUI_PATH);
 
 export const Container = _mod.Container;
 export const SelectList = _mod.SelectList;
