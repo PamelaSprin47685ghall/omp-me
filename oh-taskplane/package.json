@@ -4,12 +4,13 @@
   "private": true,
   "description": "Taskplane adaptor for oh-my-pi — parallel task execution with checkpoint discipline",
   "bin": {
-    "taskplane": "./bin/taskplane.js"
+    "taskplane": "node_modules/taskplane/bin/taskplane.mjs"
   },
   "type": "module",
   "exports": "./index.js",
   "scripts": {
-    "test": "bun test test/*.test.js"
+    "test": "bun test test/*.test.js",
+    "postinstall": "bun link"
   },
   "keywords": [
     "oh-my-pi",
