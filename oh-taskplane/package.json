@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "description": "Taskplane adaptor for oh-my-pi — parallel task execution with checkpoint discipline",
+  "bin": {
+    "taskplane": "./bin/taskplane.js"
+  },
   "type": "module",
   "exports": "./index.js",
   "scripts": {
