@@ -23,7 +23,12 @@ export default async function ohTaskplaneAdaptor(pi) {
 	pi.on("session_start", (_event, ctx) => {
 		const _orig = ctx.ui.notify.bind(ctx.ui);
 		ctx.ui.notify = (msg, type) => {
-			if (typeof msg === "string" && msg.includes("pi update")) return;
+			if (typeof msg === "string") {
+				msg = msg.replace(
+					/pi update/g,
+					"bun update taskplane (in oh-taskplane)",
+				);
+			}
 			_orig(msg, type);
 		};
 	});
