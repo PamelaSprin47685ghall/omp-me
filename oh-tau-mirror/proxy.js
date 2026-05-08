@@ -160,11 +160,22 @@ function startProxy() {
                         pending.length = 0;
                     });
 
-                    upstreamWs.on('message', (data) => browserWs.send(data));
+                    upstreamWs.on('message', (data) => {
+                        // Always send as text — browser ws.onmessage expects string
+                        browserWs.send(typeof data === 'string' ? data : data.toString());
+                    });
                     upstreamWs.on('close', () => browserWs.close());
-                    browserWs.on('close', () => { try { upstreamWs.close(); } catch {} });
+                    browserWs.on('close', () => {
+                        try {
+                            upstreamWs.close();
+                        } catch {}
+                    });
                     upstreamWs.on('error', () => browserWs.close());
-                    browserWs.on('error', () => { try { upstreamWs.close(); } catch {} });
+                    browserWs.on('error', () => {
+                        try {
+                            upstreamWs.close();
+                        } catch {}
+                    });
                 });
             });
 
@@ -300,7 +311,9 @@ const knownSessions = new Set();
 export function addSessionFile(sf) {
     if (!sf) return;
     knownSessions.add(sf);
-    try { knownSessions.add(realpathSync(sf)); } catch {}
+    try {
+        knownSessions.add(realpathSync(sf));
+    } catch {}
 }
 
 function filterSessions(data) {
@@ -308,7 +321,9 @@ function filterSessions(data) {
     for (const project of data.projects) {
         project.sessions = project.sessions.filter((s) => {
             if (knownSessions.has(s.filePath)) return true;
-            try { return knownSessions.has(realpathSync(s.filePath)); } catch {}
+            try {
+                return knownSessions.has(realpathSync(s.filePath));
+            } catch {}
             return false;
         });
     }
