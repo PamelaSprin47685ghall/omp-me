@@ -1,73 +1,356 @@
 import { executeDAG } from './src/dag-engine.js';
 import { createViewManager } from './src/view-manager.js';
 import { loadModelsConfig, saveModelsConfig, getConfigPath } from './src/model-pool.js';
+import SquadFSM from './src/squad-fsm.js';
+import { runOuterReview } from './src/outer-review.js';
 
 const registered = new WeakSet();
-
 const activeRunsBySessionId = new Map();
 let nextRunId = 0;
+
+const CLASSIFICATION_PROMPT = [
+    '## Squad Task',
+    '',
+    'Classify this task:',
+    '- **M** — multi-file but cohesive, needs review: call `submit_plan` with mode "M" and exactly 1 node `{id, task, review_criteria}`.',
+    '- **L** — multi-module, strong dependencies, parallel work: call `submit_plan` with mode "L" and nodes `[{id, task, review_criteria, depends_on}]`.',
+    '',
+    'You MUST call `submit_plan` before ending your turn.',
+].join('\n');
 
 export default async function squadPlugin(pi) {
     if (registered.has(pi)) return;
 
-    try {
-        const tool = buildDelegateSquadTool(pi);
-        pi.registerTool(tool);
+    const fsm = new SquadFSM();
 
-        pi.registerCommand('squad-focus', {
-            description: 'Switch focus between squad sessions',
-            handler: async (_args, ctx) => {
+    // -- /squad command (one-shot) --
+    pi.registerCommand('squad', {
+        description: 'Execute a task via squad. No args opens session switcher.',
+        handler: async (args, ctx) => {
+            const task = (args ?? '').trim();
+
+            if (!task) {
                 await showSessionSwitcher(ctx);
-            },
-        });
-
-        pi.registerCommand('squad-once', {
-            description: 'Send a one-shot instruction to a squad worker session',
-            handler: async (args, ctx) => {
-                await sendOnceInstruction(args, ctx);
-            },
-        });
-
-        pi.registerCommand('squad-models', {
-            description: 'Generate initial squad model pool config',
-            handler: async (_args, ctx) => {
-                const result = generateModelsConfig(ctx);
-                ctx.ui.notify(result, 'info');
-            },
-        });
-
-        pi.registerShortcut('ctrl+s', {
-            description: 'Switch squad session focus',
-            handler: async (ctx) => {
-                await showSessionSwitcher(ctx);
-            },
-        });
-
-        pi.on('session_shutdown', async (_event, ctx) => {
-            const sessionId = ctx?.sessionManager?.getSessionId?.();
-            if (typeof ctx?.ui?.setWidget === 'function') {
-                ctx.ui.setWidget('squad_status', undefined);
+                return;
             }
 
-            if (sessionId) {
-                const prefix = sessionId + ':';
-                for (const [key, run] of activeRunsBySessionId) {
-                    if (key.startsWith(prefix)) {
-                        activeRunsBySessionId.delete(key);
+            if (fsm.isActive()) {
+                ctx.ui.notify('Squad is already running. Wait for it to finish.', 'warn');
+                return;
+            }
+
+            fsm.originalTask = task;
+            fsm.toActive();
+            const currentTools = pi.getActiveTools();
+            await pi.setActiveTools([...currentTools, 'submit_plan']);
+
+            pi.sendMessage(
+                { customType: 'squad-activate', content: `${CLASSIFICATION_PROMPT}\n\n${task}`, display: false },
+                { triggerTurn: true },
+            );
+        },
+    });
+
+    // -- squad-once: one-shot instruction to a worker session --
+    pi.registerCommand('squad-once', {
+        description: 'Send a one-shot instruction to a squad worker session',
+        handler: async (args, ctx) => {
+            await sendOnceInstruction(args, ctx);
+        },
+    });
+
+    // -- squad-models: generate model pool config --
+    pi.registerCommand('squad-models', {
+        description: 'Generate initial squad model pool config',
+        handler: async (_args, ctx) => {
+            const result = generateModelsConfig(ctx);
+            ctx.ui.notify(result, 'info');
+        },
+    });
+
+    // -- agent_end: revision forcing --
+    pi.on('agent_end', async () => {
+        if (!fsm.isRevising()) return;
+        pi.sendMessage(
+            {
+                customType: 'squad-revision-force',
+                content: 'You MUST call `submit_plan` with a revised plan before ending your turn.',
+                display: false,
+            },
+            { triggerTurn: true },
+        );
+    });
+
+    // -- session cleanup --
+    pi.on('session_shutdown', async (_event, ctx) => {
+        const sessionId = ctx?.sessionManager?.getSessionId?.();
+        if (typeof ctx?.ui?.setWidget === 'function') {
+            ctx.ui.setWidget('squad_status', undefined);
+        }
+        if (sessionId) {
+            const prefix = sessionId + ':';
+            for (const [key, run] of activeRunsBySessionId) {
+                if (key.startsWith(prefix)) {
+                    activeRunsBySessionId.delete(key);
+                    for (const rec of run.viewManager.getSessionRecords()) {
+                        rec.session?.abort?.();
+                    }
+                    run.viewManager.clearWidget();
+                }
+            }
+        }
+        fsm.toIdle();
+    });
+
+    // -- submit_plan tool --
+    pi.registerTool({
+        name: 'submit_plan',
+        label: 'Submit Plan',
+        description:
+            'Submit execution plan for squad. Mode M for single reviewable task, mode L for multi-module parallel work.',
+        parameters: {
+            type: 'object',
+            properties: {
+                mode: {
+                    type: 'string',
+                    enum: ['M', 'L'],
+                    description: 'Execution mode: M for single node, L for multi-node DAG',
+                },
+                reasoning: {
+                    type: 'string',
+                    description: 'Why this classification',
+                },
+                nodes: {
+                    type: 'array',
+                    description: 'Task nodes to execute',
+                    items: {
+                        type: 'object',
+                        properties: {
+                            id: { type: 'string', description: 'Unique node ID' },
+                            task: { type: 'string', description: 'Detailed task description' },
+                            review_criteria: { type: 'string', description: 'Criteria for reviewer approval' },
+                            depends_on: {
+                                type: 'array',
+                                items: { type: 'string' },
+                                description: 'IDs of prerequisite nodes',
+                            },
+                        },
+                        required: ['id', 'task', 'review_criteria'],
+                    },
+                },
+            },
+            required: ['mode', 'reasoning', 'nodes'],
+        },
+        defaultInactive: true,
+
+        async execute(_id, params, signal, _onUpdate, ctx) {
+            if (!fsm.isActive()) {
+                return {
+                    content: [{ type: 'text', text: 'Squad is not active. Use /squad to start.' }],
+                    isError: true,
+                };
+            }
+
+            const plan = validatePlan(params);
+            const start = Date.now();
+            const sessionId = ctx?.sessionManager?.getSessionId?.();
+            const masterSessionFile = ctx?.sessionManager?.getSessionFile?.() ?? null;
+
+            const viewManager = createViewManager(ctx, masterSessionFile);
+            const runId = nextRunId++;
+            const runKey = sessionId ? `${sessionId}:${runId}` : null;
+
+            if (runKey) {
+                activeRunsBySessionId.set(runKey, { viewManager, startedAt: start });
+            }
+
+            // Escape / Ctrl+C abort
+            let unsubInput = null;
+            if (typeof ctx?.ui?.onTerminalInput === 'function') {
+                unsubInput = ctx.ui.onTerminalInput((data) => {
+                    if (data === 'escape' || data === 'esc' || data === 'ctrl+c' || data === 'ctrl+d') {
+                        signal?.abort?.();
+                        return { consume: true };
+                    }
+                    return undefined;
+                });
+            }
+
+            try {
+                fsm.toActive(); // revising → active (revision callback)
+                const results = await executeDAG(plan.nodes, ctx, pi, signal, viewManager);
+
+                // L mode: outer review loop
+                let outerRound = 0;
+                const MAX_OUTER_ROUNDS = 3;
+
+                while (plan.mode === 'L' && outerRound < MAX_OUTER_ROUNDS) {
+                    const anyApproved = results.some((r) => r.status === 'approved');
+                    if (!anyApproved) break;
+
+                    const verdict = await runOuterReview(
+                        plan.nodes,
+                        results,
+                        fsm.originalTask,
+                        outerRound,
+                        ctx,
+                        pi,
+                        signal,
+                        viewManager,
+                    );
+
+                    if (verdict.verdict === 'approved') break;
+
+                    outerRound++;
+                    if (outerRound >= MAX_OUTER_ROUNDS) break;
+
+                    fsm.toRevising();
+                    viewManager.clearWidget();
+
+                    return {
+                        content: [
+                            {
+                                type: 'text',
+                                text: [
+                                    `## Outer Review — Round ${outerRound} Rejected`,
+                                    '',
+                                    verdict.feedback,
+                                    '',
+                                    'Analyze this feedback and call `submit_plan` again with a revised plan.',
+                                    'Choose mode M or L based on the remaining work.',
+                                    'You MUST call `submit_plan` before ending your turn.',
+                                ].join('\n'),
+                            },
+                        ],
+                        details: { results, outerRound },
+                    };
+                }
+
+                return await finishSquad(results, plan, start, viewManager, pi, fsm);
+            } catch (err) {
+                await finishSquadCleanup(viewManager, pi, fsm);
+                const duration = Date.now() - start;
+                return {
+                    content: [{ type: 'text', text: `Squad failed · ${duration}ms\n${err.message}` }],
+                    details: { error: err.message, durationMs: duration },
+                    isError: true,
+                };
+            } finally {
+                if (unsubInput) unsubInput();
+                if (runKey) {
+                    const run = activeRunsBySessionId.get(runKey);
+                    if (run) {
                         for (const rec of run.viewManager.getSessionRecords()) {
-                            rec.session?.abort?.();
+                            rec.session = null;
                         }
-                        run.viewManager.clearWidget();
                     }
                 }
             }
-        });
+        },
 
-        registered.add(pi);
-    } catch (error) {
-        registered.delete(pi);
-        throw error;
+        renderCall(args, _renderState, theme) {
+            const count = args?.nodes?.length ?? 0;
+            const mode = args?.mode ?? '?';
+            return {
+                render() {
+                    return [
+                        theme.fg('toolTitle', theme.bold('submit_plan ')) +
+                            theme.fg('accent', `${mode} · ${count} node${count !== 1 ? 's' : ''}`),
+                    ];
+                },
+            };
+        },
+
+        renderResult(result, _options, theme) {
+            const duration = result.details?.durationMs ?? 0;
+            if (result.isError) {
+                return {
+                    render() {
+                        return [theme.fg('error', `✖ squad failed · ${duration}ms\n${result.details?.error ?? ''}`)];
+                    },
+                };
+            }
+            const status = result.details?.statusText ?? '';
+            const mode = result.details?.mode ?? '';
+            return {
+                render() {
+                    return [theme.fg('success', `✔ squad complete · ${mode} · ${duration}ms\n${status}`)];
+                },
+            };
+        },
+    });
+
+    registered.add(pi);
+}
+
+// ---------------------------------------------------------------------------
+// Finish helpers
+// ---------------------------------------------------------------------------
+
+async function finishSquad(results, plan, start, viewManager, pi, fsm) {
+    fsm.toIdle();
+    await pi.setActiveTools(pi.getActiveTools().filter((t) => t !== 'submit_plan'));
+
+    const duration = Date.now() - start;
+    const approved = results.filter((r) => r.status === 'approved').length;
+    const blocked = results.filter((r) => r.status === 'blocked').length;
+    const failed = results.filter((r) => r.status === 'failed').length;
+    const statusText = [
+        approved > 0 ? `${approved} approved` : null,
+        blocked > 0 ? `${blocked} blocked` : null,
+        failed > 0 ? `${failed} failed` : null,
+    ]
+        .filter(Boolean)
+        .join(', ');
+
+    viewManager.clearWidget();
+    return {
+        content: [
+            {
+                type: 'text',
+                text: `Squad complete · ${duration}ms\n${statusText}\n\n${JSON.stringify(results, null, 2)}`,
+            },
+        ],
+        details: { results, durationMs: duration, statusText, nodeCount: plan.nodes.length, mode: plan.mode },
+    };
+}
+
+async function finishSquadCleanup(viewManager, pi, fsm) {
+    fsm.toIdle();
+    await pi.setActiveTools(pi.getActiveTools().filter((t) => t !== 'submit_plan'));
+    viewManager.clearWidget();
+}
+
+// ---------------------------------------------------------------------------
+// Plan validation
+// ---------------------------------------------------------------------------
+
+function validatePlan(params) {
+    if (!['M', 'L'].includes(params.mode)) {
+        throw new Error('mode must be M or L');
     }
+    if (!Array.isArray(params.nodes) || params.nodes.length === 0) {
+        throw new Error('nodes required');
+    }
+    if (params.mode === 'M' && params.nodes.length !== 1) {
+        throw new Error('M mode requires exactly 1 node');
+    }
+    for (const node of params.nodes) {
+        if (!node.id || !node.task || !node.review_criteria) {
+            throw new Error(`node "${node.id || '?'}" missing required fields`);
+        }
+    }
+
+    const idSet = new Set(params.nodes.map((n) => n.id));
+    for (const node of params.nodes) {
+        for (const depId of node.depends_on || []) {
+            if (!idSet.has(depId)) {
+                throw new Error(`node "${node.id}" depends on unknown node: "${depId}"`);
+            }
+        }
+    }
+
+    return { mode: params.mode, nodes: params.nodes };
 }
 
 // ---------------------------------------------------------------------------
@@ -107,32 +390,29 @@ function generateModelsConfig(ctx) {
 // ---------------------------------------------------------------------------
 
 async function sendOnceInstruction(args, ctx) {
-    const sessionId = ctx?.sessionManager?.getSessionId?.();
-    let viewManager = null;
+    if (activeRunsBySessionId.size === 0) {
+        ctx.ui.notify('No active squad sessions', 'info');
+        return;
+    }
 
-    if (sessionId) {
-        for (const [key, run] of activeRunsBySessionId) {
-            if (key.startsWith(sessionId + ':')) {
-                viewManager = run.viewManager;
-                break;
-            }
+    const allWorkers = [];
+    for (const [, run] of activeRunsBySessionId) {
+        for (const rec of run.viewManager.getSessionRecords()) {
+            if (rec.role === 'worker') allWorkers.push(rec);
         }
     }
 
-    const sessionRecords = viewManager?.getSessionRecords?.() ?? [];
-    const workers = sessionRecords.filter((r) => r.role === 'worker');
-
-    if (workers.length === 0) {
+    if (allWorkers.length === 0) {
         ctx.ui.notify('No active worker sessions', 'info');
         return;
     }
 
-    const options = workers.map((r) => `[W] ${r.nodeId}`);
+    const options = allWorkers.map((r) => `[W] ${r.nodeId}`);
     const selected = await ctx.ui.select('Send one-shot instruction to:', options);
     if (!selected) return;
 
     const idx = options.indexOf(selected);
-    const worker = workers[idx];
+    const worker = allWorkers[idx];
     if (!worker) return;
 
     const instruction = await ctx.ui.input('Instruction:');
@@ -155,40 +435,40 @@ async function sendOnceInstruction(args, ctx) {
 // ---------------------------------------------------------------------------
 
 async function showSessionSwitcher(ctx) {
-    const sessionId = ctx?.sessionManager?.getSessionId?.();
-
-    let viewManager = null;
-    if (sessionId) {
-        for (const [key, run] of activeRunsBySessionId) {
-            if (key.startsWith(sessionId + ':')) {
-                viewManager = run.viewManager;
-                break;
-            }
-        }
-    }
-
-    const sessionRecords = viewManager?.getSessionRecords?.() ?? [];
-    const masterFile = viewManager?.getMasterSessionFile?.();
-
-    if (sessionRecords.length === 0) {
+    if (activeRunsBySessionId.size === 0) {
         ctx.ui.notify('No active squad sessions to switch to', 'info');
         return;
+    }
+
+    const allRecords = [];
+    const masterFiles = new Set();
+    for (const [, run] of activeRunsBySessionId) {
+        for (const rec of run.viewManager.getSessionRecords()) {
+            allRecords.push(rec);
+        }
+        const mf = run.viewManager.getMasterSessionFile?.();
+        if (mf) masterFiles.add(mf);
     }
 
     const options = [];
     const sessionMap = new Map();
 
-    if (masterFile) {
+    for (const mf of masterFiles) {
         const label = '[Master] Orchestrator';
         options.push(label);
-        sessionMap.set(label, { sessionFile: masterFile, isMaster: true });
+        sessionMap.set(label, { sessionFile: mf, isMaster: true });
     }
 
-    for (const rec of sessionRecords) {
+    for (const rec of allRecords) {
         const roleTag = rec.role === 'worker' ? 'W' : 'R';
         const label = `[${roleTag}] ${rec.nodeId} - ${rec.role}`;
         options.push(label);
         sessionMap.set(label, { sessionFile: rec.sessionFile, isMaster: false });
+    }
+
+    if (options.length === 0) {
+        ctx.ui.notify('Squad is running, but no sessions are available to switch to yet.', 'info');
+        return;
     }
 
     const selected = await ctx.ui.select('Squad Sessions — select to switch focus', options);
@@ -202,167 +482,4 @@ async function showSessionSwitcher(ctx) {
     } else {
         ctx.ui.notify('Session switching is only available in interactive mode', 'info');
     }
-}
-
-// ---------------------------------------------------------------------------
-// Tool definition
-// ---------------------------------------------------------------------------
-
-function buildDelegateSquadTool(pi) {
-    return {
-        name: 'delegate_squad',
-        label: 'Delegate Squad',
-        description:
-            'Decompose a complex goal into a DAG of sub-tasks. Each task undergoes Worker self-review + Reviewer approval.',
-        promptSnippet:
-            'Judge task complexity first, then delegate appropriately. Call delegate_squad for medium-large tasks.',
-        promptGuidelines: [
-            'First, judge the task complexity:',
-            '  SMALL (single file, ≤30 lines, no dependencies) — complete it directly without calling delegate_squad',
-            '  MEDIUM (multi-file, has dependencies, needs review) — use delegate_squad with 1 node for a review loop',
-            '  LARGE (multi-module, strong dependencies, parallel work) — use delegate_squad with a full DAG',
-            'Each node must have a unique id, a detailed task, and strict review criteria.',
-            'Use depends_on to express execution order — nodes without dependencies run in parallel.',
-            'Review criteria must be specific and verifiable (e.g., "all tests pass", "no hardcoded values").',
-            'Keep each node focused: one clear deliverable per node.',
-        ],
-
-        parameters: {
-            type: 'object',
-            properties: {
-                nodes: {
-                    type: 'array',
-                    description: 'Array of task nodes forming the DAG',
-                    items: {
-                        type: 'object',
-                        properties: {
-                            id: { type: 'string', description: 'Unique task ID (e.g., "db_schema")' },
-                            task: { type: 'string', description: 'Detailed instruction for the worker agent' },
-                            review_criteria: {
-                                type: 'string',
-                                description: 'Strict, verifiable criteria the reviewer uses to approve or reject',
-                            },
-                            depends_on: {
-                                type: 'array',
-                                items: { type: 'string' },
-                                description: 'IDs of nodes that must complete before this one starts',
-                            },
-                        },
-                        required: ['id', 'task', 'review_criteria'],
-                    },
-                },
-            },
-            required: ['nodes'],
-        },
-
-        async execute(_toolCallId, params, signal, onUpdate, ctx) {
-            if (typeof ctx?.isSubagent === 'function' && ctx.isSubagent()) {
-                return {
-                    content: [{ type: 'text', text: 'delegate_squad is not available inside a sub-agent session.' }],
-                    details: { error: 'subagent restriction' },
-                    isError: true,
-                };
-            }
-
-            const start = Date.now();
-            const sessionId = ctx?.sessionManager?.getSessionId?.();
-            const masterSessionFile = ctx?.sessionManager?.getSessionFile?.() ?? null;
-
-            const viewManager = createViewManager(ctx, masterSessionFile);
-            const runId = nextRunId++;
-            const runKey = sessionId ? `${sessionId}:${runId}` : null;
-
-            if (runKey) {
-                activeRunsBySessionId.set(runKey, { viewManager, startedAt: start });
-            }
-
-            // Register Escape/Ctrl+C for global abort during squad execution
-            let unsubInput = null;
-            if (typeof ctx?.ui?.onTerminalInput === 'function') {
-                unsubInput = ctx.ui.onTerminalInput((data) => {
-                    if (data === 'escape' || data === 'esc' || data === 'ctrl+c' || data === 'ctrl+d') {
-                        signal?.abort?.();
-                        return { consume: true };
-                    }
-                    return undefined;
-                });
-            }
-
-            try {
-                const results = await executeDAG(params.nodes, ctx, pi, signal, viewManager);
-                const duration = Date.now() - start;
-
-                const approved = results.filter((r) => r.status === 'approved').length;
-                const blocked = results.filter((r) => r.status === 'blocked').length;
-                const failed = results.filter((r) => r.status === 'failed').length;
-
-                const statusText = [
-                    approved > 0 ? `${approved} approved` : null,
-                    blocked > 0 ? `${blocked} blocked` : null,
-                    failed > 0 ? `${failed} failed` : null,
-                ]
-                    .filter(Boolean)
-                    .join(', ');
-
-                viewManager.clearWidget();
-
-                return {
-                    content: [
-                        {
-                            type: 'text',
-                            text: `Squad complete \u00B7 ${duration}ms\n${statusText}\n\n${JSON.stringify(results, null, 2)}`,
-                        },
-                    ],
-                    details: { results, durationMs: duration, statusText, nodeCount: params.nodes.length },
-                };
-            } catch (err) {
-                viewManager.clearWidget();
-
-                const duration = Date.now() - start;
-                return {
-                    content: [{ type: 'text', text: `Squad failed \u00B7 ${duration}ms\n${err.message}` }],
-                    details: { error: err.message, durationMs: duration },
-                    isError: true,
-                };
-            } finally {
-                if (unsubInput) unsubInput();
-                if (runKey) {
-                    activeRunsBySessionId.delete(runKey);
-                }
-            }
-        },
-
-        renderCall(args, _renderState, theme) {
-            const count = args?.nodes?.length ?? 0;
-            return {
-                render() {
-                    return [
-                        theme.fg('toolTitle', theme.bold('delegate_squad ')) + theme.fg('accent', `${count} nodes`),
-                    ];
-                },
-            };
-        },
-
-        renderResult(result, _options, theme) {
-            const duration = result.details?.durationMs ?? 0;
-            if (result.isError) {
-                return {
-                    render() {
-                        return [
-                            theme.fg(
-                                'error',
-                                `\u2716 squad failed \u00B7 ${duration}ms\n${result.details?.error ?? ''}`,
-                            ),
-                        ];
-                    },
-                };
-            }
-            const status = result.details?.statusText ?? '';
-            return {
-                render() {
-                    return [theme.fg('success', `\u2714 squad complete \u00B7 ${duration}ms\n${status}`)];
-                },
-            };
-        },
-    };
 }

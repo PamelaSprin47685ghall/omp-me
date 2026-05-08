@@ -293,7 +293,7 @@ function buildRejectTool(resolve) {
 // Session lifecycle helper
 // ---------------------------------------------------------------------------
 
-async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHint) {
+async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHint, onSessionCreated) {
     const createAgentSession = pi?.pi?.createAgentSession;
     if (!createAgentSession) {
         throw new Error('squad: createAgentSession unavailable — is the coding-agent loaded?');
@@ -335,6 +335,10 @@ async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHi
 
         const factoryResult = await createAgentSession(sessionOpts);
         session = factoryResult.session;
+
+        if (onSessionCreated) {
+            onSessionCreated(session);
+        }
 
         await session.prompt(promptText);
 
@@ -454,11 +458,17 @@ async function runWorker(node, upstreamResults, reviewerFeedback, ctx, pi, signa
     const options = buildWorkerSessionOptions(ctx, pi, modelSlot);
     const promptText = buildWorkerPrompt(node, upstreamResults, reviewerFeedback);
 
-    const session = await runSession(pi, options, promptText, signal, [() => buildReturnWorkTool(workResolve)]);
+    const session = await runSession(
+        pi,
+        options,
+        promptText,
+        signal,
+        [() => buildReturnWorkTool(workResolve)],
+        null,
+        (s) => viewManager.registerSession(node.id, 'worker', s.sessionFile, s),
+    );
 
     let workerResult = await workPromise;
-
-    viewManager.registerSession(node.id, 'worker', session.sessionFile, session);
 
     // Confirming loop — worker may fix issues and re-submit multiple times
     while (true) {
@@ -518,17 +528,26 @@ async function runReviewer(node, workerResult, ctx, pi, signal, viewManager, mod
     const options = buildReviewerSessionOptions(ctx, pi, modelSlot);
     const promptText = buildReviewerPrompt(node, workerResult);
 
-    const session = await runSession(pi, options, promptText, signal, [
-        () => buildApproveTool(resolve),
-        () => buildRejectTool(resolve),
-    ]);
+    const session = await runSession(
+        pi,
+        options,
+        promptText,
+        signal,
+        [() => buildApproveTool(resolve), () => buildRejectTool(resolve)],
+        null,
+        (s) => viewManager.registerSession(node.id, 'reviewer', s.sessionFile, s),
+    );
 
     const reviewResult = await promise;
 
-    viewManager.registerSession(node.id, 'reviewer', session.sessionFile, session);
-
     return { ...reviewResult, sessionFile: session.sessionFile, session };
 }
+
+// ---------------------------------------------------------------------------
+// Public API exports for outer review loop
+// ---------------------------------------------------------------------------
+
+export { runSession, buildReviewerSessionOptions, buildApproveTool, buildRejectTool };
 
 // ---------------------------------------------------------------------------
 // Public API: single node execution (state machine driven)
