@@ -1,33 +1,17 @@
 /**
  * oh-tau-mirror — oh-my-pi extension adaptor for tau-mirror
  *
- * Wraps tau-mirror's pi extension (https://www.npmjs.com/package/tau-mirror)
- * as an oh-my-pi extension, following the same pattern as oh-taskplane,
- * oh-studio, advisor, and ollama-search.
+ * Loads tau-mirror as-is. A MITM proxy (proxy.js) sits between the
+ * browser and tau-mirror to add multi-session event routing.
  *
- * tau-mirror's extension entry is at ./extensions/mirror-server.ts in the
- * npm package. It only uses `import type` for @mariozechner/pi-coding-agent
- * (erased at runtime), so no shim package is needed.
- *
- * All external imports use file:// paths (AGENTS.md pattern) instead of
- * bare package specifiers, avoiding Bun's module resolution pitfalls and
- * preventing unnecessary peer-dep installation.
- *
- * tau-mirror's console.log/error calls (e.g. "[Mirror] Browser client connected")
- * are suppressed globally — they clutter the TUI and carry no actionable
- * information for the user.
+ * The only intrusions into the host process:
+ *   1. Suppress tau-mirror's console noise (clutters TUI)
+ *   2. Track process-local session files for /api/sessions filtering
  */
 
-import { join, dirname, basename } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import http from 'node:http';
-import fs from 'node:fs';
-
-/** Latest context captured from any forwarded Pi event. */
-let latestCtx = null;
-
-/** All session files seen by this process via forwarded events. */
-const processSessions = new Set();
+import * as proxy from './proxy.js';
 
 // ---------------------------------------------------------------------------
 // Suppress tau-mirror's console noise entirely
@@ -44,222 +28,101 @@ console.error = () => {};
 
 const UNSUPPORTED_EVENTS = new Set(['model_select']);
 
+/** All session files seen by this process via forwarded events. */
+const processSessions = new Set();
+proxy.setProcessSessions(processSessions);
+
+/** Latest session file captured from any forwarded Pi event (for WS tagging). */
+let latestSessionFile = null;
+
 export default async function ohTauMirrorAdaptor(pi) {
-    // Resolve tau-mirror's extension entry from the npm-installed package.
-    const __dirname = fileURLToPath(new URL('.', import.meta.url));
-    const extPath = join(__dirname, 'node_modules', 'tau-mirror', 'extensions', 'mirror-server.ts');
+  // Resolve tau-mirror's extension entry from the npm-installed package.
+  const __dirname = fileURLToPath(new URL('.', import.meta.url));
+  const extPath = join(__dirname, 'node_modules', 'tau-mirror', 'extensions', 'mirror-server.ts');
 
-    // Hijack tau-mirror's HTTP server so that /api/sessions only returns
-    // sessions that have been seen by this process (no stale or sibling sessions).
-    //
-    // Bun's "import * as http" creates a namespace object whose properties are
-    // readonly snapshots; patching http.createServer directly is invisible to
-    // tau-mirror.  Instead we patch http.Server.prototype.on: Node.js's
-    // http.createServer(listener) internally calls this.on('request', listener),
-    // so wrapping 'request' registration lets us intercept /api/sessions before
-    // the original static-file handler ever sees it.
-    const originalOn = pi.on.bind(pi);
-    const hijackedOn = (event, handler) => {
-        if (event !== 'session_start') return originalOn(event, handler);
-        return originalOn(event, async (evt, ctx) => {
-            latestCtx = ctx;
-            const sf = ctx?.sessionManager?.getSessionFile?.();
-            if (sf) processSessions.add(sf);
+  // Intercept ctx.ui.setStatus to capture tau-mirror's port
+  const origOn = pi.on.bind(pi);
+  pi.on = function (event, handler) {
+    if (event !== 'session_start') return origOn(event, handler);
+    return origOn(event, async (evt, ctx) => {
+      interceptPort(ctx);
+      const sf = ctx?.sessionManager?.getSessionFile?.();
+      if (sf) processSessions.add(sf);
 
-            const originalServerOn = http.Server.prototype.on;
-            http.Server.prototype.on = function (ev, listener) {
-                if (ev === 'request' && !this._tauMirrorHijacked) {
-                    this._tauMirrorHijacked = true;
-                    const wrapped = (req, res) => {
-                        if (req.url === '/api/sessions' || req.url?.startsWith('/api/sessions?')) {
-                            serveCurrentSessionOnly(req, res);
-                            return;
-                        }
-                        return listener(req, res);
-                    };
-                    return originalServerOn.call(this, ev, wrapped);
-                }
-                return originalServerOn.call(this, ev, listener);
-            };
-
-            await handler(evt, ctx);
-
-            http.Server.prototype.on = originalServerOn;
-        });
-    };
-    pi.on = hijackedOn;
-
-    const { default: tauMirrorExtension } = await import('file://' + extPath);
-
-    const bridge = createBridge(pi);
-    tauMirrorExtension(bridge);
-
-    pi.on = originalOn;
-}
-
-/**
- * Parse the first ~8 KB of a session file to extract display metadata.
- */
-function parseSessionFile(filePath) {
-    try {
-        const fd = fs.openSync(filePath, 'r');
-        const buf = Buffer.alloc(8192);
-        const bytesRead = fs.readSync(fd, buf, 0, 8192, 0);
-        fs.closeSync(fd);
-        const text = buf.toString('utf8', 0, bytesRead);
-        const lines = text.split('\n');
-
-        let header = null;
-        let firstMessage = null;
-        let sessionName = null;
-        let userMessageCount = 0;
-        let lineCount = 0;
-
-        for (const line of lines) {
-            if (!line.trim()) continue;
-            lineCount++;
-            try {
-                const entry = JSON.parse(line);
-                if (entry.type === 'session') header = entry;
-                else if (entry.type === 'session_info' && entry.name) sessionName = entry.name;
-                else if (entry.type === 'message' && entry.message?.role === 'user') {
-                    userMessageCount++;
-                    if (!firstMessage) {
-                        const content = entry.message.content;
-                        if (typeof content === 'string') firstMessage = content.substring(0, 120);
-                        else if (Array.isArray(content)) {
-                            const tb = content.find((b) => b.type === 'text');
-                            if (tb) firstMessage = tb.text.substring(0, 120);
-                        }
-                    }
-                }
-            } catch {}
-            if (lineCount > 50 && firstMessage) break;
-        }
-
-        if (!header?.id) return null;
-        if (userMessageCount <= 1 && lineCount <= 8) return null; // pipe mode
-
-        return {
-            id: header.id,
-            timestamp: header.timestamp || '',
-            name: sessionName,
-            firstMessage,
-            cwd: header.cwd || null,
-        };
-    } catch {
-        return null;
-    }
-}
-
-/**
- * Serve a /api/sessions response that contains only sessions
- * observed by this process (no stale or sibling sessions).
- */
-function serveCurrentSessionOnly(_req, res) {
-    const projectsMap = new Map();
-
-    for (const sessionFile of processSessions) {
-        if (!fs.existsSync(sessionFile)) continue;
-        const parsed = parseSessionFile(sessionFile);
-        if (!parsed) continue;
-
-        const stat = fs.statSync(sessionFile);
-        const dirName = basename(dirname(sessionFile));
-        const fileName = basename(sessionFile);
-        const decodedPath = dirName.replace(/^--/, '/').replace(/--$/, '').replace(/-/g, '/');
-
-        if (!projectsMap.has(decodedPath)) {
-            projectsMap.set(decodedPath, {
-                path: decodedPath,
-                dirName,
-                sessions: [],
-            });
-        }
-
-        projectsMap.get(decodedPath).sessions.push({
-            id: parsed.id,
-            timestamp: parsed.timestamp,
-            name: parsed.name,
-            firstMessage: parsed.firstMessage,
-            file: fileName,
-            filePath: sessionFile,
-            mtime: stat.mtimeMs,
-        });
-    }
-
-    const projects = Array.from(projectsMap.values());
-    for (const project of projects) {
-        project.sessions.sort((a, b) => b.mtime - a.mtime);
-    }
-    projects.sort((a, b) => {
-        const aTime = a.sessions[0]?.mtime || 0;
-        const bTime = b.sessions[0]?.mtime || 0;
-        return bTime - aTime;
+      await handler(evt, ctx);
     });
+  };
 
-    res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ projects }));
+  const { default: tauMirrorExtension } = await import('file://' + extPath);
+
+  const bridge = createBridge(pi);
+  tauMirrorExtension(bridge);
+
+  pi.on = origOn;
+}
+
+function interceptPort(ctx) {
+  if (proxy.getProxyStatus()) return; // already running
+  const us = ctx?.ui;
+  if (!us || !us.setStatus) return;
+  const origSetStatus = us.setStatus.bind(us);
+  us.setStatus = (key, text) => {
+    if (key === 'mirror' && text) {
+      const m = text.match(/:(\d+)/);
+      if (m) proxy.setTauPort(parseInt(m[1]));
+    }
+    return origSetStatus(key, text);
+  };
 }
 
 /**
  * Create a bridge from oh-my-pi ExtensionAPI to the original
  * @mariozechner/pi-coding-agent ExtensionAPI that tau-mirror expects.
- *
- * tau-mirror uses these ExtensionAPI methods:
- *   registerCommand, on, sendUserMessage,
- *   getSessionName, setSessionName,
- *   getThinkingLevel, setThinkingLevel,
- *   setModel
- *
- * And these ExtensionCommandContext/ExtensionContext properties (passthrough):
- *   ctx.ui.notify, ctx.ui.setStatus,
- *   ctx.sessionManager.getSessionFile, ctx.sessionManager.getEntries,
- *   ctx.cwd, ctx.model, ctx.isIdle(), ctx.getContextUsage(), ctx.abort()
- *
- * model_select is silently dropped — oh-my-pi doesn't fire this event.
  */
 export function createBridge(pi) {
-    return {
-        registerCommand(name, opts) {
-            pi.registerCommand(name, opts);
-        },
+  return {
+    registerCommand(name, opts) {
+      pi.registerCommand(name, opts);
+    },
 
-        on(event, handler) {
-            if (UNSUPPORTED_EVENTS.has(event)) {
-                // oh-my-pi does not fire model_select; handler never runs.
-                return;
-            }
-            pi.on(event, (evt, ctx) => {
-                latestCtx = ctx;
-                const sf = ctx?.sessionManager?.getSessionFile?.();
-                if (sf) processSessions.add(sf);
-                return handler(evt, ctx);
-            });
-        },
+    on(event, handler) {
+      if (UNSUPPORTED_EVENTS.has(event)) return;
+      pi.on(event, (evt, ctx) => {
+        latestSessionFile = ctx?.sessionManager?.getSessionFile?.() || null;
+        const sf = ctx?.sessionManager?.getSessionFile?.();
+        if (sf) processSessions.add(sf);
 
-        sendUserMessage(content, opts) {
-            pi.sendUserMessage(content, opts);
-        },
+        // Tag event with session file for proxy injection into WS messages
+        if (evt && typeof evt === 'object' && latestSessionFile) {
+          evt.__sessionFile = latestSessionFile;
+        }
 
-        setModel(model) {
-            return pi.setModel(model);
-        },
+        return handler(evt, ctx);
+      });
+    },
 
-        getSessionName() {
-            return pi.getSessionName();
-        },
+    sendUserMessage(content, opts) {
+      pi.sendUserMessage(content, opts);
+    },
 
-        setSessionName(name) {
-            return pi.setSessionName(name);
-        },
+    setModel(model) {
+      return pi.setModel(model);
+    },
 
-        getThinkingLevel() {
-            return pi.getThinkingLevel();
-        },
+    getSessionName() {
+      return pi.getSessionName();
+    },
 
-        setThinkingLevel(level) {
-            pi.setThinkingLevel(level);
-        },
-    };
+    setSessionName(name) {
+      return pi.setSessionName(name);
+    },
+
+    getThinkingLevel() {
+      return pi.getThinkingLevel();
+    },
+
+    setThinkingLevel(level) {
+      pi.setThinkingLevel(level);
+    },
+  };
 }

@@ -15,10 +15,26 @@ describe('console suppression', () => {
     });
 
     it('console.log/warn/error are replaced with no-ops after import', async () => {
-        await import('../index.js');
+        // The module-level import already suppresses them; verify no crash
         assert.doesNotThrow(() => console.log('test'));
         assert.doesNotThrow(() => console.warn('test'));
         assert.doesNotThrow(() => console.error('test'));
+    });
+});
+
+// --------------------------------------------------------------------------
+// Proxy module
+// --------------------------------------------------------------------------
+
+describe('proxy module', () => {
+    it('loads without throwing', async () => {
+        await import('../proxy.js');
+    });
+
+    it('setProcessSessions accepts a Set', async () => {
+        const mod = await import('../proxy.js');
+        const s = new Set(['/a/b.jsonl']);
+        mod.setProcessSessions(s);
     });
 });
 
