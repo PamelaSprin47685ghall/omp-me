@@ -17,15 +17,13 @@ export function buildConfirmMessage(state) {
     return [
         'Please confirm that all work for the goal is completely done.',
         '',
-        `Goal: ${state.goal}`,
-        '',
         'If the goal is fully met, you MUST use the task tool to spawn a "reviewer" sub-agent with the following assignment (include the literal goal text):',
         '',
         `- Goal to review: ${state.goal}`,
         '- Check: 1) Code quality  2) Design defects  3) Code vulnerabilities  4) User experience  5) Whether the goal is fully completed',
         '',
         'Only call loop_control("done") if the review sub-agent confirms ALL checks pass.',
-        'If the review finds any issues or the goal is not fully met, IMMEDIATELY call loop_control("next") before working.',
+        'If the review finds any issues, you MUST call loop_control("next") even if you fix them. DO NOT call loop_control("done") if you have made any changes.',
     ].join('\n');
 }
 
