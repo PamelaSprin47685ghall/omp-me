@@ -171,11 +171,10 @@ export default async function squadPlugin(pi) {
                 fsm.toActive(); // revising → active (revision callback)
                 const results = await executeDAG(plan.nodes, ctx, pi, signal, viewManager);
 
-                // L mode: outer review loop
+                // L mode: outer review loop — infinite, exits only on approval or squad abort
                 let outerRound = 0;
-                const MAX_OUTER_ROUNDS = 3;
 
-                while (plan.mode === 'L' && outerRound < MAX_OUTER_ROUNDS) {
+                while (plan.mode === 'L') {
                     const anyApproved = results.some((r) => r.status === 'approved');
                     if (!anyApproved) break;
 
@@ -193,7 +192,6 @@ export default async function squadPlugin(pi) {
                     if (verdict.verdict === 'approved') break;
 
                     outerRound++;
-                    if (outerRound >= MAX_OUTER_ROUNDS) break;
 
                     fsm.toRevising();
                     viewManager.clearWidget();
@@ -297,7 +295,7 @@ async function handleSquad(args, ctx, fsm, pi) {
     await pi.setActiveTools([...currentTools, 'submit_plan']);
 
     pi.sendMessage(
-        { customType: 'squad-activate', content: `${CLASSIFICATION_PROMPT}\n\n${task}`, display: false },
+        { customType: 'squad-activate', content: `${CLASSIFICATION_PROMPT}\n\n${task}`, display: true },
         { triggerTurn: true },
     );
 }

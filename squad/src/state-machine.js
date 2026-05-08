@@ -29,7 +29,7 @@ export const EVENT = {
     ABORT: 'abort',
 };
 
-export const MAX_RETRIES = 3;
+export const MAX_RETRIES = Infinity;
 
 function initialStatus(hasDeps) {
     return hasDeps ? STATUS.WAITING_DEPS : STATUS.PENDING;

@@ -639,10 +639,7 @@ export async function runNode(node, upstreamResults, ctx, pi, signal, viewManage
             viewManager.updateNodeState(node.id, state.status, { retryCount: state.retryCount });
 
             if (state.status === STATUS.AUTHORING) {
-                ctx?.ui?.notify?.(
-                    `[squad] ⟳ node '${node.id}' retry (${state.retryCount}/${MAX_RETRIES}) due to Reject`,
-                    'warn',
-                );
+                ctx?.ui?.notify?.(`[squad] ⟳ node '${node.id}' retry (R${state.retryCount}) due to Reject`, 'warn');
             }
 
             if (state.status === STATUS.BLOCKED) {
@@ -674,7 +671,7 @@ export async function runNode(node, upstreamResults, ctx, pi, signal, viewManage
 
             if (state.status === STATUS.AUTHORING) {
                 ctx?.ui?.notify?.(
-                    `[squad] ⟳ node '${node.id}' retry (${state.retryCount}/${MAX_RETRIES}) due to ${err.code === 'SQUAD_TAMPERED' ? 'Tamper' : 'SessionError'}`,
+                    `[squad] ⟳ node '${node.id}' retry (R${state.retryCount}) due to ${err.code === 'SQUAD_TAMPERED' ? 'Tamper' : 'SessionError'}`,
                     'warn',
                 );
             }
