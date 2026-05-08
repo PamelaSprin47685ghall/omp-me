@@ -36,43 +36,60 @@ proxy.setProcessSessions(processSessions);
 let latestSessionFile = null;
 
 export default async function ohTauMirrorAdaptor(pi) {
-  // Resolve tau-mirror's extension entry from the npm-installed package.
-  const __dirname = fileURLToPath(new URL('.', import.meta.url));
-  const extPath = join(__dirname, 'node_modules', 'tau-mirror', 'extensions', 'mirror-server.ts');
+    // Resolve tau-mirror's extension entry from the npm-installed package.
+    const __dirname = fileURLToPath(new URL('.', import.meta.url));
+    const extPath = join(__dirname, 'node_modules', 'tau-mirror', 'extensions', 'mirror-server.ts');
 
-  // Intercept ctx.ui.setStatus to capture tau-mirror's port
-  const origOn = pi.on.bind(pi);
-  pi.on = function (event, handler) {
-    if (event !== 'session_start') return origOn(event, handler);
-    return origOn(event, async (evt, ctx) => {
-      interceptPort(ctx);
-      const sf = ctx?.sessionManager?.getSessionFile?.();
-      if (sf) processSessions.add(sf);
+    // Intercept ctx.ui.setStatus to capture tau-mirror's port
+    const origOn = pi.on.bind(pi);
+    pi.on = function (event, handler) {
+        if (event !== 'session_start') return origOn(event, handler);
+        return origOn(event, async (evt, ctx) => {
+            interceptPort(ctx);
+            const sf = ctx?.sessionManager?.getSessionFile?.();
+            if (sf) processSessions.add(sf);
 
-      await handler(evt, ctx);
-    });
-  };
+            await handler(evt, ctx);
+        });
+    };
 
-  const { default: tauMirrorExtension } = await import('file://' + extPath);
+    const { default: tauMirrorExtension } = await import('file://' + extPath);
 
-  const bridge = createBridge(pi);
-  tauMirrorExtension(bridge);
+    const bridge = createBridge(pi);
+    tauMirrorExtension(bridge);
 
-  pi.on = origOn;
+    pi.on = origOn;
 }
 
 function interceptPort(ctx) {
-  if (proxy.getProxyStatus()) return; // already running
+  if (proxy.getProxyPort()) return;
   const us = ctx?.ui;
   if (!us || !us.setStatus) return;
   const origSetStatus = us.setStatus.bind(us);
+  const origNotify = us.notify?.bind(us);
+
   us.setStatus = (key, text) => {
     if (key === 'mirror' && text) {
       const m = text.match(/:(\d+)/);
-      if (m) proxy.setTauPort(parseInt(m[1]));
+      if (m) {
+        const tauP = parseInt(m[1]);
+        proxy.setTauPort(tauP);
+        const pPort = tauP + 1000;
+        text = text.replaceAll(`:${tauP}`, `:${pPort}`);
+      }
     }
     return origSetStatus(key, text);
   };
+
+  // Rewrite tau-mirror URL in notify to proxy URL
+  if (origNotify) {
+    us.notify = (message, type) => {
+      if (typeof message === 'string') {
+        message = message.replace(/:\d{4,5}(?=[/\s]|$)/g, (m) => `:${parseInt(m.slice(1)) + 1000}`);
+      }
+      return origNotify(message, type);
+    };
+  }
 }
 
 /**
@@ -80,49 +97,49 @@ function interceptPort(ctx) {
  * @mariozechner/pi-coding-agent ExtensionAPI that tau-mirror expects.
  */
 export function createBridge(pi) {
-  return {
-    registerCommand(name, opts) {
-      pi.registerCommand(name, opts);
-    },
+    return {
+        registerCommand(name, opts) {
+            pi.registerCommand(name, opts);
+        },
 
-    on(event, handler) {
-      if (UNSUPPORTED_EVENTS.has(event)) return;
-      pi.on(event, (evt, ctx) => {
-        latestSessionFile = ctx?.sessionManager?.getSessionFile?.() || null;
-        const sf = ctx?.sessionManager?.getSessionFile?.();
-        if (sf) processSessions.add(sf);
+        on(event, handler) {
+            if (UNSUPPORTED_EVENTS.has(event)) return;
+            pi.on(event, (evt, ctx) => {
+                latestSessionFile = ctx?.sessionManager?.getSessionFile?.() || null;
+                const sf = ctx?.sessionManager?.getSessionFile?.();
+                if (sf) processSessions.add(sf);
 
-        // Tag event with session file for proxy injection into WS messages
-        if (evt && typeof evt === 'object' && latestSessionFile) {
-          evt.__sessionFile = latestSessionFile;
-        }
+                // Tag event with session file for proxy injection into WS messages
+                if (evt && typeof evt === 'object' && latestSessionFile) {
+                    evt.__sessionFile = latestSessionFile;
+                }
 
-        return handler(evt, ctx);
-      });
-    },
+                return handler(evt, ctx);
+            });
+        },
 
-    sendUserMessage(content, opts) {
-      pi.sendUserMessage(content, opts);
-    },
+        sendUserMessage(content, opts) {
+            pi.sendUserMessage(content, opts);
+        },
 
-    setModel(model) {
-      return pi.setModel(model);
-    },
+        setModel(model) {
+            return pi.setModel(model);
+        },
 
-    getSessionName() {
-      return pi.getSessionName();
-    },
+        getSessionName() {
+            return pi.getSessionName();
+        },
 
-    setSessionName(name) {
-      return pi.setSessionName(name);
-    },
+        setSessionName(name) {
+            return pi.setSessionName(name);
+        },
 
-    getThinkingLevel() {
-      return pi.getThinkingLevel();
-    },
+        getThinkingLevel() {
+            return pi.getThinkingLevel();
+        },
 
-    setThinkingLevel(level) {
-      pi.setThinkingLevel(level);
-    },
-  };
+        setThinkingLevel(level) {
+            pi.setThinkingLevel(level);
+        },
+    };
 }

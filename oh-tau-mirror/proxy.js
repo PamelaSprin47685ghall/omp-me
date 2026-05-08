@@ -111,13 +111,13 @@ let proxyServer = null;
 let processSessions = null;
 
 export function setProcessSessions(sessions) {
-  processSessions = sessions;
+    processSessions = sessions;
 }
 
-export function getProxyStatus() {
+export function getProxyPort() {
   if (!proxyServer) return null;
   const addr = proxyServer.address();
-  return addr ? { port: addr.port } : null;
+  return addr ? addr.port : null;
 }
 
 export function setTauPort(port) {
@@ -126,40 +126,72 @@ export function setTauPort(port) {
   startProxy();
 }
 
+/**
+ * Calculate the proxy port that will be used for a given tau port.
+ * Returns null if the proxy hasn't started yet (listen may be pending).
+ */
+export function calcProxyPort(tauP) {
+  const basePort = tauP + 1000;
+  // Try the same offset logic as startProxy — but we can't know
+  // which ports are busy from here without actually trying.
+  // For now return the base port; if occupied the actual port differs.
+  return getProxyPort() || basePort;
+}
+
 function startProxy() {
-  if (proxyServer) return;
-  const basePort = tauPort + 1000;
-  for (let offset = 0; offset < 10000; offset += 1000) {
-    const port = basePort + offset;
-    try {
-      proxyServer = http.createServer(proxyHandler);
-      const wss = new WebSocketServer({ noServer: true });
+    if (proxyServer) return;
+    const basePort = tauPort + 1000;
+    for (let offset = 0; offset < 10000; offset += 1000) {
+        const port = basePort + offset;
+        try {
+            proxyServer = http.createServer(proxyHandler);
+            const wss = new WebSocketServer({ noServer: true });
 
-      proxyServer.on('upgrade', (req, socket, head) => {
-        if (req.url !== '/ws') { socket.destroy(); return; }
-        wss.handleUpgrade(req, socket, head, (browserWs) => {
-          const upstreamWs = new WsClient(`ws://127.0.0.1:${tauPort}/ws`);
+            proxyServer.on('upgrade', (req, socket, head) => {
+                if (req.url !== '/ws') {
+                    socket.destroy();
+                    return;
+                }
+                wss.handleUpgrade(req, socket, head, (browserWs) => {
+                    const upstreamWs = new WsClient(`ws://127.0.0.1:${tauPort}/ws`);
 
-          upstreamWs.on('open', () => {
-            // Both sides connected: start bidirectional forwarding
-          });
+                    upstreamWs.on('open', () => {
+                        // Both sides connected: start bidirectional forwarding
+                    });
 
-          upstreamWs.on('message', (data) => browserWs.send(data));
-          browserWs.on('message', (data) => upstreamWs.send(data));
+                    upstreamWs.on('message', (data) => browserWs.send(data));
+                    browserWs.on('message', (data) => upstreamWs.send(data));
 
-          upstreamWs.on('close', () => browserWs.close());
-          browserWs.on('close', () => { try { upstreamWs.close(); } catch {} });
-          upstreamWs.on('error', () => browserWs.close());
-          browserWs.on('error', () => { try { upstreamWs.close(); } catch {} });
-        });
-      });
+                    upstreamWs.on('close', () => browserWs.close());
+                    browserWs.on('close', () => {
+                        try {
+                            upstreamWs.close();
+                        } catch {}
+                    });
+                    upstreamWs.on('error', () => browserWs.close());
+                    browserWs.on('error', () => {
+                        try {
+                            upstreamWs.close();
+                        } catch {}
+                    });
+                });
+            });
 
-      proxyServer.listen(port, '0.0.0.0');
-      return;
-    } catch (e) {
-      if (e.code !== 'EADDRINUSE') throw e;
+            proxyServer.listen(port, '0.0.0.0');
+            return;
+        } catch (e) {
+            if (e.code !== 'EADDRINUSE') throw e;
+        }
     }
-  }
+}
+
+const BINARY_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.ico', '.woff', '.woff2', '.ttf', '.eot']);
+
+function isBinaryUrl(url) {
+  const idx = url.indexOf('?');
+  const path = idx >= 0 ? url.slice(0, idx) : url;
+  const ext = path.slice(path.lastIndexOf('.')).toLowerCase();
+  return BINARY_EXT.has(ext);
 }
 
 // ---------------------------------------------------------------------------
@@ -188,38 +220,51 @@ async function proxyHandler(req, res) {
     return;
   }
 
+  // Rewrite tau-mirror URL in /api/qr to proxy URL
+  if (req.url === '/api/qr' || req.url.startsWith('/api/qr?')) {
+    const upstreamRes = await fetch(upstreamUrl);
+    let html = await upstreamRes.text();
+    const proxyPort = getProxyPort();
+    if (proxyPort) {
+      html = html.replace(new RegExp(`:${tauPort}(?=[/"']|$)`, 'g'), `:${proxyPort}`);
+    }
+    const ct = upstreamRes.headers.get('content-type') || 'text/html';
+    res.writeHead(upstreamRes.status, { 'Content-Type': ct, ...corsHeaders() });
+    res.end(html);
+    return;
+  }
+
   // All other requests: proxy upstream
   const upstreamRes = await fetch(upstreamUrl);
   const contentType = upstreamRes.headers.get('content-type') || 'application/octet-stream';
-  let body = await upstreamRes.text();
 
-  // Append tau-override to app.js
-  if (req.url === '/app.js') {
-    body += INJECTED;
-  }
-
-  const headers = { 'Content-Type': contentType, ...corsHeaders() };
-  if (upstreamRes.status === 304) {
-    res.writeHead(304, headers);
-    res.end();
+  // Append tau-override to app.js, pass through binary correctly
+  if (isBinaryUrl(req.url)) {
+    const buf = Buffer.from(await upstreamRes.arrayBuffer());
+    res.writeHead(upstreamRes.status, { 'Content-Type': contentType, ...corsHeaders() });
+    res.end(buf);
   } else {
-    res.writeHead(upstreamRes.status, headers);
+    let body = await upstreamRes.text();
+    if (req.url === '/app.js') {
+      body += INJECTED;
+    }
+    res.writeHead(upstreamRes.status, { 'Content-Type': contentType, ...corsHeaders() });
     res.end(body);
   }
 }
 
 function corsHeaders() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-  };
+    return {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+    };
 }
 
 function filterSessions(data) {
-  if (!processSessions || !data.projects) return;
-  for (const project of data.projects) {
-    project.sessions = project.sessions.filter(s => processSessions.has(s.filePath));
-  }
-  data.projects = data.projects.filter(p => p.sessions.length > 0);
+    if (!processSessions || !data.projects) return;
+    for (const project of data.projects) {
+        project.sessions = project.sessions.filter((s) => processSessions.has(s.filePath));
+    }
+    data.projects = data.projects.filter((p) => p.sessions.length > 0);
 }
