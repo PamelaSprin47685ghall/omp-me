@@ -120,10 +120,15 @@ export function getProxyPort() {
     return addr ? addr.port : null;
 }
 
+let proxyPortResolve = null;
+let proxyPortPromise = null;
+
 export function setTauPort(port) {
-    if (tauPort) return;
-    tauPort = port;
-    startProxy();
+  if (tauPort) return null;
+  tauPort = port;
+  proxyPortPromise = new Promise((resolve) => { proxyPortResolve = resolve; });
+  startProxy();
+  return proxyPortPromise;
 }
 
 function startProxy() {
@@ -143,33 +148,35 @@ function startProxy() {
                 wss.handleUpgrade(req, socket, head, (browserWs) => {
                     const upstreamWs = new WsClient(`ws://127.0.0.1:${tauPort}/ws`);
 
-                    upstreamWs.on('open', () => {
-                        // Both sides connected: start bidirectional forwarding
-                    });
-
                     upstreamWs.on('message', (data) => browserWs.send(data));
                     browserWs.on('message', (data) => upstreamWs.send(data));
 
                     upstreamWs.on('close', () => browserWs.close());
                     browserWs.on('close', () => {
-                        try {
-                            upstreamWs.close();
-                        } catch {}
+                        try { upstreamWs.close(); } catch {}
                     });
                     upstreamWs.on('error', () => browserWs.close());
                     browserWs.on('error', () => {
-                        try {
-                            upstreamWs.close();
-                        } catch {}
+                        try { upstreamWs.close(); } catch {}
                     });
                 });
             });
 
-            proxyServer.listen(port, '0.0.0.0');
+            proxyServer.listen(port, '0.0.0.0', () => {
+                if (proxyPortResolve) {
+                    proxyPortResolve(port);
+                    proxyPortResolve = null;
+                }
+            });
             return;
         } catch (e) {
             if (e.code !== 'EADDRINUSE') throw e;
         }
+    }
+    // All ports busy — reject the promise
+    if (proxyPortResolve) {
+        proxyPortResolve(null);
+        proxyPortResolve = null;
     }
 }
 

@@ -32,24 +32,34 @@ const UNSUPPORTED_EVENTS = new Set(['model_select']);
 const processSessions = new Set();
 proxy.setProcessSessions(processSessions);
 
-/** Latest session file captured from any forwarded Pi event (for WS tagging). */
-let latestSessionFile = null;
-
 export default async function ohTauMirrorAdaptor(pi) {
     // Resolve tau-mirror's extension entry from the npm-installed package.
     const __dirname = fileURLToPath(new URL('.', import.meta.url));
     const extPath = join(__dirname, 'node_modules', 'tau-mirror', 'extensions', 'mirror-server.ts');
 
-    // Intercept ctx.ui.setStatus to capture tau-mirror's port
+    // Capture tau-mirror's port from setStatus, then rewrite to proxy port
     const origOn = pi.on.bind(pi);
     pi.on = function (event, handler) {
         if (event !== 'session_start') return origOn(event, handler);
         return origOn(event, async (evt, ctx) => {
-            interceptPort(ctx);
             const sf = ctx?.sessionManager?.getSessionFile?.();
             if (sf) processSessions.add(sf);
 
+            const proxyPortP = interceptPort(ctx);
             await handler(evt, ctx);
+
+            // After proxy is confirmed listening, update display to show proxy port
+            if (proxyPortP) {
+                const actualPort = await proxyPortP;
+                if (actualPort && ctx?.ui) {
+                    const status = ctx.ui.setStatus;
+                    status('mirror', `Mirror: 127.0.0.1:${actualPort}`);
+                    ctx.ui.notify?.(
+                        `Tau mirror: http://127.0.0.1:${actualPort}  •  /qr for QR code`,
+                        'info',
+                    );
+                }
+            }
         });
     };
 
@@ -62,34 +72,31 @@ export default async function ohTauMirrorAdaptor(pi) {
 }
 
 function interceptPort(ctx) {
-    if (proxy.getProxyPort()) return;
     const us = ctx?.ui;
-    if (!us || !us.setStatus) return;
+    if (!us || !us.setStatus) return null;
     const origSetStatus = us.setStatus.bind(us);
-    const origNotify = us.notify?.bind(us);
 
+    let tauP = null;
     us.setStatus = (key, text) => {
-        if (key === 'mirror' && text) {
-            const m = text.match(/:(\d+)/);
-            if (m) {
-                const tauP = parseInt(m[1]);
-                proxy.setTauPort(tauP);
-                const pPort = tauP + 1000;
-                text = text.replaceAll(`:${tauP}`, `:${pPort}`);
-            }
+        if (key === 'mirror' && text && !tauP) {
+            const m = text.match(/:\d+/);
+            if (m) tauP = parseInt(m[0].slice(1));
         }
         return origSetStatus(key, text);
     };
 
-    // Rewrite tau-mirror URL in notify to proxy URL
-    if (origNotify) {
-        us.notify = (message, type) => {
-            if (typeof message === 'string') {
-                message = message.replace(/:\d{4,5}(?=[/\s]|$)/g, (m) => `:${parseInt(m.slice(1)) + 1000}`);
-            }
-            return origNotify(message, type);
-        };
-    }
+    // Defer: start proxy after tau-mirror has called setStatus
+    // We return a promise so caller can await the actual proxy port
+    return new Promise((resolve) => {
+        const check = setInterval(() => {
+            if (!tauP) return;
+            clearInterval(check);
+            const p = proxy.setTauPort(tauP);
+            if (p) p.then((port) => resolve(port));
+            else resolve(null);
+        }, 10);
+        setTimeout(() => { clearInterval(check); resolve(null); }, 3000);
+    });
 }
 
 /**
@@ -105,13 +112,12 @@ export function createBridge(pi) {
         on(event, handler) {
             if (UNSUPPORTED_EVENTS.has(event)) return;
             pi.on(event, (evt, ctx) => {
-                latestSessionFile = ctx?.sessionManager?.getSessionFile?.() || null;
                 const sf = ctx?.sessionManager?.getSessionFile?.();
                 if (sf) processSessions.add(sf);
 
-                // Tag event with session file for proxy injection into WS messages
-                if (evt && typeof evt === 'object' && latestSessionFile) {
-                    evt.__sessionFile = latestSessionFile;
+                // Tag event with session file for multi-session routing in the browser
+                if (evt && typeof evt === 'object' && sf) {
+                    evt.__sessionFile = sf;
                 }
 
                 return handler(evt, ctx);
