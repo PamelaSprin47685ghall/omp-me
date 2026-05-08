@@ -27,27 +27,7 @@ export default async function squadPlugin(pi) {
     pi.registerCommand('squad', {
         description: 'Execute a task via squad. No args opens session switcher.',
         handler: async (args, ctx) => {
-            const task = (args ?? '').trim();
-
-            if (!task) {
-                await showSessionSwitcher(ctx);
-                return;
-            }
-
-            if (fsm.isActive()) {
-                ctx.ui.notify('Squad is already running. Wait for it to finish.', 'warn');
-                return;
-            }
-
-            fsm.originalTask = task;
-            fsm.toActive();
-            const currentTools = pi.getActiveTools();
-            await pi.setActiveTools([...currentTools, 'submit_plan']);
-
-            pi.sendMessage(
-                { customType: 'squad-activate', content: `${CLASSIFICATION_PROMPT}\n\n${task}`, display: false },
-                { triggerTurn: true },
-            );
+            await handleSquad(args, ctx, fsm, pi);
         },
     });
 
@@ -69,10 +49,26 @@ export default async function squadPlugin(pi) {
     });
 
     // -- input interception: prevent /squad* commands from reaching LLM --
-    pi.on('input', async (event) => {
+    pi.on('input', async (event, ctx) => {
         const text = event.text.trim();
         if (!text.startsWith('/squad')) return;
-        return { handled: true };
+        const spaceIndex = text.indexOf(' ');
+        const cmd = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
+        const args = spaceIndex === -1 ? '' : text.slice(spaceIndex + 1);
+
+        // /squad without args: handle directly (registerCommand path may not be available)
+        if (cmd === 'squad') {
+            await handleSquad(args, ctx, fsm, pi);
+            return { handled: true };
+        }
+        if (cmd === 'squad-once') {
+            await handleSquadOnce(args, ctx);
+            return { handled: true };
+        }
+        if (cmd === 'squad-models') {
+            await handleSquadModels(args, ctx);
+            return { handled: true };
+        }
     });
 
     // -- agent_end: revision forcing --
@@ -288,6 +284,34 @@ export default async function squadPlugin(pi) {
     });
 
     registered.add(pi);
+}
+
+// ---------------------------------------------------------------------------
+// handleSquad — shared between registerCommand handler and input interceptor
+// ---------------------------------------------------------------------------
+
+async function handleSquad(args, ctx, fsm, pi) {
+    const task = (args ?? '').trim();
+
+    if (!task) {
+        await showSessionSwitcher(ctx);
+        return;
+    }
+
+    if (fsm.isActive()) {
+        ctx.ui.notify('Squad is already running. Wait for it to finish.', 'warn');
+        return;
+    }
+
+    fsm.originalTask = task;
+    fsm.toActive();
+    const currentTools = pi.getActiveTools();
+    await pi.setActiveTools([...currentTools, 'submit_plan']);
+
+    pi.sendMessage(
+        { customType: 'squad-activate', content: `${CLASSIFICATION_PROMPT}\n\n${task}`, display: false },
+        { triggerTurn: true },
+    );
 }
 
 // ---------------------------------------------------------------------------
