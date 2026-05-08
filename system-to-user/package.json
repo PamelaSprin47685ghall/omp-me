@@ -1,0 +1,21 @@
+{
+    "name": "system-to-user",
+    "description": "oh-my-pi extension that replaces role: system with role: user in provider request messages",
+    "version": "1.0.0",
+    "type": "module",
+    "exports": "./index.js",
+    "scripts": {
+        "test": "bun test"
+    },
+    "keywords": [
+        "oh-my-pi",
+        "system",
+        "user",
+        "role"
+    ],
+    "omp": {
+        "extensions": [
+            "index.js"
+        ]
+    }
+}
