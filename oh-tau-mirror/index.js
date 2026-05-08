@@ -51,6 +51,13 @@ export default async function ohTauMirrorAdaptor(pi) {
 
     // Hijack tau-mirror's HTTP server so that /api/sessions only returns
     // sessions that have been seen by this process (no stale or sibling sessions).
+    //
+    // Bun's "import * as http" creates a namespace object whose properties are
+    // readonly snapshots; patching http.createServer directly is invisible to
+    // tau-mirror.  Instead we patch http.Server.prototype.on: Node.js's
+    // http.createServer(listener) internally calls this.on('request', listener),
+    // so wrapping 'request' registration lets us intercept /api/sessions before
+    // the original static-file handler ever sees it.
     const originalOn = pi.on.bind(pi);
     const hijackedOn = (event, handler) => {
         if (event !== 'session_start') return originalOn(event, handler);
@@ -58,14 +65,11 @@ export default async function ohTauMirrorAdaptor(pi) {
             latestCtx = ctx;
             const sf = ctx?.sessionManager?.getSessionFile?.();
             if (sf) processSessions.add(sf);
-            const originalCreateServer = http.createServer;
-            http.createServer = function (...args) {
-                // Restore immediately — only intercept this single call.
-                http.createServer = originalCreateServer;
-                const server = originalCreateServer.apply(this, args);
-                const serverOn = server.on.bind(server);
-                server.on = function (eventName, listener) {
-                    if (eventName !== 'request') return serverOn(eventName, listener);
+
+            const originalServerOn = http.Server.prototype.on;
+            http.Server.prototype.on = function (ev, listener) {
+                if (ev === 'request' && !this._tauMirrorHijacked) {
+                    this._tauMirrorHijacked = true;
                     const wrapped = (req, res) => {
                         if (req.url === '/api/sessions' || req.url?.startsWith('/api/sessions?')) {
                             serveCurrentSessionOnly(req, res);
@@ -73,11 +77,14 @@ export default async function ohTauMirrorAdaptor(pi) {
                         }
                         return listener(req, res);
                     };
-                    return serverOn(eventName, wrapped);
-                };
-                return server;
+                    return originalServerOn.call(this, ev, wrapped);
+                }
+                return originalServerOn.call(this, ev, listener);
             };
+
             await handler(evt, ctx);
+
+            http.Server.prototype.on = originalServerOn;
         });
     };
     pi.on = hijackedOn;
