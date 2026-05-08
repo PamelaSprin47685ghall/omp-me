@@ -145,22 +145,26 @@ function startProxy() {
                 }
                 wss.handleUpgrade(req, socket, head, (browserWs) => {
                     const upstreamWs = new WsClient(`ws://127.0.0.1:${tauPort}/ws`);
+                    const pending = [];
+
+                    browserWs.on('message', (data) => {
+                        if (upstreamWs.readyState === WsClient.OPEN) {
+                            upstreamWs.send(data);
+                        } else {
+                            pending.push(data);
+                        }
+                    });
+
+                    upstreamWs.on('open', () => {
+                        for (const d of pending) upstreamWs.send(d);
+                        pending.length = 0;
+                    });
 
                     upstreamWs.on('message', (data) => browserWs.send(data));
-                    browserWs.on('message', (data) => upstreamWs.send(data));
-
                     upstreamWs.on('close', () => browserWs.close());
-                    browserWs.on('close', () => {
-                        try {
-                            upstreamWs.close();
-                        } catch {}
-                    });
+                    browserWs.on('close', () => { try { upstreamWs.close(); } catch {} });
                     upstreamWs.on('error', () => browserWs.close());
-                    browserWs.on('error', () => {
-                        try {
-                            upstreamWs.close();
-                        } catch {}
-                    });
+                    browserWs.on('error', () => { try { upstreamWs.close(); } catch {} });
                 });
             });
 
@@ -285,28 +289,28 @@ function corsHeaders() {
     };
 }
 
-const realProcessSessions = new Set();
+/** Session file paths known to this process (original + realpath-resolved). */
+const knownSessions = new Set();
 
 /**
- * Add a session file path to the known set, resolved through symlinks
- * so paths via ~/.pi and ~/.omp match the same session.
+ * Add a session file path to the known set.
+ * Stores both the original path and (if the file exists) the realpath-resolved
+ * version, so ~/.pi/... and ~/.omp/... match the same session.
  */
 export function addSessionFile(sf) {
-  if (!sf) return;
-  try {
-    realProcessSessions.add(realpathSync(sf));
-  } catch {}
+    if (!sf) return;
+    knownSessions.add(sf);
+    try { knownSessions.add(realpathSync(sf)); } catch {}
 }
 
 function filterSessions(data) {
-  if (!data.projects) return;
-  for (const project of data.projects) {
-    project.sessions = project.sessions.filter((s) => {
-      try {
-        return realProcessSessions.has(realpathSync(s.filePath));
-      } catch {}
-      return false;
-    });
-  }
-  data.projects = data.projects.filter((p) => p.sessions.length > 0);
+    if (!data.projects) return;
+    for (const project of data.projects) {
+        project.sessions = project.sessions.filter((s) => {
+            if (knownSessions.has(s.filePath)) return true;
+            try { return knownSessions.has(realpathSync(s.filePath)); } catch {}
+            return false;
+        });
+    }
+    data.projects = data.projects.filter((p) => p.sessions.length > 0);
 }
