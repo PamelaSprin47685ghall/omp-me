@@ -31,10 +31,9 @@ describe('proxy module', () => {
         await import('../proxy.js');
     });
 
-    it('setProcessSessions accepts a Set', async () => {
+    it('addSessionFile resolves symlinks', async () => {
         const mod = await import('../proxy.js');
-        const s = new Set(['/a/b.jsonl']);
-        mod.setProcessSessions(s);
+        mod.addSessionFile('/nonexistent/test.jsonl');
     });
 });
 

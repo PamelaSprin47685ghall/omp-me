@@ -8,6 +8,7 @@
  */
 
 import http from 'node:http';
+import { realpathSync } from 'node:fs';
 import { WebSocketServer, WebSocket as WsClient } from 'ws';
 
 // ---------------------------------------------------------------------------
@@ -108,11 +109,6 @@ const INJECTED = `
 
 let tauPort = null;
 let proxyServer = null;
-let processSessions = null;
-
-export function setProcessSessions(sessions) {
-    processSessions = sessions;
-}
 
 export function getProxyPort() {
     if (!proxyServer) return null;
@@ -289,10 +285,28 @@ function corsHeaders() {
     };
 }
 
+const realProcessSessions = new Set();
+
+/**
+ * Add a session file path to the known set, resolved through symlinks
+ * so paths via ~/.pi and ~/.omp match the same session.
+ */
+export function addSessionFile(sf) {
+  if (!sf) return;
+  try {
+    realProcessSessions.add(realpathSync(sf));
+  } catch {}
+}
+
 function filterSessions(data) {
-    if (!processSessions || !data.projects) return;
-    for (const project of data.projects) {
-        project.sessions = project.sessions.filter((s) => processSessions.has(s.filePath));
-    }
-    data.projects = data.projects.filter((p) => p.sessions.length > 0);
+  if (!data.projects) return;
+  for (const project of data.projects) {
+    project.sessions = project.sessions.filter((s) => {
+      try {
+        return realProcessSessions.has(realpathSync(s.filePath));
+      } catch {}
+      return false;
+    });
+  }
+  data.projects = data.projects.filter((p) => p.sessions.length > 0);
 }

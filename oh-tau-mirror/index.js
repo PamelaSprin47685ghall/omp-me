@@ -28,10 +28,6 @@ console.error = () => {};
 
 const UNSUPPORTED_EVENTS = new Set(['model_select']);
 
-/** All session files seen by this process via forwarded events. */
-const processSessions = new Set();
-proxy.setProcessSessions(processSessions);
-
 export default async function ohTauMirrorAdaptor(pi) {
     // Resolve tau-mirror's extension entry from the npm-installed package.
     const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -43,7 +39,7 @@ export default async function ohTauMirrorAdaptor(pi) {
         if (event !== 'session_start') return origOn(event, handler);
         return origOn(event, async (evt, ctx) => {
             const sf = ctx?.sessionManager?.getSessionFile?.();
-            if (sf) processSessions.add(sf);
+            proxy.addSessionFile(sf);
 
             const proxyPortP = interceptPort(ctx);
             await handler(evt, ctx);
@@ -113,7 +109,7 @@ export function createBridge(pi) {
             if (UNSUPPORTED_EVENTS.has(event)) return;
             pi.on(event, (evt, ctx) => {
                 const sf = ctx?.sessionManager?.getSessionFile?.();
-                if (sf) processSessions.add(sf);
+                proxy.addSessionFile(sf);
 
                 // Tag event with session file for multi-session routing in the browser
                 if (evt && typeof evt === 'object' && sf) {
