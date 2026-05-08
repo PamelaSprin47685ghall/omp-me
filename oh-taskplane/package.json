@@ -1,0 +1,34 @@
+{
+  "name": "oh-taskplane",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Taskplane adaptor for oh-my-pi — parallel task execution with checkpoint discipline",
+  "bin": {
+    "taskplane": "node_modules/taskplane/bin/taskplane.mjs"
+  },
+  "type": "module",
+  "exports": "./index.js",
+  "scripts": {
+    "test": "bun test test/*.test.js",
+    "postinstall": "bun link"
+  },
+  "keywords": [
+    "oh-my-pi",
+    "extension",
+    "taskplane",
+    "orchestration",
+    "task-runner",
+    "parallel"
+  ],
+  "omp": {
+    "extensions": [
+      "index.js"
+    ]
+  },
+  "dependencies": {
+    "@mariozechner/pi-ai": "file:./shim-packages/pi-ai",
+    "@mariozechner/pi-coding-agent": "file:./shim-packages/pi-coding-agent",
+    "@mariozechner/pi-tui": "file:./shim-packages/pi-tui",
+    "taskplane": "^0.28.6"
+  }
+}
