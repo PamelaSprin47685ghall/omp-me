@@ -54,10 +54,7 @@ export default async function ohTauMirrorAdaptor(pi) {
                 if (actualPort && ctx?.ui) {
                     const status = ctx.ui.setStatus;
                     status('mirror', `Mirror: 127.0.0.1:${actualPort}`);
-                    ctx.ui.notify?.(
-                        `Tau mirror: http://127.0.0.1:${actualPort}  •  /qr for QR code`,
-                        'info',
-                    );
+                    ctx.ui.notify?.(`Tau mirror: http://127.0.0.1:${actualPort}  •  /qr for QR code`, 'info');
                 }
             }
         });
@@ -95,7 +92,10 @@ function interceptPort(ctx) {
             if (p) p.then((port) => resolve(port));
             else resolve(null);
         }, 10);
-        setTimeout(() => { clearInterval(check); resolve(null); }, 3000);
+        setTimeout(() => {
+            clearInterval(check);
+            resolve(null);
+        }, 3000);
     });
 }
 

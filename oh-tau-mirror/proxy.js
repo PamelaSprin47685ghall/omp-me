@@ -124,11 +124,13 @@ let proxyPortResolve = null;
 let proxyPortPromise = null;
 
 export function setTauPort(port) {
-  if (tauPort) return null;
-  tauPort = port;
-  proxyPortPromise = new Promise((resolve) => { proxyPortResolve = resolve; });
-  startProxy();
-  return proxyPortPromise;
+    if (tauPort) return null;
+    tauPort = port;
+    proxyPortPromise = new Promise((resolve) => {
+        proxyPortResolve = resolve;
+    });
+    startProxy();
+    return proxyPortPromise;
 }
 
 function startProxy() {
@@ -153,11 +155,15 @@ function startProxy() {
 
                     upstreamWs.on('close', () => browserWs.close());
                     browserWs.on('close', () => {
-                        try { upstreamWs.close(); } catch {}
+                        try {
+                            upstreamWs.close();
+                        } catch {}
                     });
                     upstreamWs.on('error', () => browserWs.close());
                     browserWs.on('error', () => {
-                        try { upstreamWs.close(); } catch {}
+                        try {
+                            upstreamWs.close();
+                        } catch {}
                     });
                 });
             });
