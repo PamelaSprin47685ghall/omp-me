@@ -177,86 +177,95 @@ function startProxy() {
 // HTTP proxy
 // ---------------------------------------------------------------------------
 
-const FORWARD_HEADERS = new Set(['content-type', 'content-length', 'accept', 'authorization', 'cookie', 'x-requested-with']);
+const FORWARD_HEADERS = new Set([
+    'content-type',
+    'content-length',
+    'accept',
+    'authorization',
+    'cookie',
+    'x-requested-with',
+]);
 
 function collectBody(req) {
-  return new Promise((resolve) => {
-    const chunks = [];
-    req.on('data', (c) => chunks.push(c));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-  });
+    return new Promise((resolve) => {
+        const chunks = [];
+        req.on('data', (c) => chunks.push(c));
+        req.on('end', () => resolve(Buffer.concat(chunks)));
+    });
 }
 
 function buildUpstreamHeaders(req) {
-  const headers = {};
-  for (const [k, v] of Object.entries(req.headers)) {
-    if (k && FORWARD_HEADERS.has(k.toLowerCase())) {
-      headers[k] = v;
+    const headers = {};
+    for (const [k, v] of Object.entries(req.headers)) {
+        if (k && FORWARD_HEADERS.has(k.toLowerCase())) {
+            headers[k] = v;
+        }
     }
-  }
-  return headers;
+    return headers;
 }
 
+const UPSTREAM_BASE = () => `http://127.0.0.1:${tauPort}`;
+
 async function proxyHandler(req, res) {
-  if (req.method === 'OPTIONS') {
-    res.writeHead(200, corsHeaders());
-    res.end();
-    return;
-  }
-
-  const body = req.method !== 'GET' && req.method !== 'HEAD' ? await collectBody(req) : undefined;
-  const upstreamUrl = UPSTREAM_BASE() + req.url;
-  const upstreamHeaders = buildUpstreamHeaders(req);
-  const fetchOpts = { method: req.method, headers: upstreamHeaders };
-  if (body && body.length > 0) fetchOpts.body = body;
-
-  // /api/sessions — filter to this process's sessions
-  if (req.url === '/api/sessions') {
-    const upstreamRes = await fetch(upstreamUrl, fetchOpts);
-    const data = await upstreamRes.json();
-    filterSessions(data);
-    res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders() });
-    res.end(JSON.stringify(data));
-    return;
-  }
-
-  // /api/qr — rewrite tau-mirror URL to proxy URL
-  if (req.url === '/api/qr') {
-    const upstreamRes = await fetch(upstreamUrl, fetchOpts);
-    let html = await upstreamRes.text();
-    const proxyPort = getProxyPort();
-    if (proxyPort) {
-      html = html.replace(new RegExp(`:${tauPort}(?=[/"']|$)`, 'g'), `:${proxyPort}`);
+    if (req.method === 'OPTIONS') {
+        res.writeHead(200, corsHeaders());
+        res.end();
+        return;
     }
-    res.writeHead(upstreamRes.status, { 'Content-Type': 'text/html', ...corsHeaders() });
-    res.end(html);
-    return;
-  }
 
-  // All other requests: forward to upstream
-  const upstreamRes = await fetch(upstreamUrl, fetchOpts);
+    const body = req.method !== 'GET' && req.method !== 'HEAD' ? await collectBody(req) : undefined;
+    const upstreamUrl = UPSTREAM_BASE() + req.url;
+    const upstreamHeaders = buildUpstreamHeaders(req);
+    const fetchOpts = { method: req.method, headers: upstreamHeaders };
+    if (body && body.length > 0) fetchOpts.body = body;
 
-  // /app.js — needs tau-override appended
-  if (req.url === '/app.js') {
-    const text = await upstreamRes.text();
-    res.writeHead(upstreamRes.status, { 'Content-Type': 'application/javascript', ...corsHeaders() });
-    res.end(text + INJECTED);
-    return;
-  }
-
-  // Everything else: raw passthrough, no decoding
-  const ct = upstreamRes.headers.get('content-type') || '';
-  const rh = {};
-  if (ct) rh['Content-Type'] = ct;
-  res.writeHead(upstreamRes.status, { ...rh, ...corsHeaders() });
-  if (upstreamRes.body) {
-    for await (const chunk of upstreamRes.body) {
-      res.write(chunk);
+    // /api/sessions — filter to this process's sessions
+    if (req.url === '/api/sessions') {
+        const upstreamRes = await fetch(upstreamUrl, fetchOpts);
+        const data = await upstreamRes.json();
+        filterSessions(data);
+        res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders() });
+        res.end(JSON.stringify(data));
+        return;
     }
-    res.end();
-  } else {
-    res.end();
-  }
+
+    // /api/qr — rewrite tau-mirror URL to proxy URL
+    if (req.url === '/api/qr') {
+        const upstreamRes = await fetch(upstreamUrl, fetchOpts);
+        let html = await upstreamRes.text();
+        const proxyPort = getProxyPort();
+        if (proxyPort) {
+            html = html.replace(new RegExp(`:${tauPort}(?=[/"']|$)`, 'g'), `:${proxyPort}`);
+        }
+        res.writeHead(upstreamRes.status, { 'Content-Type': 'text/html', ...corsHeaders() });
+        res.end(html);
+        return;
+    }
+
+    // All other requests: forward to upstream
+    const upstreamRes = await fetch(upstreamUrl, fetchOpts);
+
+    // /app.js — needs tau-override appended
+    if (req.url === '/app.js') {
+        const text = await upstreamRes.text();
+        res.writeHead(upstreamRes.status, { 'Content-Type': 'application/javascript', ...corsHeaders() });
+        res.end(text + INJECTED);
+        return;
+    }
+
+    // Everything else: raw passthrough, no decoding
+    const ct = upstreamRes.headers.get('content-type') || '';
+    const rh = {};
+    if (ct) rh['Content-Type'] = ct;
+    res.writeHead(upstreamRes.status, { ...rh, ...corsHeaders() });
+    if (upstreamRes.body) {
+        for await (const chunk of upstreamRes.body) {
+            res.write(chunk);
+        }
+        res.end();
+    } else {
+        res.end();
+    }
 }
 
 function corsHeaders() {
