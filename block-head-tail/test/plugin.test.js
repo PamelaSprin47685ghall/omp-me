@@ -199,8 +199,25 @@ describe('bash command stripping', () => {
         await s.events['tool_call'][0]({ toolName: 'bash', input }, { ui: s.pi.ui });
 
         assert.equal(s.notifies.length, 1);
-        assert.ok(s.notifies[0].msg.includes('Stripped'), 'notification should mention stripping');
-        assert.equal(s.notifies[0].level, 'warning');
+        assert.ok(s.notifies[0].msg.includes('stripped 1 pipe'), 'notification should mention stripping');
+        assert.ok(s.notifies[0].msg.includes('original: cat file | head -n 50'), 'notification should show original');
+        assert.ok(s.notifies[0].msg.includes('modified: cat file'), 'notification should show modified');
+        assert.ok(s.notifies[0].msg.includes('| head -n 50'), 'notification should name the stripped pipe');
+        assert.equal(s.notifies[0].level, 'info');
+    });
+
+    it('shows all truncated pipes and tool names in notification', async () => {
+        const s = stubPi();
+        await blockHeadTailExtension(s.pi);
+
+        const input = { command: 'cat big.log | head -n 100 | tail -n 10' };
+        await s.events['tool_call'][0]({ toolName: 'bash', input }, { ui: s.pi.ui });
+
+        assert.equal(s.notifies.length, 1);
+        assert.ok(s.notifies[0].msg.includes('| head -n 100'), 'notification should show head pipe');
+        assert.ok(s.notifies[0].msg.includes('| tail -n 10'), 'notification should show tail pipe');
+        assert.ok(s.notifies[0].msg.includes('original: cat big.log | head -n 100 | tail -n 10'));
+        assert.ok(s.notifies[0].msg.includes('modified: cat big.log'));
     });
 
     it('does not notify when no modification occurs', async () => {
