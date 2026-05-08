@@ -68,6 +68,13 @@ export default async function squadPlugin(pi) {
         },
     });
 
+    // -- input interception: prevent /squad* commands from reaching LLM --
+    pi.on('input', async (event) => {
+        const text = event.text.trim();
+        if (!text.startsWith('/squad')) return;
+        return { handled: true };
+    });
+
     // -- agent_end: revision forcing --
     pi.on('agent_end', async () => {
         if (!fsm.isRevising()) return;
