@@ -62,34 +62,34 @@ export default async function ohTauMirrorAdaptor(pi) {
 }
 
 function interceptPort(ctx) {
-  if (proxy.getProxyPort()) return;
-  const us = ctx?.ui;
-  if (!us || !us.setStatus) return;
-  const origSetStatus = us.setStatus.bind(us);
-  const origNotify = us.notify?.bind(us);
+    if (proxy.getProxyPort()) return;
+    const us = ctx?.ui;
+    if (!us || !us.setStatus) return;
+    const origSetStatus = us.setStatus.bind(us);
+    const origNotify = us.notify?.bind(us);
 
-  us.setStatus = (key, text) => {
-    if (key === 'mirror' && text) {
-      const m = text.match(/:(\d+)/);
-      if (m) {
-        const tauP = parseInt(m[1]);
-        proxy.setTauPort(tauP);
-        const pPort = tauP + 1000;
-        text = text.replaceAll(`:${tauP}`, `:${pPort}`);
-      }
-    }
-    return origSetStatus(key, text);
-  };
-
-  // Rewrite tau-mirror URL in notify to proxy URL
-  if (origNotify) {
-    us.notify = (message, type) => {
-      if (typeof message === 'string') {
-        message = message.replace(/:\d{4,5}(?=[/\s]|$)/g, (m) => `:${parseInt(m.slice(1)) + 1000}`);
-      }
-      return origNotify(message, type);
+    us.setStatus = (key, text) => {
+        if (key === 'mirror' && text) {
+            const m = text.match(/:(\d+)/);
+            if (m) {
+                const tauP = parseInt(m[1]);
+                proxy.setTauPort(tauP);
+                const pPort = tauP + 1000;
+                text = text.replaceAll(`:${tauP}`, `:${pPort}`);
+            }
+        }
+        return origSetStatus(key, text);
     };
-  }
+
+    // Rewrite tau-mirror URL in notify to proxy URL
+    if (origNotify) {
+        us.notify = (message, type) => {
+            if (typeof message === 'string') {
+                message = message.replace(/:\d{4,5}(?=[/\s]|$)/g, (m) => `:${parseInt(m.slice(1)) + 1000}`);
+            }
+            return origNotify(message, type);
+        };
+    }
 }
 
 /**
