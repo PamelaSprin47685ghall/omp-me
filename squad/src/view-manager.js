@@ -20,7 +20,7 @@ const STATUS_LABELS = {
     blocked: 'Blocked',
 };
 
-export function createViewManager(ctx, masterSessionFile) {
+export function createViewManager(ctx) {
     const nodeStates = new Map();
     const sessionRecords = new Map();
 
@@ -103,10 +103,6 @@ export function createViewManager(ctx, masterSessionFile) {
         return [...sessionRecords.values()];
     }
 
-    function getMasterSessionFile() {
-        return masterSessionFile;
-    }
-
     return {
         registerNode,
         registerSession,
@@ -114,6 +110,5 @@ export function createViewManager(ctx, masterSessionFile) {
         renderWidget,
         clearWidget,
         getSessionRecords,
-        getMasterSessionFile,
     };
 }

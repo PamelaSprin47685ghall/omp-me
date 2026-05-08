@@ -23,19 +23,11 @@ export default async function squadPlugin(pi) {
 
     const fsm = new SquadFSM();
 
-    // -- /squad command (one-shot) --
+    // -- /squad command --
     pi.registerCommand('squad', {
-        description: 'Execute a task via squad. No args opens session switcher.',
+        description: 'Execute a task via squad with concurrent workers',
         handler: async (args, ctx) => {
             await handleSquad(args, ctx, fsm, pi);
-        },
-    });
-
-    // -- squad-once: one-shot instruction to a worker session --
-    pi.registerCommand('squad-once', {
-        description: 'Send a one-shot instruction to a squad worker session',
-        handler: async (args, ctx) => {
-            await sendOnceInstruction(args, ctx);
         },
     });
 
@@ -61,12 +53,10 @@ export default async function squadPlugin(pi) {
             await handleSquad(args, ctx, fsm, pi);
             return { handled: true };
         }
-        if (cmd === 'squad-once') {
-            await handleSquadOnce(args, ctx);
-            return { handled: true };
-        }
+
         if (cmd === 'squad-models') {
-            await handleSquadModels(args, ctx);
+            const result = generateModelsConfig(ctx);
+            ctx.ui.notify(result, 'info');
             return { handled: true };
         }
     });
@@ -157,9 +147,7 @@ export default async function squadPlugin(pi) {
             const plan = validatePlan(params);
             const start = Date.now();
             const sessionId = ctx?.sessionManager?.getSessionId?.();
-            const masterSessionFile = ctx?.sessionManager?.getSessionFile?.() ?? null;
-
-            const viewManager = createViewManager(ctx, masterSessionFile);
+            const viewManager = createViewManager(ctx);
             const runId = nextRunId++;
             const runKey = sessionId ? `${sessionId}:${runId}` : null;
 
@@ -294,7 +282,7 @@ async function handleSquad(args, ctx, fsm, pi) {
     const task = (args ?? '').trim();
 
     if (!task) {
-        await showSessionSwitcher(ctx);
+        ctx.ui.notify('Usage: /squad <task description>', 'info');
         return;
     }
 
@@ -414,103 +402,4 @@ function generateModelsConfig(ctx) {
     const workerCount = config.filter((c) => c.role === 'worker').length;
     const reviewerCount = config.filter((c) => c.role === 'reviewer').length;
     return `Squad model pool written to ${path}\n${workerCount} worker slot(s), ${reviewerCount} reviewer slot(s).\nDuplicate entries to increase concurrency; edit role/thinkingLevel as needed.`;
-}
-
-// ---------------------------------------------------------------------------
-// /squad-once: one-shot instruction to a worker session
-// ---------------------------------------------------------------------------
-
-async function sendOnceInstruction(args, ctx) {
-    if (activeRunsBySessionId.size === 0) {
-        ctx.ui.notify('No active squad sessions', 'info');
-        return;
-    }
-
-    const allWorkers = [];
-    for (const [, run] of activeRunsBySessionId) {
-        for (const rec of run.viewManager.getSessionRecords()) {
-            if (rec.role === 'worker') allWorkers.push(rec);
-        }
-    }
-
-    if (allWorkers.length === 0) {
-        ctx.ui.notify('No active worker sessions', 'info');
-        return;
-    }
-
-    const options = allWorkers.map((r) => `[W] ${r.nodeId}`);
-    const selected = await ctx.ui.select('Send one-shot instruction to:', options);
-    if (!selected) return;
-
-    const idx = options.indexOf(selected);
-    const worker = allWorkers[idx];
-    if (!worker) return;
-
-    const instruction = await ctx.ui.input('Instruction:');
-    if (!instruction) return;
-
-    try {
-        if (worker.session.isStreaming) {
-            worker.session.steer(instruction);
-        } else {
-            await worker.session.prompt(instruction);
-        }
-        ctx.ui.notify(`Sent to ${worker.nodeId}: ${instruction.slice(0, 60)}`, 'info');
-    } catch (err) {
-        ctx.ui.notify(`Failed: ${err.message}`, 'error');
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Session switcher
-// ---------------------------------------------------------------------------
-
-async function showSessionSwitcher(ctx) {
-    if (activeRunsBySessionId.size === 0) {
-        ctx.ui.notify('No active squad sessions to switch to', 'info');
-        return;
-    }
-
-    const allRecords = [];
-    const masterFiles = new Set();
-    for (const [, run] of activeRunsBySessionId) {
-        for (const rec of run.viewManager.getSessionRecords()) {
-            allRecords.push(rec);
-        }
-        const mf = run.viewManager.getMasterSessionFile?.();
-        if (mf) masterFiles.add(mf);
-    }
-
-    const options = [];
-    const sessionMap = new Map();
-
-    for (const mf of masterFiles) {
-        const label = '[Master] Orchestrator';
-        options.push(label);
-        sessionMap.set(label, { sessionFile: mf, isMaster: true });
-    }
-
-    for (const rec of allRecords) {
-        const roleTag = rec.role === 'worker' ? 'W' : 'R';
-        const label = `[${roleTag}] ${rec.nodeId} - ${rec.role}`;
-        options.push(label);
-        sessionMap.set(label, { sessionFile: rec.sessionFile, isMaster: false });
-    }
-
-    if (options.length === 0) {
-        ctx.ui.notify('Squad is running, but no sessions are available to switch to yet.', 'info');
-        return;
-    }
-
-    const selected = await ctx.ui.select('Squad Sessions — select to switch focus', options);
-    if (!selected) return;
-
-    const target = sessionMap.get(selected);
-    if (!target) return;
-
-    if (ctx.switchSession) {
-        await ctx.switchSession(target.sessionFile);
-    } else {
-        ctx.ui.notify('Session switching is only available in interactive mode', 'info');
-    }
 }
