@@ -130,6 +130,7 @@ function buildBaseSessionOptions(ctx, pi, modelSlot) {
     const options = {
         cwd: ctx?.cwd ?? process.cwd(),
         hasUI: false,
+        disableExtensionDiscovery: true,
     };
 
     // 继承父会话的 AGENTS.md 搜索和 workspace tree，避免 subagent 重新扫描
@@ -157,8 +158,8 @@ function buildBaseSessionOptions(ctx, pi, modelSlot) {
         options.systemPrompt = ctx.getSystemPrompt();
     }
 
-    // 注意：不传 eventBus。subagent 的 createAgentSession 会自己创建 EventBus。
-    // 事件转发通过 squad 自己的 session.subscribe 机制处理。
+    // 不传 eventBus——subagent 用自己的 EventBus
+    // 事件转发在 runSession 中用 session.subscribe + pi.events 处理
 
     return options;
 }
