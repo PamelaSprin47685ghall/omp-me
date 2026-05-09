@@ -46,9 +46,9 @@ export default async function ohTauMirrorAdaptor(pi) {
 
             // Capture main session's EventBus so we can receive subagent
             // streaming events from squad and forward them to the browser.
-            if (ctx?.events && ctx.events !== mainEventBus) {
+            if (pi?.events && pi.events !== mainEventBus) {
                 unsubEventBus?.();
-                mainEventBus = ctx.events;
+                mainEventBus = pi.events;
                 unsubEventBus = mainEventBus.on('squad:subagent:stream', (data) => {
                     if (data?.event && data?.sessionFile) {
                         proxy.forwardSubagentEvent(data.event, data.sessionFile);

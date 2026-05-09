@@ -155,7 +155,7 @@ function buildBaseSessionOptions(ctx, pi, modelSlot) {
 
     // Share main session's EventBus so subagent streaming events can be
     // forwarded to tau-mirror (oh-tau-mirror listens on this bus).
-    if (ctx?.events) options.eventBus = ctx.events;
+    if (pi?.events) options.eventBus = pi.events;
 
     return options;
 }

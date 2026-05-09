@@ -287,6 +287,17 @@ export const INJECTED = `
       };
     }
 
+    if (typeof messageRenderer.clear === 'function' && !messageRenderer.clear.__tauMirrorClearPatched) {
+      const origClear = messageRenderer.clear.bind(messageRenderer);
+      messageRenderer.clear = function () {
+        currentStreamingElement = null;
+        currentStreamingText = '';
+        currentStreamingThinking = '';
+        return origClear();
+      };
+      messageRenderer.clear.__tauMirrorClearPatched = true;
+    }
+
     messageRenderer.__tauMirrorStreamingPatched = true;
   }
 
@@ -376,7 +387,9 @@ export const INJECTED = `
   if (typeof handleMessageUpdate === 'function' && !handleMessageUpdate.__tauMirrorReconnectPatched) {
     const origHandleMessageUpdate = handleMessageUpdate;
     handleMessageUpdate = function (event) {
-      if (!currentStreamingElement && event.assistantMessageEvent) {
+      const el = currentStreamingElement;
+      const isOrphan = el && typeof document !== 'undefined' && !document.contains(el);
+      if ((!el || isOrphan) && event.assistantMessageEvent) {
         const container = typeof messagesContainer !== 'undefined' ? messagesContainer : document.getElementById('messages');
         const allAssistants = container ? container.querySelectorAll('.message.assistant') : [];
         const lastAssistant = allAssistants.length > 0 ? allAssistants[allAssistants.length - 1] : null;
