@@ -543,7 +543,21 @@ function startProxy() {
 
                     upstreamWs.on('message', (data) => {
                         // Always send as text — browser ws.onmessage expects string
-                        browserWs.send(typeof data === 'string' ? data : data.toString());
+                        let text = typeof data === 'string' ? data : data.toString();
+                        // Strip the heavy 'message' field from streaming message_update
+                        // events to avoid forwarding the ENTIRE accumulated thinking/
+                        // text content on every token. The browser only uses
+                        // assistantMessageEvent (the delta) for incremental updates.
+                        if (text.includes('"type":"message_update"')) {
+                            try {
+                                const parsed = JSON.parse(text);
+                                if (parsed?.type === 'event' && parsed.event?.type === 'message_update') {
+                                    delete parsed.event.message;
+                                    text = JSON.stringify(parsed);
+                                }
+                            } catch {}
+                        }
+                        browserWs.send(text);
                     });
                     upstreamWs.on('close', () => browserWs.close());
                     browserWs.on('close', () => {
