@@ -377,8 +377,13 @@ async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHi
         DIAG('calling session.prompt...');
         DIAG('session.model=' + (session.model?.provider + '/' + session.model?.id || 'null'));
         DIAG('session.sessionId=' + session.sessionId);
+        const promptPromise = session.prompt(promptText);
+        const timeoutMs = 30000;
+        const timeoutPromise = Bun.sleep(timeoutMs).then(() => {
+            throw new Error('session.prompt timed out after ' + timeoutMs + 'ms');
+        });
         try {
-            await session.prompt(promptText);
+            await Promise.race([promptPromise, timeoutPromise]);
             DIAG('session.prompt returned');
         } catch (e) {
             DIAG('session.prompt ERROR: ' + e.message);
