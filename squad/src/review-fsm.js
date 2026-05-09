@@ -130,9 +130,6 @@ function buildBaseSessionOptions(ctx, pi, modelSlot) {
     const options = {
         cwd: ctx?.cwd ?? process.cwd(),
         hasUI: false,
-        disableExtensionDiscovery: true,
-        enableMCP: false,
-        enableLsp: false,
     };
 
     // 继承父会话的 AGENTS.md 搜索和 workspace tree，避免 subagent 重新扫描
@@ -374,8 +371,15 @@ async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHi
         }
 
         DIAG('calling session.prompt...');
-        await session.prompt(promptText);
-        DIAG('session.prompt returned');
+        DIAG('session.model=' + (session.model?.provider + '/' + session.model?.id || 'null'));
+        DIAG('session.sessionId=' + session.sessionId);
+        try {
+            await session.prompt(promptText);
+            DIAG('session.prompt returned');
+        } catch (e) {
+            DIAG('session.prompt ERROR: ' + e.message);
+            throw e;
+        }
 
         let emptyTurnCount = 0;
         while (!settled && emptyTurnCount < MAX_EMPTY_TURNS) {
