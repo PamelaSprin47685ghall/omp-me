@@ -153,6 +153,10 @@ function buildBaseSessionOptions(ctx, pi, modelSlot) {
         options.systemPrompt = ctx.getSystemPrompt();
     }
 
+    // Share main session's EventBus so subagent streaming events can be
+    // forwarded to tau-mirror (oh-tau-mirror listens on this bus).
+    if (ctx?.events) options.eventBus = ctx.events;
+
     return options;
 }
 
@@ -254,7 +258,9 @@ function buildReviewerPrompt(node, workerResult) {
         `**Affected files**: ${fileList || '(none)'}`,
         '',
         '## Review Criteria',
-        node.review_criteria,
+        Array.isArray(node.review_criteria)
+            ? node.review_criteria.map((c) => `- ${c}`).join('\n')
+            : node.review_criteria,
         '',
         '## Built-in Review Dimensions',
         dimensions,
@@ -325,6 +331,7 @@ async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHi
     }
 
     let session = null;
+    let unsub = null;
 
     try {
         const sessionOpts = {
@@ -338,6 +345,17 @@ async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHi
 
         if (onSessionCreated) {
             onSessionCreated(session);
+        }
+
+        // Forward subagent streaming events to main session's EventBus
+        // so oh-tau-mirror can relay them to the browser.
+        if (options.eventBus) {
+            unsub = session.subscribe((event) => {
+                options.eventBus.emit('squad:subagent:stream', {
+                    sessionFile: session.sessionFile,
+                    event,
+                });
+            });
         }
 
         await session.prompt(promptText);
@@ -370,6 +388,7 @@ async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHi
         throw err;
     } finally {
         childAbort.abort();
+        unsub?.();
     }
 }
 
@@ -409,6 +428,7 @@ async function runConfirmSession(pi, workerOptions, confirmPrompt, signal, toolB
     }
 
     let session = null;
+    let unsub = null;
 
     try {
         const sessionOpts = {
@@ -419,6 +439,16 @@ async function runConfirmSession(pi, workerOptions, confirmPrompt, signal, toolB
 
         const factoryResult = await createAgentSession(sessionOpts);
         session = factoryResult.session;
+
+        // Forward subagent streaming events to main session's EventBus
+        if (workerOptions.eventBus) {
+            unsub = session.subscribe((event) => {
+                workerOptions.eventBus.emit('squad:subagent:stream', {
+                    sessionFile: session.sessionFile,
+                    event,
+                });
+            });
+        }
 
         await session.prompt(confirmPrompt);
 
@@ -445,6 +475,7 @@ async function runConfirmSession(pi, workerOptions, confirmPrompt, signal, toolB
         throw err;
     } finally {
         childAbort.abort();
+        unsub?.();
     }
 }
 

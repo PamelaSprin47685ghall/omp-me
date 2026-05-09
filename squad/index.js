@@ -121,7 +121,12 @@ export default async function squadPlugin(pi) {
                         properties: {
                             id: { type: 'string', description: 'Unique node ID' },
                             task: { type: 'string', description: 'Detailed task description' },
-                            review_criteria: { type: 'string', description: 'Criteria for reviewer approval' },
+                            review_criteria: {
+                                anyOf: [
+                                    { type: 'string', description: 'Criteria for reviewer approval' },
+                                    { type: 'array', items: { type: 'string' }, description: 'Criteria for reviewer approval' },
+                                ],
+                            },
                             depends_on: {
                                 type: 'array',
                                 items: { type: 'string' },
@@ -355,6 +360,12 @@ function validatePlan(params) {
     for (const node of params.nodes) {
         if (!node.id || !node.task || !node.review_criteria) {
             throw new Error(`node "${node.id || '?'}" missing required fields`);
+        }
+        if (
+            typeof node.review_criteria !== 'string' &&
+            !(Array.isArray(node.review_criteria) && node.review_criteria.every((c) => typeof c === 'string'))
+        ) {
+            throw new Error(`node "${node.id || '?'}" review_criteria must be a string or an array of strings`);
         }
     }
 

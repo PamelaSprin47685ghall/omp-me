@@ -18,7 +18,7 @@
  */
 
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 // ---------------------------------------------------------------------------
 // Inject the `pi.pi` module reference needed for pi.pi.convertToLlm().
@@ -36,7 +36,7 @@ async function getPiMod() {
         const { join: joinPath } = await import('node:path');
         const base = joinPath(homedir(), '.bun/install/global/node_modules/@oh-my-pi');
         const piAgentPath = joinPath(base, 'pi-coding-agent/src/index.ts');
-        _piMod = await import('file://' + piAgentPath);
+        _piMod = await import(pathToFileURL(piAgentPath).href);
     }
     return _piMod;
 }
@@ -52,7 +52,7 @@ export default async function ohRpivAdvisorAdaptor(pi) {
     const __dirname = fileURLToPath(new URL('.', import.meta.url));
     const extPath = join(__dirname, 'node_modules', '@juicesharp', 'rpiv-advisor', 'index.ts');
 
-    const { default: rpivAdvisorExtension } = await import('file://' + extPath);
+    const { default: rpivAdvisorExtension } = await import(pathToFileURL(extPath).href);
 
     const piMod = await getPiMod();
     const bridge = createBridge(pi, piMod);

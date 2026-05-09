@@ -10,7 +10,7 @@
  */
 
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as proxy from './proxy.js';
 
 // ---------------------------------------------------------------------------
@@ -28,6 +28,9 @@ console.error = () => {};
 
 const UNSUPPORTED_EVENTS = new Set(['model_select']);
 
+let mainEventBus = null;
+let unsubEventBus = null;
+
 export default async function ohTauMirrorAdaptor(pi) {
     // Resolve tau-mirror's extension entry from the npm-installed package.
     const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -40,6 +43,18 @@ export default async function ohTauMirrorAdaptor(pi) {
         return origOn(event, async (evt, ctx) => {
             const sf = ctx?.sessionManager?.getSessionFile?.();
             proxy.addSessionFile(sf);
+
+            // Capture main session's EventBus so we can receive subagent
+            // streaming events from squad and forward them to the browser.
+            if (ctx?.events && ctx.events !== mainEventBus) {
+                unsubEventBus?.();
+                mainEventBus = ctx.events;
+                unsubEventBus = mainEventBus.on('squad:subagent:stream', (data) => {
+                    if (data?.event && data?.sessionFile) {
+                        proxy.forwardSubagentEvent(data.event, data.sessionFile);
+                    }
+                });
+            }
 
             const proxyPortP = interceptPort(ctx);
             await handler(evt, ctx);
@@ -56,7 +71,7 @@ export default async function ohTauMirrorAdaptor(pi) {
         });
     };
 
-    const { default: tauMirrorExtension } = await import('file://' + extPath);
+    const { default: tauMirrorExtension } = await import(pathToFileURL(extPath).href);
 
     const bridge = createBridge(pi);
     tauMirrorExtension(bridge);
@@ -93,6 +108,15 @@ function interceptPort(ctx) {
  * @mariozechner/pi-coding-agent ExtensionAPI that tau-mirror expects.
  */
 export function createBridge(pi) {
+    let lastSessionFile = null;
+    // Events that genuinely affect the sidebar catalog (new message,
+    // title generated, new session). Streaming tokens (message_update)
+    // must NOT be here — they fire dozens of times per second.
+    const CATALOG_REFRESH_EVENTS = new Set([
+        'message_end',
+        'turn_end',
+    ]);
+
     return {
         registerCommand(name, opts) {
             pi.registerCommand(name, opts);
@@ -102,7 +126,24 @@ export function createBridge(pi) {
             if (UNSUPPORTED_EVENTS.has(event)) return;
             pi.on(event, (evt, ctx) => {
                 const sf = ctx?.sessionManager?.getSessionFile?.();
-                proxy.addSessionFile(sf);
+
+                // Two reasons to call addSessionFile:
+                // 1. Session changed (first time we see this sf)
+                //    → register it + schedule a sidebar refresh.
+                // 2. A catalog-level event inside the current session
+                //    → schedule a sidebar refresh so mtime / title updates.
+                // message_update is excluded; it fires per token and must
+                // not trigger refresh.
+                if (sf) {
+                    const isNewSession = sf !== lastSessionFile;
+                    const isCatalogEvent = CATALOG_REFRESH_EVENTS.has(event);
+                    if (isNewSession) {
+                        lastSessionFile = sf;
+                        proxy.addSessionFile(sf);
+                    } else if (isCatalogEvent) {
+                        proxy.addSessionFile(sf);
+                    }
+                }
 
                 // When the user speaks in a session, make it the active session
                 if (event === 'message_start' && evt?.message?.role === 'user') {

@@ -247,6 +247,17 @@ export const INJECTED = `
 
       let streamingTextNode = contentDiv.querySelector('.streaming-text');
       if (!streamingTextNode) {
+        // When a history message is repurposed as the streaming target
+        // (after handleMirrorSync clears DOM), clear any pre-rendered
+        // markdown/HTML so only the streaming-text node remains
+        // alongside any thinking block.
+        const thinkingBlock = contentDiv.querySelector('.streaming-thinking, .thinking-block');
+        if (thinkingBlock) {
+          contentDiv.innerHTML = '';
+          contentDiv.appendChild(thinkingBlock);
+        } else {
+          contentDiv.innerHTML = '';
+        }
         streamingTextNode = document.createElement('div');
         streamingTextNode.className = 'streaming-text';
         contentDiv.appendChild(streamingTextNode);
@@ -281,6 +292,132 @@ export const INJECTED = `
 
   patchSessionSwitchForMirrorPaths();
   patchStreamingMessageRendering();
+
+  // Guard handleMirrorSync: when tau-mirror's global latestCtx points to a
+  // different session (e.g. squad sub-session vs parent session), a plain
+  // mirror_sync would clear the DOM and render the wrong history, wiping
+  // out any live thinking from the session the user is actually viewing.
+  // We drop non-matching non-forced mirror_sync; forced ones still switch.
+  if (typeof handleMirrorSync === 'function' && !handleMirrorSync.__tauMirrorSyncGuard) {
+    const origHandleMirrorSync = handleMirrorSync;
+    handleMirrorSync = function (data) {
+      if (
+        data.sessionFile &&
+        currentSessionFile &&
+        !sameSessionFile(data.sessionFile, currentSessionFile) &&
+        !data.forced
+      ) {
+        isMirrorMode = true;
+        mirrorActiveSessionFile = data.sessionFile || null;
+        if (typeof updateMirrorLiveIndicator === 'function') updateMirrorLiveIndicator();
+        return;
+      }
+      const result = origHandleMirrorSync(data);
+
+      // After mirror_sync clears DOM and re-renders history, the
+      // currentStreamingElement points to a detached orphan node.
+      // If the backend is still streaming, reconnect to the last
+      // assistant message in the DOM so subsequent message_update
+      // events (thinking_delta / text_delta) update visible DOM.
+      if (data.isStreaming) {
+        const container = typeof messagesContainer !== 'undefined' ? messagesContainer : document.getElementById('messages');
+        const allAssistants = container ? container.querySelectorAll('.message.assistant') : [];
+        const lastAssistant = allAssistants.length > 0 ? allAssistants[allAssistants.length - 1] : null;
+        if (lastAssistant) {
+          currentStreamingElement = lastAssistant;
+          const contentDiv = lastAssistant.querySelector('.message-content');
+          if (contentDiv && !contentDiv.classList.contains('streaming')) {
+            contentDiv.classList.add('streaming');
+          }
+
+          // Convert any existing static thinking block to streaming-thinking
+          // so updateStreamingThinking finds it instead of creating a duplicate.
+          const thinkingBlock = contentDiv?.querySelector('.thinking-block:not(.streaming-thinking)');
+          if (thinkingBlock) {
+            thinkingBlock.classList.add('streaming-thinking');
+            thinkingBlock.querySelector('.thinking-toggle')?.classList.add('expanded');
+            thinkingBlock.querySelector('.thinking-content')?.classList.add('expanded');
+          }
+
+          // Sync accumulated text state from DOM so deltas append correctly.
+          const streamingText = contentDiv?.querySelector('.streaming-text');
+          if (streamingText) {
+            currentStreamingText = streamingText.textContent || '';
+          } else {
+            const clone = contentDiv?.cloneNode(true);
+            if (clone) {
+              clone.querySelector('.thinking-block')?.remove();
+              currentStreamingText = clone.textContent || '';
+            }
+          }
+
+          // Sync accumulated thinking state from DOM.
+          const thinkingContent = contentDiv?.querySelector('.thinking-block .thinking-content, .streaming-thinking .thinking-content');
+          if (thinkingContent) {
+            currentStreamingThinking = thinkingContent.textContent || '';
+          }
+        }
+      } else {
+        currentStreamingElement = null;
+        currentStreamingText = '';
+        currentStreamingThinking = '';
+      }
+
+      return result;
+    };
+    handleMirrorSync.__tauMirrorSyncGuard = true;
+  }
+
+  // When a subagent's streaming event arrives (via squad:subagent:stream)
+  // and the browser never saw a message_start (e.g. user switched to the
+  // sub-session mid-stream), currentStreamingElement is null and the
+  // update is silently lost.  Reconnect to the last assistant message in
+  // the DOM so the delta has a visible target.
+  if (typeof handleMessageUpdate === 'function' && !handleMessageUpdate.__tauMirrorReconnectPatched) {
+    const origHandleMessageUpdate = handleMessageUpdate;
+    handleMessageUpdate = function (event) {
+      if (!currentStreamingElement && event.assistantMessageEvent) {
+        const container = typeof messagesContainer !== 'undefined' ? messagesContainer : document.getElementById('messages');
+        const allAssistants = container ? container.querySelectorAll('.message.assistant') : [];
+        const lastAssistant = allAssistants.length > 0 ? allAssistants[allAssistants.length - 1] : null;
+        if (lastAssistant) {
+          currentStreamingElement = lastAssistant;
+          const contentDiv = lastAssistant.querySelector('.message-content');
+          if (contentDiv && !contentDiv.classList.contains('streaming')) {
+            contentDiv.classList.add('streaming');
+          }
+
+          // Convert existing static thinking block to streaming-thinking
+          const thinkingBlock = contentDiv?.querySelector('.thinking-block:not(.streaming-thinking)');
+          if (thinkingBlock) {
+            thinkingBlock.classList.add('streaming-thinking');
+            thinkingBlock.querySelector('.thinking-toggle')?.classList.add('expanded');
+            thinkingBlock.querySelector('.thinking-content')?.classList.add('expanded');
+          }
+
+          // Sync text state from DOM
+          const streamingText = contentDiv?.querySelector('.streaming-text');
+          if (streamingText) {
+            currentStreamingText = streamingText.textContent || '';
+          } else {
+            const clone = contentDiv?.cloneNode(true);
+            if (clone) {
+              clone.querySelector('.thinking-block')?.remove();
+              currentStreamingText = clone.textContent || '';
+            }
+          }
+
+          // Sync thinking state from DOM
+          const thinkingContent = contentDiv?.querySelector('.thinking-block .thinking-content, .streaming-thinking .thinking-content');
+          if (thinkingContent) {
+            currentStreamingThinking = thinkingContent.textContent || '';
+          }
+        }
+      }
+      return origHandleMessageUpdate(event);
+    };
+    handleMessageUpdate.__tauMirrorReconnectPatched = true;
+  }
 
   // Intercept handleMessage instead of onmessage to avoid double JSON.parse
   if (typeof wsClient.handleMessage === 'function') {
@@ -466,6 +603,21 @@ export function isKnownSessionFile(sf) {
 
 function broadcastBrowserEvent(event) {
     const payload = JSON.stringify({ type: 'event', event });
+    for (const browserClient of browserClients) {
+        if (browserClient.readyState === WsClient.OPEN) {
+            browserClient.send(payload);
+        }
+    }
+}
+
+/**
+ * Forward a raw subagent streaming event directly to browser clients.
+ * Used by oh-tau-mirror when it receives squad:subagent:stream events
+ * from the main session's EventBus.
+ */
+export function forwardSubagentEvent(event, sessionFile) {
+    if (!sessionFile) return;
+    const payload = JSON.stringify({ type: 'event', event: { ...event, __sessionFile: sessionFile } });
     for (const browserClient of browserClients) {
         if (browserClient.readyState === WsClient.OPEN) {
             browserClient.send(payload);

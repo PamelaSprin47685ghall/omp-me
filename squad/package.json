@@ -3,5 +3,9 @@
   "version": "0.1.0",
   "type": "module",
   "main": "index.js",
-  "description": "DAG-based multi-agent orchestration with mandatory Worker-Reviewer loops and native session switching for oh-my-pi"
+  "exports": "./index.js",
+  "description": "DAG-based multi-agent orchestration with mandatory Worker-Reviewer loops and native session switching for oh-my-pi",
+  "omp": {
+    "extensions": ["index.js"]
+  }
 }

@@ -5,6 +5,9 @@
   "description": "tau-mirror adaptor for oh-my-pi — Web UI that mirrors your terminal session in the browser",
   "type": "module",
   "exports": "./index.js",
+  "omp": {
+    "extensions": ["index.js"]
+  },
   "keywords": [
     "oh-my-pi",
     "pi",

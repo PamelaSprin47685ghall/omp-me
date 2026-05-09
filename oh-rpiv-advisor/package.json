@@ -5,6 +5,9 @@
   "description": "rpiv-advisor adaptor for oh-my-pi — escalate to a stronger reviewer model for guidance",
   "type": "module",
   "exports": "./index.js",
+  "omp": {
+    "extensions": ["index.js"]
+  },
   "keywords": [
     "oh-my-pi",
     "pi",
