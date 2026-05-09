@@ -30,49 +30,47 @@ describe('system-to-user extension', () => {
         assert.equal(pi.events['before_provider_request'].length, 1);
     });
 
-    it('replaces role: system with role: user in messages', async () => {
+    it('replaces role: system with role: user in input', async () => {
         const pi = stubPi();
         await systemToUserExtension(pi);
 
         const payload = {
-            messages: [
+            model: 'gpt-5',
+            input: [
                 { role: 'system', content: 'hello' },
                 { role: 'user', content: 'q' },
-                { role: 'assistant', content: 'a' },
+                { type: 'function_call', call_id: 'c1', name: 'f', arguments: '{}' },
             ],
         };
         const result = await pi.emit('before_provider_request', { payload });
 
         assert.ok(result);
-        assert.equal(result.messages[0].role, 'user');
-        assert.equal(result.messages[0].content, 'hello');
-        assert.equal(result.messages[1].role, 'user');
-        assert.equal(result.messages[2].role, 'assistant');
+        assert.equal(result.input[0].role, 'user');
+        assert.equal(result.input[0].content, 'hello');
+        assert.equal(result.input[1].role, 'user');
+        assert.equal(result.input[2].type, 'function_call');
     });
 
-    it('preserves other payload fields', async () => {
+    it('does not touch messages array (completions API path)', async () => {
         const pi = stubPi();
         await systemToUserExtension(pi);
 
         const payload = {
-            model: 'gpt-4',
-            temperature: 0,
             messages: [{ role: 'system', content: 's' }],
         };
         const result = await pi.emit('before_provider_request', { payload });
 
-        assert.equal(result.model, 'gpt-4');
-        assert.equal(result.temperature, 0);
+        assert.equal(result, undefined);
     });
 
-    it('returns undefined when no system messages exist', async () => {
+    it('returns undefined when no system role exists in input', async () => {
         const pi = stubPi();
         await systemToUserExtension(pi);
 
         const payload = {
-            messages: [
+            input: [
                 { role: 'user', content: 'q' },
-                { role: 'assistant', content: 'a' },
+                { role: 'developer', content: 'already developer' },
             ],
         };
         const result = await pi.emit('before_provider_request', { payload });
@@ -80,7 +78,7 @@ describe('system-to-user extension', () => {
         assert.equal(result, undefined);
     });
 
-    it('returns undefined for payloads without messages array', async () => {
+    it('returns undefined for payloads without input array', async () => {
         const pi = stubPi();
         await systemToUserExtension(pi);
 
@@ -90,12 +88,29 @@ describe('system-to-user extension', () => {
         assert.equal(result, undefined);
     });
 
-    it('handles mixed system and non-system messages', async () => {
+    it('preserves other payload fields', async () => {
         const pi = stubPi();
         await systemToUserExtension(pi);
 
         const payload = {
-            messages: [
+            model: 'gpt-5',
+            temperature: 0,
+            stream: true,
+            input: [{ role: 'system', content: 's' }],
+        };
+        const result = await pi.emit('before_provider_request', { payload });
+
+        assert.equal(result.model, 'gpt-5');
+        assert.equal(result.temperature, 0);
+        assert.equal(result.stream, true);
+    });
+
+    it('handles mixed system and non-system input items', async () => {
+        const pi = stubPi();
+        await systemToUserExtension(pi);
+
+        const payload = {
+            input: [
                 { role: 'system', content: 's1' },
                 { role: 'system', content: 's2' },
                 { role: 'user', content: 'q' },
@@ -103,8 +118,8 @@ describe('system-to-user extension', () => {
         };
         const result = await pi.emit('before_provider_request', { payload });
 
-        assert.equal(result.messages[0].role, 'user');
-        assert.equal(result.messages[1].role, 'user');
-        assert.equal(result.messages[2].role, 'user');
+        assert.equal(result.input[0].role, 'user');
+        assert.equal(result.input[1].role, 'user');
+        assert.equal(result.input[2].role, 'user');
     });
 });

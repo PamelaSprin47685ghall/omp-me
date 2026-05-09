@@ -2,13 +2,13 @@ export default async function systemToUserExtension(pi) {
     pi.on('before_provider_request', (event) => {
         const payload = event.payload;
         if (!payload) return;
-        if (!Array.isArray(payload.messages)) return;
+        if (!Array.isArray(payload.input)) return;
 
         let modified = false;
-        for (let i = 0; i < payload.messages.length; i++) {
-            const msg = payload.messages[i];
-            if (msg && msg.role === 'system') {
-                payload.messages[i] = { ...msg, role: 'user' };
+        for (let i = 0; i < payload.input.length; i++) {
+            const item = payload.input[i];
+            if (item && (item.role === 'system' || item.role === 'developer')) {
+                payload.input[i] = { ...item, role: 'user' };
                 modified = true;
             }
         }

@@ -69,29 +69,22 @@ function interceptPort(ctx) {
     if (!us || !us.setStatus) return null;
     const origSetStatus = us.setStatus.bind(us);
 
-    let tauP = null;
-    us.setStatus = (key, text) => {
-        if (key === 'mirror' && text && !tauP) {
-            const m = text.match(/:\d+/);
-            if (m) tauP = parseInt(m[0].slice(1));
-        }
-        return origSetStatus(key, text);
-    };
-
-    // Defer: start proxy after tau-mirror has called setStatus
-    // We return a promise so caller can await the actual proxy port
     return new Promise((resolve) => {
-        const check = setInterval(() => {
-            if (!tauP) return;
-            clearInterval(check);
-            const p = proxy.setTauPort(tauP);
-            if (p) p.then((port) => resolve(port));
-            else resolve(null);
-        }, 10);
-        setTimeout(() => {
-            clearInterval(check);
-            resolve(null);
-        }, 3000);
+        const timeout = setTimeout(() => resolve(null), 3000);
+        
+        us.setStatus = (key, text) => {
+            if (key === 'mirror' && text) {
+                const m = text.match(/:\d+/);
+                if (m) {
+                    const tauP = parseInt(m[0].slice(1));
+                    clearTimeout(timeout);
+                    const p = proxy.setTauPort(tauP);
+                    if (p) p.then((port) => resolve(port));
+                    else resolve(null);
+                }
+            }
+            return origSetStatus(key, text);
+        };
     });
 }
 
