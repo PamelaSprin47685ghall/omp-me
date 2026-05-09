@@ -4,11 +4,12 @@ import { resolve } from 'node:path';
 function getShimDir() {
   const raw = import.meta.url;
   const idx = raw.lastIndexOf('/shim.mjs');
-  if (idx === -1) throw new Error('Cannot locate shim.mjs');
+  if (idx === -1) throw new Error('Cannot locate shim.mjs: ' + raw);
 
   let dir = raw.slice(0, idx);
 
   // omp-legacy-pi-file: namespace wraps as file:///omp-legacy-pi-file:/real/path
+  // Find it anywhere in the string (not just at start)
   const LEGACY_PREFIX = 'omp-legacy-pi-file:';
   const nsIdx = dir.indexOf(LEGACY_PREFIX);
   if (nsIdx !== -1) {
@@ -25,6 +26,7 @@ function getShimDir() {
   return dir;
 }
 
-const PLUGIN_URL = pathToFileURL(resolve(getShimDir(), 'index.js')).href;
+const shimDir = getShimDir();
+const PLUGIN_URL = pathToFileURL(resolve(shimDir, 'index.js')).href;
 const mod = await import(PLUGIN_URL);
 export default mod.default;

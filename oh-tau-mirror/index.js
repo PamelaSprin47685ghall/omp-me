@@ -49,10 +49,7 @@ export default async function ohTauMirrorAdaptor(pi) {
             if (pi?.events && pi.events !== mainEventBus) {
                 unsubEventBus?.();
                 mainEventBus = pi.events;
-                const DIAG = typeof process !== 'undefined' ? (msg) => require('fs').appendFileSync('/tmp/otm-diag.log', new Date().toISOString() + ' ' + msg + '\n') : () => {};
-                DIAG('subscribing to squad:subagent:stream on eventBus');
                 unsubEventBus = mainEventBus.on('squad:subagent:stream', (data) => {
-                    DIAG('received squad:subagent:stream sessionFile=' + (data?.sessionFile || 'null') + ' eventType=' + (data?.event?.type || 'null'));
                     if (data?.event && data?.sessionFile) {
                         proxy.forwardSubagentEvent(data.event, data.sessionFile);
                     }

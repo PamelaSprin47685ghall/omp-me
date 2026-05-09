@@ -29,16 +29,5 @@ function getShimDir() {
 const shimDir = getShimDir();
 const PLUGIN_URL = pathToFileURL(resolve(shimDir, 'index.js')).href;
 
-// 诊断
-try {
-  const { appendFileSync } = await import('node:fs');
-  appendFileSync('/tmp/squad-shim.log', [
-    `import.meta.url: ${import.meta.url}`,
-    `shimDir       : ${shimDir}`,
-    `resolve+url   : ${PLUGIN_URL}`,
-    '',
-  ].join('\n'));
-} catch {}
-
 const mod = await import(PLUGIN_URL);
 export default mod.default;
