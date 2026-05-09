@@ -130,10 +130,6 @@ function buildBaseSessionOptions(ctx, pi, modelSlot) {
     const options = {
         cwd: ctx?.cwd ?? process.cwd(),
         hasUI: false,
-        // Subagent 不需要重新发现扩展——主 session 已加载完毕。
-        // omp 14.8 下 `omp-legacy-pi-file:` namespace 的扩展发现
-        // 在 Linux 上会卡住。
-        disableExtensionDiscovery: true,
     };
 
     // 继承父会话的 AGENTS.md 搜索和 workspace tree，避免 subagent 重新扫描
@@ -161,9 +157,8 @@ function buildBaseSessionOptions(ctx, pi, modelSlot) {
         options.systemPrompt = ctx.getSystemPrompt();
     }
 
-    // Share main session's EventBus so subagent streaming events can be
-    // forwarded to tau-mirror (oh-tau-mirror listens on this bus).
-    if (pi?.events) options.eventBus = pi.events;
+    // 注意：不传 eventBus。subagent 的 createAgentSession 会自己创建 EventBus。
+    // 事件转发通过 squad 自己的 session.subscribe 机制处理。
 
     return options;
 }
@@ -365,9 +360,11 @@ async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHi
             onSessionCreated(session);
         }
 
-        if (options.eventBus) {
+        // 直接使用主 session 的 EventBus (pi.events) 进行事件转发
+        const mainEventBus = pi?.events;
+        if (mainEventBus) {
             unsub = session.subscribe((event) => {
-                options.eventBus.emit('squad:subagent:stream', {
+                mainEventBus.emit('squad:subagent:stream', {
                     sessionFile: session.sessionFile,
                     event,
                 });
