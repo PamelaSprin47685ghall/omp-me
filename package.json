@@ -3,7 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun test squad/ oh-tau-mirror/ oh-rpiv-advisor/ system-to-user/ block-head-tail/ ollama-search/",
+    "test": "bun run test:tau && bun run test:advisor && bun run test:s2u && bun run test:head && bun run test:search",
+    "test:squad": "echo 'squad: no tests'",
+    "test:tau": "bun test oh-tau-mirror/",
+    "test:advisor": "bun test oh-rpiv-advisor/",
+    "test:s2u": "bun test system-to-user/",
+    "test:head": "bun test block-head-tail/",
+    "test:search": "bun test ollama-search/",
     "prepare": "simple-git-hooks",
     "format": "bun x prettier --write \"**/*.{js,mjs}\"",
     "format:check": "bun x prettier --check \"**/*.{js,mjs}\""
