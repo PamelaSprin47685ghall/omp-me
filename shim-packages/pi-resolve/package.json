@@ -1,0 +1,5 @@
+{
+  "name": "@oh-my-pi/resolve-pi",
+  "type": "module",
+  "exports": "./index.js"
+}

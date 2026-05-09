@@ -1,8 +1,9 @@
-import { executeDAG } from './src/dag-engine.js';
-import { createViewManager } from './src/view-manager.js';
-import { loadModelsConfig, saveModelsConfig, getConfigPath } from './src/model-pool.js';
-import SquadFSM from './src/squad-fsm.js';
-import { runOuterReview } from './src/outer-review.js';
+/** DAG-based multi-agent orchestration with Worker-Reviewer loops. */
+import { executeDAG } from './dag-engine.js';
+import { createViewManager } from './view-manager.js';
+import { loadModelsConfig, saveModelsConfig, getConfigPath } from './model-pool.js';
+import SquadFSM from './squad-fsm.js';
+import { runOuterReview } from './outer-review.js';
 
 let _registered = false;
 const activeRunsBySessionId = new Map();
@@ -23,7 +24,6 @@ export default async function squadPlugin(pi) {
 
     const fsm = new SquadFSM();
 
-    // -- /squad command --
     pi.registerCommand('squad', {
         description: 'Execute a task via squad with concurrent workers',
         handler: async (args, ctx) => {
@@ -31,7 +31,6 @@ export default async function squadPlugin(pi) {
         },
     });
 
-    // -- squad-models: generate model pool config --
     pi.registerCommand('squad-models', {
         description: 'Generate initial squad model pool config',
         handler: async (_args, ctx) => {
@@ -40,7 +39,6 @@ export default async function squadPlugin(pi) {
         },
     });
 
-    // -- input interception: prevent /squad* commands from reaching LLM --
     pi.on('input', async (event, ctx) => {
         const text = event.text.trim();
         if (!text.startsWith('/squad')) return;
@@ -48,7 +46,6 @@ export default async function squadPlugin(pi) {
         const cmd = spaceIndex === -1 ? text.slice(1) : text.slice(1, spaceIndex);
         const args = spaceIndex === -1 ? '' : text.slice(spaceIndex + 1);
 
-        // /squad without args: handle directly (registerCommand path may not be available)
         if (cmd === 'squad') {
             await handleSquad(args, ctx, fsm, pi);
             return { handled: true };
@@ -61,7 +58,6 @@ export default async function squadPlugin(pi) {
         }
     });
 
-    // -- agent_end: revision forcing --
     pi.on('agent_end', async () => {
         if (!fsm.isRevising()) return;
         pi.sendMessage(
@@ -74,7 +70,6 @@ export default async function squadPlugin(pi) {
         );
     });
 
-    // -- session cleanup --
     pi.on('session_shutdown', async (_event, ctx) => {
         const sessionId = ctx?.sessionManager?.getSessionId?.();
         if (typeof ctx?.ui?.setWidget === 'function') {
@@ -95,7 +90,6 @@ export default async function squadPlugin(pi) {
         fsm.toIdle();
     });
 
-    // -- submit_plan tool --
     pi.registerTool({
         name: 'submit_plan',
         label: 'Submit Plan',
@@ -164,7 +158,6 @@ export default async function squadPlugin(pi) {
                 activeRunsBySessionId.set(runKey, { viewManager, startedAt: start });
             }
 
-            // Escape / Ctrl+C abort
             let unsubInput = null;
             if (typeof ctx?.ui?.onTerminalInput === 'function') {
                 unsubInput = ctx.ui.onTerminalInput((data) => {
@@ -180,7 +173,6 @@ export default async function squadPlugin(pi) {
                 fsm.toActive(); // revising → active (revision callback)
                 const results = await executeDAG(plan.nodes, ctx, pi, signal, viewManager);
 
-                // L mode: outer review loop — infinite, exits only on approval or squad abort
                 let outerRound = 0;
 
                 while (plan.mode === 'L') {
@@ -281,10 +273,6 @@ export default async function squadPlugin(pi) {
     _registered = true;
 }
 
-// ---------------------------------------------------------------------------
-// handleSquad — shared between registerCommand handler and input interceptor
-// ---------------------------------------------------------------------------
-
 async function handleSquad(args, ctx, fsm, pi) {
     const task = (args ?? '').trim();
 
@@ -308,10 +296,6 @@ async function handleSquad(args, ctx, fsm, pi) {
         { triggerTurn: true },
     );
 }
-
-// ---------------------------------------------------------------------------
-// Finish helpers
-// ---------------------------------------------------------------------------
 
 async function finishSquad(results, plan, start, viewManager, pi, fsm) {
     fsm.toIdle();
@@ -347,10 +331,6 @@ async function finishSquadCleanup(viewManager, pi, fsm) {
     viewManager.clearWidget();
 }
 
-// ---------------------------------------------------------------------------
-// Plan validation
-// ---------------------------------------------------------------------------
-
 function validatePlan(params) {
     if (!['M', 'L'].includes(params.mode)) {
         throw new Error('mode must be M or L');
@@ -385,10 +365,6 @@ function validatePlan(params) {
     return { mode: params.mode, nodes: params.nodes };
 }
 
-// ---------------------------------------------------------------------------
-// Models config
-// ---------------------------------------------------------------------------
-
 function generateModelsConfig(ctx) {
     const available = ctx?.modelRegistry?.getAvailable?.() ?? [];
     if (available.length === 0) return 'No models available for pool config.';
@@ -398,7 +374,6 @@ function generateModelsConfig(ctx) {
         config.push({ provider: m.provider, modelId: m.id, role: 'worker' });
     }
 
-    // Add reviewer entries for fast models
     const fastModels = available.filter(
         (m) =>
             m.role === 'smol' ||

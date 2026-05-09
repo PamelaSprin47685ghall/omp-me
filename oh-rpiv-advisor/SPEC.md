@@ -88,7 +88,7 @@ async function getApiKeyAndHeaders(model) {
 
 ## Full-suite compatibility
 
-- Shim packages at `shim-packages/` provide stub/mock implementations for `@mariozechner/pi-ai`, `@mariozechner/pi-coding-agent`, `@mariozechner/pi-tui`, and `typebox`.
+- Shim packages at `../shim-packages/` provide stub/mock implementations for `@mariozechner/pi-ai`, `@mariozechner/pi-coding-agent`, `@mariozechner/pi-tui`, and `typebox`.
 - Tool/command registration is idempotent (guarded by WeakSet on the bridge's `pi` reference).
 - The `pi.pi` module reference is lazily resolved and cached.
 - All external imports use `file://` paths (AGENTS.md pattern) instead of bare package specifiers.

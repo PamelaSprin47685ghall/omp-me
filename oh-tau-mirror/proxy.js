@@ -14,9 +14,6 @@ import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 import { WebSocketServer, WebSocket as WsClient } from 'ws';
 
-// ---------------------------------------------------------------------------
-// tau-override: appended to app.js before the browser receives it
-// ---------------------------------------------------------------------------
 export const INJECTED = `
 
 // === tau-override: multi-session routing ===
@@ -458,10 +455,6 @@ export const INJECTED = `
 })();
 `;
 
-// ---------------------------------------------------------------------------
-// Proxy state
-// ---------------------------------------------------------------------------
-
 let tauPort = null;
 let proxyServer = null;
 
@@ -544,12 +537,7 @@ function startProxy() {
                     });
 
                     upstreamWs.on('message', (data) => {
-                        // Always send as text — browser ws.onmessage expects string
                         let text = typeof data === 'string' ? data : data.toString();
-                        // Strip the heavy 'message' field from streaming message_update
-                        // events to avoid forwarding the ENTIRE accumulated thinking/
-                        // text content on every token. The browser only uses
-                        // assistantMessageEvent (the delta) for incremental updates.
                         if (text.includes('"type":"message_update"')) {
                             try {
                                 const parsed = JSON.parse(text);
@@ -589,16 +577,11 @@ function startProxy() {
             if (e.code !== 'EADDRINUSE') throw e;
         }
     }
-    // All ports busy — reject the promise
     if (proxyPortResolve) {
         proxyPortResolve(null);
         proxyPortResolve = null;
     }
 }
-
-// ---------------------------------------------------------------------------
-// Session tracking — paths from oh-my-pi (always .omp)
-// ---------------------------------------------------------------------------
 
 const knownSessions = new Set();
 const knownSessionFiles = new Set();
@@ -639,11 +622,6 @@ function broadcastBrowserEvent(event) {
     }
 }
 
-/**
- * Forward a raw subagent streaming event directly to browser clients.
- * Used by oh-tau-mirror when it receives squad:subagent:stream events
- * from the main session's EventBus.
- */
 export function forwardSubagentEvent(event, sessionFile) {
     if (!sessionFile) return;
     const payload = JSON.stringify({ type: 'event', event: { ...event, __sessionFile: sessionFile } });
@@ -679,12 +657,6 @@ function scheduleSessionCatalogChanged(sessionFile) {
     }, SESSION_CATALOG_DEBOUNCE_MS);
 }
 
-/**
- * Notify the browser that a session should become the active/viewing session.
- * Used when the console creates a new session (e.g. /new) so the browser follows.
- * Sends a native-format mirror_sync with forced=true so the frontend knows
- * this is an explicit activation, not a background status sync.
- */
 export function activateSessionFile(sf) {
     const expandedSessionFile = expandSessionFile(sf);
     if (!expandedSessionFile) return;
@@ -696,16 +668,6 @@ export function activateSessionFile(sf) {
     }
 }
 
-/**
- * Add a session file path to the known set.
- * Session paths from oh-my-pi are always .omp; identity matching
- * handles any .pi paths that tau-mirror might still produce.
- *
- * Marks catalog dirty on each observed session event and emits
- * session_catalog_changed in a short debounce window. If no browser
- * clients are connected at flush time, the dirty marker is preserved
- * and replayed on the next browser connection.
- */
 export function addSessionFile(sf) {
     const expandedSessionFile = expandSessionFile(sf);
     if (!expandedSessionFile) return;
@@ -721,10 +683,6 @@ export function addSessionFile(sf) {
 
     scheduleSessionCatalogChanged(expandedSessionFile);
 }
-
-// ---------------------------------------------------------------------------
-// OMP session scanning — replaces tau-mirror's .pi-based scanning
-// ---------------------------------------------------------------------------
 
 const OMP_SESSIONS_DIR = join(homedir(), '.omp', 'agent', 'sessions');
 
@@ -972,10 +930,6 @@ async function searchOmpSessions(query) {
     return { results };
 }
 
-// ---------------------------------------------------------------------------
-// HTTP proxy
-// ---------------------------------------------------------------------------
-
 const FORWARD_HEADERS = new Set([
     'content-type',
     'content-length',
@@ -1006,8 +960,6 @@ function buildUpstreamHeaders(req) {
 const UPSTREAM_BASE = () => `http://127.0.0.1:${tauPort}`;
 
 async function proxyHandler(req, res) {
-    // WebSocket upgrade — handled by the 'upgrade' event listener;
-    // must not send an HTTP response or upgrade will be suppressed.
     if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') return;
 
     if (req.method === 'OPTIONS') {
@@ -1017,9 +969,6 @@ async function proxyHandler(req, res) {
     }
 
     const urlPath = req.url.split('?')[0];
-
-    // --- Session endpoints: served from ~/.omp directly ---
-    // tau-mirror hardcodes .pi; we replace with .omp scanning.
 
     if (urlPath === '/api/sessions' && req.method === 'GET') {
         try {
@@ -1053,15 +1002,12 @@ async function proxyHandler(req, res) {
         return;
     }
 
-    // --- All other requests: forward to upstream (tau-mirror) ---
-
     const body = req.method !== 'GET' && req.method !== 'HEAD' ? await collectBody(req) : undefined;
     const upstreamUrl = UPSTREAM_BASE() + req.url;
     const upstreamHeaders = buildUpstreamHeaders(req);
     const fetchOpts = { method: req.method, headers: upstreamHeaders };
     if (body && body.length > 0) fetchOpts.body = body;
 
-    // /api/qr — rewrite tau-mirror URL to proxy URL
     if (urlPath === '/api/qr') {
         const upstreamRes = await fetch(upstreamUrl, fetchOpts);
         let html = await upstreamRes.text();
@@ -1074,10 +1020,8 @@ async function proxyHandler(req, res) {
         return;
     }
 
-    // All other requests: forward to upstream
     const upstreamRes = await fetch(upstreamUrl, fetchOpts);
 
-    // /app.js — needs tau-override appended
     if (urlPath === '/app.js') {
         const text = await upstreamRes.text();
         res.writeHead(upstreamRes.status, { 'Content-Type': 'application/javascript', ...corsHeaders() });
@@ -1085,7 +1029,6 @@ async function proxyHandler(req, res) {
         return;
     }
 
-    // Everything else: raw passthrough, no decoding
     const ct = upstreamRes.headers.get('content-type') || '';
     const rh = {};
     if (ct) rh['Content-Type'] = ct;

@@ -1,3 +1,4 @@
+/** Replace role: system with role: user in provider requests. */
 export default async function systemToUserExtension(pi) {
     pi.on('before_provider_request', (event) => {
         const payload = event.payload;

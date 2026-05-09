@@ -1,3 +1,4 @@
+/** Squad FSM — idle / active / revising states. */
 export default class SquadFSM {
     constructor() {
         this.state = 'idle';

@@ -7,9 +7,24 @@
     "format": "bun x prettier --write \"**/*.{js,mjs}\"",
     "format:check": "bun x prettier --check \"**/*.{js,mjs}\""
   },
+  "alias": {
+    "@earendil-works/pi-ai": "@mariozechner/pi-ai",
+    "@earendil-works/pi-coding-agent": "@mariozechner/pi-coding-agent",
+    "@earendil-works/pi-tui": "@mariozechner/pi-tui"
+  },
   "devDependencies": {
     "lint-staged": "^15.5.2",
     "simple-git-hooks": "^2.12.1"
+  },
+  "dependencies": {
+    "@juicesharp/rpiv-advisor": "^1.1.5",
+    "@mariozechner/pi-ai": "file:shim-packages/pi-ai",
+    "@mariozechner/pi-coding-agent": "file:shim-packages/pi-coding-agent",
+    "@mariozechner/pi-tui": "file:shim-packages/pi-tui",
+    "@oh-my-pi/resolve-pi": "file:shim-packages/pi-resolve",
+    "@sinclair/typebox": "^0.34.0",
+    "tau-mirror": "^1.0.7",
+    "typebox": "file:shim-packages/typebox"
   },
   "lint-staged": {
     "*.{js,mjs}": "bun x prettier --write"

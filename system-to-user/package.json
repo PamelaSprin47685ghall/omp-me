@@ -4,7 +4,7 @@
   "private": true,
   "description": "System-to-user role converter for oh-my-pi provider requests",
   "type": "module",
-  "exports": "./index.js",
+  "exports": "./shim.mjs",
   "scripts": {
     "test": "bun test"
   },

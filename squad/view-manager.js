@@ -1,3 +1,4 @@
+/** Real-time TUI widget for squad status display. */
 const STATUS_GLYPHS = {
     pending: '\u25CB',
     waiting_deps: '\u23F3',

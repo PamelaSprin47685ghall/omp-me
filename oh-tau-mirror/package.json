@@ -4,7 +4,7 @@
   "private": true,
   "description": "Web UI mirror for oh-my-pi terminal sessions — powered by tau-mirror",
   "type": "module",
-  "exports": "./index.js",
+  "exports": "./shim.mjs",
   "scripts": {
     "test": "bun test"
   },
@@ -17,7 +17,4 @@
   "omp": {
     "extensions": ["shim.mjs"]
   },
-  "dependencies": {
-    "tau-mirror": "^1.0.7"
-  }
 }

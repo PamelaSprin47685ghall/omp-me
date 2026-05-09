@@ -1,3 +1,4 @@
+/** Model pool config — read/write ~/.omp/squad/models.json. */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -57,10 +58,6 @@ class ModelPool {
         return this.slots.filter((s) => s.busy).length;
     }
 
-    /**
-     * Acquire a free slot matching the requested role.
-     * Randomly picks among available slots. If none are free, queues.
-     */
     async acquire(role, signal) {
         while (true) {
             const free = this.slots.filter((s) => !s.busy && s.role === role);

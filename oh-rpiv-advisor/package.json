@@ -3,13 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "description": "Stronger reviewer escalation for oh-my-pi — powered by rpiv-advisor",
-  "alias": {
-    "@earendil-works/pi-ai": "@mariozechner/pi-ai",
-    "@earendil-works/pi-coding-agent": "@mariozechner/pi-coding-agent",
-    "@earendil-works/pi-tui": "@mariozechner/pi-tui"
-  },
   "type": "module",
-  "exports": "./index.js",
+  "exports": "./shim.mjs",
   "scripts": {
     "test": "bun test"
   },
@@ -20,13 +15,5 @@
   ],
   "omp": {
     "extensions": ["shim.mjs"]
-  },
-  "dependencies": {
-    "@juicesharp/rpiv-advisor": "^1.1.5",
-    "@mariozechner/pi-ai": "file:./shim-packages/pi-ai",
-    "@mariozechner/pi-coding-agent": "file:./shim-packages/pi-coding-agent",
-    "@mariozechner/pi-tui": "file:./shim-packages/pi-tui",
-    "@sinclair/typebox": "^0.34.0",
-    "typebox": "file:./shim-packages/typebox"
   }
 }

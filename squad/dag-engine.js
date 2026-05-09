@@ -1,11 +1,8 @@
+/** DAG validation, topological sort, and layer execution. */
 import { runNode } from './review-fsm.js';
 import { loadModelsConfig, createModelPool } from './model-pool.js';
 
 const FALLBACK_CONCURRENCY = 5;
-
-// ---------------------------------------------------------------------------
-// DAG validation
-// ---------------------------------------------------------------------------
 
 function validateNodes(nodes) {
     if (!Array.isArray(nodes) || nodes.length === 0) {
@@ -55,10 +52,6 @@ function validateNodes(nodes) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Topological sort → execution layers
-// ---------------------------------------------------------------------------
-
 function topologicalSort(nodes) {
     const nodeMap = new Map(nodes.map((n) => [n.id, n]));
 
@@ -102,10 +95,6 @@ function topologicalSort(nodes) {
     return { layers, nodeMap };
 }
 
-// ---------------------------------------------------------------------------
-// Main execution entry point
-// ---------------------------------------------------------------------------
-
 export async function executeDAG(nodes, ctx, pi, signal, viewManager) {
     validateNodes(nodes);
 
@@ -121,7 +110,6 @@ export async function executeDAG(nodes, ctx, pi, signal, viewManager) {
         }
     }
 
-    // Generate fallback config if no models config exists — unifies concurrency under ModelPool
     const modelsConfig =
         loadModelsConfig() ??
         (() => {

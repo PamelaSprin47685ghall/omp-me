@@ -4,7 +4,7 @@
   "private": true,
   "description": "Web search and fetch tools for oh-my-pi — powered by Ollama cloud APIs",
   "type": "module",
-  "exports": "./index.js",
+  "exports": "./shim.mjs",
   "scripts": {
     "test": "bun test"
   },

@@ -1,10 +1,4 @@
-/**
- * Pure function state machine for squad node lifecycle.
- *
- *   pending → waiting_deps → authoring → confirming → reviewing → approved
- *                                                     ↓           ↓
- *                                                  blocked      failed
- */
+/** Pure function state machine for squad node lifecycle. */
 
 export const STATUS = {
     PENDING: 'pending',

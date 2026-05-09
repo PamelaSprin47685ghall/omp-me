@@ -4,7 +4,7 @@
   "private": true,
   "description": "DAG-based multi-agent orchestration with mandatory Worker-Reviewer loops for oh-my-pi",
   "type": "module",
-  "exports": "./index.js",
+  "exports": "./shim.mjs",
   "scripts": {
     "test": "bun test"
   },

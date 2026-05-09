@@ -1,3 +1,4 @@
+/** Web search and fetch tools powered by Ollama cloud APIs. */
 import { chmodSync, readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
@@ -67,7 +68,6 @@ export default async function ollamaSearchExtension(pi) {
     if (registeredPluginApis.has(pi)) return;
 
     try {
-        // ── input event handler to prevent loading animation for /ollama-key ──
         pi.on('input', async (event, ctx) => {
             const text = event.text.trim();
             if (text.startsWith('/ollama-key')) {
@@ -78,7 +78,6 @@ export default async function ollamaSearchExtension(pi) {
             }
         });
 
-        // ── /ollama-key command ──
         pi.registerCommand('ollama-key', {
             description: 'Set your Ollama API key for Ollama web search. Usage: /ollama-key <key>',
             handler: async (args, ctx) => {
@@ -86,7 +85,6 @@ export default async function ollamaSearchExtension(pi) {
             },
         });
 
-        // ── web_search tool ──
         pi.registerTool({
             name: 'web_search',
             label: 'Ollama Search',
@@ -134,7 +132,6 @@ export default async function ollamaSearchExtension(pi) {
             },
         });
 
-        // ── web_fetch tool ──
         pi.registerTool({
             name: 'web_fetch',
             label: 'Ollama Fetch',

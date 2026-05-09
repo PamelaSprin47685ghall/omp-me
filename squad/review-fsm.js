@@ -1,17 +1,11 @@
+/** Node execution lifecycle — worker, reviewer, and confirm sessions. */
 import { statSync } from 'node:fs';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
 import { STATUS, EVENT, transition, emptyState, MAX_RETRIES } from './state-machine.js';
-
-const OMP_BASE = join(homedir(), '.bun/install/global/node_modules/@oh-my-pi');
-const CODING_AGENT_PATH = 'file://' + join(OMP_BASE, 'pi-coding-agent/src/index.ts');
 
 const MAX_EMPTY_TURNS = 20;
 const CONFIRM_MAX_EMPTY = 5;
-
-// ---------------------------------------------------------------------------
-// Higher-order tool factory — eliminates boilerplate in lifecycle tools
-// ---------------------------------------------------------------------------
 
 function createLifecycleTool(spec, onInvoke) {
     return {
@@ -79,10 +73,6 @@ const REJ = {
     required: ['feedback'],
 };
 
-// ---------------------------------------------------------------------------
-// File integrity helpers for confirming-phase tamper detection
-// ---------------------------------------------------------------------------
-
 function captureFileSnapshots(files, cwd) {
     const snapshots = {};
     for (const file of files) {
@@ -114,26 +104,13 @@ const BUILT_IN_REVIEW_DIMENSIONS = [
     '5. Goal Completeness — does this deliverable fully satisfy the task?',
 ];
 
-let _codingAgentMod = null;
-async function getCodingAgentMod() {
-    if (!_codingAgentMod) {
-        _codingAgentMod = await import(CODING_AGENT_PATH);
-    }
-    return _codingAgentMod;
-}
-
-// ---------------------------------------------------------------------------
-// Session options builders
-// ---------------------------------------------------------------------------
-
 function buildBaseSessionOptions(ctx, pi, modelSlot) {
     const options = {
         cwd: ctx?.cwd ?? process.cwd(),
         hasUI: false,
     };
 
-    // 继承父会话的 AGENTS.md 搜索和 workspace tree，避免 subagent 重新扫描
-    if (ctx?.agentsMdSearch) options.agentsMdSearch = ctx.agentsMdSearch;
+    if (ctx?.agentsMdSearch) options.agentsMdSearch = ctx?.agentsMdSearch;
     if (ctx?.workspaceTree) options.workspaceTree = ctx.workspaceTree;
 
     if (ctx?.modelRegistry) options.modelRegistry = ctx.modelRegistry;
@@ -157,9 +134,6 @@ function buildBaseSessionOptions(ctx, pi, modelSlot) {
         options.systemPrompt = ctx.getSystemPrompt();
     }
 
-    // 不传 eventBus——subagent 用自己的 EventBus
-    // 事件转发在 runSession 中用 session.subscribe + pi.events 处理
-
     return options;
 }
 
@@ -179,10 +153,6 @@ function buildReviewerSessionOptions(ctx, pi, modelSlot) {
     options.toolNames = ['read', 'search', 'find', 'lsp', 'bash'];
     return options;
 }
-
-// ---------------------------------------------------------------------------
-// Prompt builders
-// ---------------------------------------------------------------------------
 
 function buildWorkerPrompt(node, upstreamResults, reviewerFeedback) {
     const lines = [`## Task\n${node.task}`];
@@ -276,10 +246,6 @@ function buildReviewerPrompt(node, workerResult) {
     ].join('\n');
 }
 
-// ---------------------------------------------------------------------------
-// Dynamic tool builders
-// ---------------------------------------------------------------------------
-
 function buildReturnWorkTool(resolve) {
     return createLifecycleTool(RTN_WORK, (p) =>
         resolve({ summary: p.summary, affected_files: p.affected_files || [] }),
@@ -298,27 +264,13 @@ function buildRejectTool(resolve) {
     return createLifecycleTool(REJ, (p) => resolve({ verdict: 'rejected', feedback: p.feedback }));
 }
 
-// ---------------------------------------------------------------------------
-// Session lifecycle helper
-// ---------------------------------------------------------------------------
-
 async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHint, onSessionCreated) {
-    const DIAG = (msg) => {
-        try {
-            require('fs').appendFileSync('/tmp/squad-diag.log', `${Date.now()} ${msg}\n`);
-        } catch {}
-    };
-    DIAG('runSession start');
-
     const createAgentSession = pi?.pi?.createAgentSession;
     if (!createAgentSession) {
         throw new Error('squad: createAgentSession unavailable — is the coding-agent loaded?');
     }
-    DIAG('createAgentSession found');
 
-    DIAG('loading getCodingAgentMod...');
-    const { SessionManager } = await getCodingAgentMod();
-    DIAG('SessionManager loaded');
+    const { SessionManager } = await getCodingAgentModule();
 
     const childAbort = new AbortController();
     let settled = false;
@@ -347,24 +299,19 @@ async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHi
     let unsub = null;
 
     try {
-        DIAG('creating SessionManager...');
         const sessionOpts = {
             ...options,
             customTools: tools,
             sessionManager: SessionManager.create(options.cwd),
         };
-        DIAG('SessionManager created, cwd=' + options.cwd);
 
-        DIAG('calling createAgentSession...');
         const factoryResult = await createAgentSession(sessionOpts);
-        DIAG('createAgentSession returned');
         session = factoryResult.session;
 
         if (onSessionCreated) {
             onSessionCreated(session);
         }
 
-        // 直接使用主 session 的 EventBus (pi.events) 进行事件转发
         const mainEventBus = pi?.events;
         if (mainEventBus) {
             unsub = session.subscribe((event) => {
@@ -375,15 +322,10 @@ async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHi
             });
         }
 
-        DIAG('calling session.prompt...');
-        DIAG('session.model=' + (session.model?.provider + '/' + session.model?.id || 'null'));
-        DIAG('session.sessionId=' + session.sessionId);
         const promptPromise = session.prompt(promptText);
         try {
             await promptPromise;
-            DIAG('session.prompt returned');
         } catch (e) {
-            DIAG('session.prompt ERROR: ' + e.message);
             throw e;
         }
 
@@ -419,17 +361,13 @@ async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHi
     }
 }
 
-// ---------------------------------------------------------------------------
-// Confirming session — opens worker's session file with confirm tools
-// ---------------------------------------------------------------------------
-
 async function runConfirmSession(pi, workerOptions, confirmPrompt, signal, toolBuilders) {
     const createAgentSession = pi?.pi?.createAgentSession;
     if (!createAgentSession) {
         throw new Error('squad: createAgentSession unavailable');
     }
 
-    const { SessionManager } = await getCodingAgentMod();
+    const { SessionManager } = await getCodingAgentModule();
 
     const childAbort = new AbortController();
     let settled = false;
@@ -467,7 +405,6 @@ async function runConfirmSession(pi, workerOptions, confirmPrompt, signal, toolB
         const factoryResult = await createAgentSession(sessionOpts);
         session = factoryResult.session;
 
-        // Forward subagent streaming events to main session's EventBus
         if (workerOptions.eventBus) {
             unsub = session.subscribe((event) => {
                 workerOptions.eventBus.emit('squad:subagent:stream', {
@@ -506,10 +443,6 @@ async function runConfirmSession(pi, workerOptions, confirmPrompt, signal, toolB
     }
 }
 
-// ---------------------------------------------------------------------------
-// Public API: Worker runner (authoring → confirming)
-// ---------------------------------------------------------------------------
-
 async function runWorker(node, upstreamResults, reviewerFeedback, ctx, pi, signal, viewManager, modelSlot) {
     const { promise: workPromise, resolve: workResolve } = Promise.withResolvers();
 
@@ -528,7 +461,6 @@ async function runWorker(node, upstreamResults, reviewerFeedback, ctx, pi, signa
 
     let workerResult = await workPromise;
 
-    // Confirming loop — worker may fix issues and re-submit multiple times
     while (true) {
         viewManager.updateNodeState(node.id, STATUS.CONFIRMING);
         ctx?.ui?.notify?.(`[squad] ⟳ node '${node.id}' confirming`, 'info');
@@ -571,14 +503,9 @@ async function runWorker(node, upstreamResults, reviewerFeedback, ctx, pi, signa
             return { ...workerResult, sessionFile: session.sessionFile, session };
         }
 
-        // Worker called return_work during confirming — update and loop back
         workerResult = { summary: result.summary, affected_files: result.affected_files || [] };
     }
 }
-
-// ---------------------------------------------------------------------------
-// Public API: Reviewer runner
-// ---------------------------------------------------------------------------
 
 async function runReviewer(node, workerResult, ctx, pi, signal, viewManager, modelSlot) {
     const { promise, resolve } = Promise.withResolvers();
@@ -601,15 +528,7 @@ async function runReviewer(node, workerResult, ctx, pi, signal, viewManager, mod
     return { ...reviewResult, sessionFile: session.sessionFile, session };
 }
 
-// ---------------------------------------------------------------------------
-// Public API exports for outer review loop
-// ---------------------------------------------------------------------------
-
 export { runSession, buildReviewerSessionOptions, buildApproveTool, buildRejectTool };
-
-// ---------------------------------------------------------------------------
-// Public API: single node execution (state machine driven)
-// ---------------------------------------------------------------------------
 
 export async function runNode(node, upstreamResults, ctx, pi, signal, viewManager, modelPool) {
     let state = emptyState(node.id);
@@ -636,7 +555,6 @@ export async function runNode(node, upstreamResults, ctx, pi, signal, viewManage
         }
 
         try {
-            // Phase 1: Authoring
             const workerResult = await runWorker(
                 node,
                 upstreamResults,
@@ -655,7 +573,6 @@ export async function runNode(node, upstreamResults, ctx, pi, signal, viewManage
             });
             viewManager.updateNodeState(node.id, state.status);
 
-            // Phase 2: Reviewing
             state = transition(state, { type: EVENT.CONFIRM });
             viewManager.updateNodeState(node.id, state.status, { retryCount: attempt });
             ctx?.ui?.notify?.(
@@ -687,7 +604,6 @@ export async function runNode(node, upstreamResults, ctx, pi, signal, viewManage
                 };
             }
 
-            // Rejected — update state for retry
             state = transition(state, {
                 type: EVENT.REJECT,
                 feedback: reviewResult.feedback,
@@ -744,6 +660,5 @@ export async function runNode(node, upstreamResults, ctx, pi, signal, viewManage
         }
     }
 
-    // Should not reach here — handled by REJECT/SESSION_ERROR above
     return { id: node.id, status: STATUS.FAILED, summary: 'Unexpected exit', affected_files: [] };
 }

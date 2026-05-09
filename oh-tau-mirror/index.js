@@ -9,22 +9,11 @@
  *   2. Track process-local session files for /api/sessions filtering
  */
 
-import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
 import * as proxy from './proxy.js';
-
-// ---------------------------------------------------------------------------
-// Suppress tau-mirror's console noise entirely
-// ---------------------------------------------------------------------------
 
 console.log = () => {};
 console.warn = () => {};
 console.error = () => {};
-
-// ---------------------------------------------------------------------------
-// Events that exist in the original @mariozechner/pi-coding-agent ExtensionAPI
-// but have no direct equivalent in oh-my-pi's ExtensionAPI.
-// ---------------------------------------------------------------------------
 
 const UNSUPPORTED_EVENTS = new Set(['model_select']);
 
@@ -32,11 +21,8 @@ let mainEventBus = null;
 let unsubEventBus = null;
 
 export default async function ohTauMirrorAdaptor(pi) {
-    // Resolve tau-mirror's extension entry from the npm-installed package.
-    const __dirname = fileURLToPath(new URL('.', import.meta.url));
-    const extPath = join(__dirname, 'node_modules', 'tau-mirror', 'extensions', 'mirror-server.ts');
+    const { default: tauMirrorExtension } = await import('tau-mirror/extensions/mirror-server.ts');
 
-    // Capture tau-mirror's port from setStatus, then rewrite to proxy port
     const origOn = pi.on.bind(pi);
     pi.on = function (event, handler) {
         if (event !== 'session_start') return origOn(event, handler);
@@ -44,8 +30,6 @@ export default async function ohTauMirrorAdaptor(pi) {
             const sf = ctx?.sessionManager?.getSessionFile?.();
             proxy.addSessionFile(sf);
 
-            // Capture main session's EventBus so we can receive subagent
-            // streaming events from squad and forward them to the browser.
             if (pi?.events && pi.events !== mainEventBus) {
                 unsubEventBus?.();
                 mainEventBus = pi.events;
@@ -59,7 +43,6 @@ export default async function ohTauMirrorAdaptor(pi) {
             const proxyPortP = interceptPort(ctx);
             await handler(evt, ctx);
 
-            // After proxy is confirmed listening, update display to show proxy port
             if (proxyPortP) {
                 const actualPort = await proxyPortP;
                 if (actualPort && ctx?.ui) {
@@ -70,8 +53,6 @@ export default async function ohTauMirrorAdaptor(pi) {
             }
         });
     };
-
-    const { default: tauMirrorExtension } = await import(pathToFileURL(extPath).href);
 
     const bridge = createBridge(pi);
     tauMirrorExtension(bridge);
@@ -103,15 +84,8 @@ function interceptPort(ctx) {
     });
 }
 
-/**
- * Create a bridge from oh-my-pi ExtensionAPI to the original
- * @mariozechner/pi-coding-agent ExtensionAPI that tau-mirror expects.
- */
 export function createBridge(pi) {
     let lastSessionFile = null;
-    // Events that genuinely affect the sidebar catalog (new message,
-    // title generated, new session). Streaming tokens (message_update)
-    // must NOT be here — they fire dozens of times per second.
     const CATALOG_REFRESH_EVENTS = new Set(['message_end', 'turn_end']);
 
     return {
@@ -124,13 +98,6 @@ export function createBridge(pi) {
             pi.on(event, (evt, ctx) => {
                 const sf = ctx?.sessionManager?.getSessionFile?.();
 
-                // Two reasons to call addSessionFile:
-                // 1. Session changed (first time we see this sf)
-                //    → register it + schedule a sidebar refresh.
-                // 2. A catalog-level event inside the current session
-                //    → schedule a sidebar refresh so mtime / title updates.
-                // message_update is excluded; it fires per token and must
-                // not trigger refresh.
                 if (sf) {
                     const isNewSession = sf !== lastSessionFile;
                     const isCatalogEvent = CATALOG_REFRESH_EVENTS.has(event);
@@ -142,12 +109,10 @@ export function createBridge(pi) {
                     }
                 }
 
-                // When the user speaks in a session, make it the active session
                 if (event === 'message_start' && evt?.message?.role === 'user') {
                     proxy.activateSessionFile(sf);
                 }
 
-                // Tag event with session file for multi-session routing in the browser
                 if (evt && typeof evt === 'object' && sf) {
                     evt.__sessionFile = sf;
                 }

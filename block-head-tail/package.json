@@ -4,7 +4,7 @@
   "private": true,
   "description": "Pipe truncation blocker for bash tool calls in oh-my-pi",
   "type": "module",
-  "exports": "./index.js",
+  "exports": "./shim.mjs",
   "scripts": {
     "test": "bun test"
   },

@@ -13,43 +13,11 @@
  *   - The `pi` property (full @oh-my-pi/pi-coding-agent module) for convertToLlm
  *   - The `typebox` property (TypeBox) for tool schema generation
  *
- * All external imports use file:// paths (AGENTS.md pattern) instead of
- * bare package specifiers.
+ * Dependencies resolved through root node_modules (single bun install).
  */
 
-import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
 
-// ---------------------------------------------------------------------------
-// Inject the `pi.pi` module reference needed for pi.pi.convertToLlm().
-// ---------------------------------------------------------------------------
-
-/**
- * Lazy-load and cache the oh-my-pi pi-coding-agent module.
- * Accessed via the bridge's `pi` property. We resolve it from the global
- * install directory, matching the shim pattern used by the other packages.
- */
-let _piMod = null;
-async function getPiMod() {
-    if (!_piMod) {
-        const { homedir } = await import('node:os');
-        const { join: joinPath } = await import('node:path');
-        const base = joinPath(homedir(), '.bun/install/global/node_modules/@oh-my-pi');
-        const piAgentPath = joinPath(base, 'pi-coding-agent/src/index.ts');
-        _piMod = await import(pathToFileURL(piAgentPath).href);
-    }
-    return _piMod;
-}
-
-// ---------------------------------------------------------------------------
-// Ensure getApiKeyAndHeaders on ModelRegistry — rpiv-advisor needs it
-// ---------------------------------------------------------------------------
-
-/**
- * Patch ModelRegistry.prototype.getApiKeyAndHeaders if missing.
- * rpiv-advisor calls ctx.modelRegistry.getApiKeyAndHeaders(model) to
- * resolve API key and request headers for the advisor model.
- */
 function ensureGetApiKeyAndHeaders(piMod) {
     const ModelRegistry = piMod.ModelRegistry;
     if (!ModelRegistry || ModelRegistry.prototype.getApiKeyAndHeaders) return;
@@ -63,55 +31,37 @@ function ensureGetApiKeyAndHeaders(piMod) {
     };
 }
 
-// ---------------------------------------------------------------------------
-// Bridge
-// ---------------------------------------------------------------------------
-
 const UNSUPPORTED_EVENTS = new Set(['model_select']);
 
 export default async function ohRpivAdvisorAdaptor(pi) {
-    // Resolve rpiv-advisor's extension entry from the npm-installed package.
-    const __dirname = fileURLToPath(new URL('.', import.meta.url));
-    const extPath = join(__dirname, 'node_modules', '@juicesharp', 'rpiv-advisor', 'index.ts');
+    const { default: rpivAdvisorExtension } = await import('@juicesharp/rpiv-advisor');
 
-    const { default: rpivAdvisorExtension } = await import(pathToFileURL(extPath).href);
+    const piMod = await getCodingAgentModule();
 
-    const piMod = await getPiMod();
-
-    // Ensure ctx.modelRegistry.getApiKeyAndHeaders exists at runtime.
     ensureGetApiKeyAndHeaders(piMod);
 
     const bridge = createBridge(pi, piMod);
     rpivAdvisorExtension(bridge);
 }
 
-/**
- * Create a bridge from oh-my-pi ExtensionAPI to the original
- * @mariozechner/pi-coding-agent ExtensionAPI that rpiv-advisor expects.
- */
 export function createBridge(pi, piMod) {
     return {
-        // Module access — used by rpiv-advisor for pi.pi.convertToLlm()
         pi: piMod,
         typebox: pi.typebox,
 
-        // Tool registration
         registerTool(toolDef) {
             pi.registerTool(toolDef);
         },
 
-        // Command registration
         registerCommand(name, opts) {
             pi.registerCommand(name, opts);
         },
 
-        // Event subscription — map where names differ, drop unsupported
         on(event, handler) {
             if (UNSUPPORTED_EVENTS.has(event)) return;
             pi.on(event, handler);
         },
 
-        // Messaging
         sendMessage(msg, opts) {
             pi.sendMessage(msg, opts);
         },
@@ -124,7 +74,6 @@ export function createBridge(pi, piMod) {
             pi.appendEntry(customType, data);
         },
 
-        // Model / Session
         setModel(model) {
             return pi.setModel(model);
         },
@@ -145,7 +94,6 @@ export function createBridge(pi, piMod) {
             pi.setThinkingLevel(level);
         },
 
-        // Tools
         getActiveTools() {
             return pi.getActiveTools();
         },
@@ -158,7 +106,6 @@ export function createBridge(pi, piMod) {
             return pi.setActiveTools(toolNames);
         },
 
-        // Label
         setLabel(label) {
             pi.setLabel(label);
         },

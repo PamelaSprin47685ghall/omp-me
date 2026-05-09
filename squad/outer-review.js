@@ -1,3 +1,4 @@
+/** Outer review loop for L-mode aggregate evaluation. */
 import { runSession, buildReviewerSessionOptions, buildApproveTool, buildRejectTool } from './review-fsm.js';
 
 export async function runOuterReview(nodes, results, originalTask, round, ctx, pi, signal, viewManager) {
