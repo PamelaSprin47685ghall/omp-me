@@ -1,7 +1,8 @@
 {
   "name": "ollama-search",
   "version": "1.0.0",
-  "description": "Web search and fetch tools for Oh My Pi - uses Ollama's cloud web search and fetch APIs (no local Ollama required).",
+  "private": true,
+  "description": "Web search and fetch tools for oh-my-pi — powered by Ollama cloud APIs",
   "type": "module",
   "exports": "./index.js",
   "scripts": {
@@ -13,6 +14,6 @@
     "ollama"
   ],
   "omp": {
-    "extensions": ["index.js"]
+    "extensions": ["shim.mjs"]
   }
 }

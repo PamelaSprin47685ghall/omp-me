@@ -1,8 +1,8 @@
 {
   "name": "oh-rpiv-advisor",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
-  "description": "rpiv-advisor adaptor for oh-my-pi — escalate to a stronger reviewer model for guidance",
+  "description": "Stronger reviewer escalation for oh-my-pi — powered by rpiv-advisor",
   "alias": {
     "@earendil-works/pi-ai": "@mariozechner/pi-ai",
     "@earendil-works/pi-coding-agent": "@mariozechner/pi-coding-agent",
@@ -10,18 +10,16 @@
   },
   "type": "module",
   "exports": "./index.js",
-  "omp": {
-    "extensions": ["index.js"]
+  "scripts": {
+    "test": "bun test"
   },
   "keywords": [
     "oh-my-pi",
-    "pi",
-    "extension",
     "rpiv-advisor",
     "advisor"
   ],
-  "scripts": {
-    "test": "bun test"
+  "omp": {
+    "extensions": ["shim.mjs"]
   },
   "dependencies": {
     "@juicesharp/rpiv-advisor": "^1.1.5",

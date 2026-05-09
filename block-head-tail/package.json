@@ -1,14 +1,21 @@
 {
   "name": "block-head-tail",
   "version": "1.0.0",
-  "description": "Block | head -nXXX and | tail -nXXX pipe truncation in bash tool calls",
+  "private": true,
+  "description": "Pipe truncation blocker for bash tool calls in oh-my-pi",
   "type": "module",
   "exports": "./index.js",
   "scripts": {
     "test": "bun test"
   },
-  "keywords": ["oh-my-pi", "bash", "head", "tail", "truncation"],
+  "keywords": [
+    "oh-my-pi",
+    "bash",
+    "head",
+    "tail",
+    "truncation"
+  ],
   "omp": {
-    "extensions": ["index.js"]
+    "extensions": ["shim.mjs"]
   }
 }

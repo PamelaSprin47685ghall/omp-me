@@ -1,14 +1,21 @@
 {
   "name": "squad",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "private": true,
+  "description": "DAG-based multi-agent orchestration with mandatory Worker-Reviewer loops for oh-my-pi",
   "type": "module",
-  "main": "index.js",
   "exports": "./index.js",
-  "description": "DAG-based multi-agent orchestration with mandatory Worker-Reviewer loops and native session switching for oh-my-pi",
   "scripts": {
     "test": "bun test"
   },
+  "keywords": [
+    "oh-my-pi",
+    "squad",
+    "dag",
+    "orchestration",
+    "worker-reviewer"
+  ],
   "omp": {
-    "extensions": ["index.js"]
+    "extensions": ["shim.mjs"]
   }
 }
