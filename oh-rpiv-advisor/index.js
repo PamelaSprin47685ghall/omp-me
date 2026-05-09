@@ -42,6 +42,28 @@ async function getPiMod() {
 }
 
 // ---------------------------------------------------------------------------
+// Ensure getApiKeyAndHeaders on ModelRegistry — rpiv-advisor needs it
+// ---------------------------------------------------------------------------
+
+/**
+ * Patch ModelRegistry.prototype.getApiKeyAndHeaders if missing.
+ * rpiv-advisor calls ctx.modelRegistry.getApiKeyAndHeaders(model) to
+ * resolve API key and request headers for the advisor model.
+ */
+function ensureGetApiKeyAndHeaders(piMod) {
+    const ModelRegistry = piMod.ModelRegistry;
+    if (!ModelRegistry || ModelRegistry.prototype.getApiKeyAndHeaders) return;
+    ModelRegistry.prototype.getApiKeyAndHeaders = async function (model) {
+        const apiKey = await this.getApiKey(model);
+        if (!apiKey) {
+            return { ok: false, error: `No API key for ${model.provider}` };
+        }
+        const headers = { Authorization: `Bearer ${apiKey}` };
+        return { ok: true, apiKey, headers };
+    };
+}
+
+// ---------------------------------------------------------------------------
 // Bridge
 // ---------------------------------------------------------------------------
 
@@ -55,6 +77,10 @@ export default async function ohRpivAdvisorAdaptor(pi) {
     const { default: rpivAdvisorExtension } = await import(pathToFileURL(extPath).href);
 
     const piMod = await getPiMod();
+
+    // Ensure ctx.modelRegistry.getApiKeyAndHeaders exists at runtime.
+    ensureGetApiKeyAndHeaders(piMod);
+
     const bridge = createBridge(pi, piMod);
     rpivAdvisorExtension(bridge);
 }

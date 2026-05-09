@@ -3,6 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "description": "rpiv-advisor adaptor for oh-my-pi — escalate to a stronger reviewer model for guidance",
+  "alias": {
+    "@earendil-works/pi-ai": "@mariozechner/pi-ai",
+    "@earendil-works/pi-coding-agent": "@mariozechner/pi-coding-agent",
+    "@earendil-works/pi-tui": "@mariozechner/pi-tui"
+  },
   "type": "module",
   "exports": "./index.js",
   "omp": {

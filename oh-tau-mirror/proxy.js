@@ -497,7 +497,9 @@ export function _closeProxy() {
     }
     tauPort = null;
     for (const client of browserClients) {
-        try { client.close(); } catch {}
+        try {
+            client.close();
+        } catch {}
     }
     browserClients.clear();
     if (sessionCatalogDebounceTimer) {
@@ -749,12 +751,14 @@ async function parseOmpSessionFile(filePath) {
                     const content = entry.message.content;
                     if (typeof content === 'string') firstMessage = content.substring(0, 120);
                     else if (Array.isArray(content)) {
-                        const tb = content.find(b => b.type === 'text');
+                        const tb = content.find((b) => b.type === 'text');
                         if (tb) firstMessage = tb.text.substring(0, 120);
                     }
                 }
             }
-        } catch { /* skip */ }
+        } catch {
+            /* skip */
+        }
         if (lineCount > 50 && firstMessage) break;
     }
 
@@ -782,7 +786,7 @@ async function scanOmpSessions() {
         if (!dir.isDirectory()) continue;
 
         const projectDir = join(OMP_SESSIONS_DIR, dir.name);
-        const files = readdirSync(projectDir).filter(f => f.endsWith('.jsonl'));
+        const files = readdirSync(projectDir).filter((f) => f.endsWith('.jsonl'));
         const decodedPath = dir.name.replace(/^--/, '/').replace(/--$/, '').replace(/-/g, '/');
         const sessions = [];
 
@@ -795,7 +799,9 @@ async function scanOmpSessions() {
                     const stat = statSync(filePath);
                     sessions.push({ ...parsed, file, filePath, mtime: stat.mtimeMs });
                 }
-            } catch { /* skip */ }
+            } catch {
+                /* skip */
+            }
         }
 
         sessions.sort((a, b) => b.mtime - a.mtime);
@@ -833,14 +839,22 @@ function serveOmpSessionFile(res, dirName, file) {
         buffer = lines.pop() || '';
         for (const line of lines) {
             if (line.trim()) {
-                try { entries.push(JSON.parse(line)); } catch { /* skip */ }
+                try {
+                    entries.push(JSON.parse(line));
+                } catch {
+                    /* skip */
+                }
             }
         }
     });
 
     stream.on('end', () => {
         if (buffer.trim()) {
-            try { entries.push(JSON.parse(buffer)); } catch { /* skip */ }
+            try {
+                entries.push(JSON.parse(buffer));
+            } catch {
+                /* skip */
+            }
         }
         res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders() });
         res.end(JSON.stringify({ entries }));
@@ -867,7 +881,7 @@ async function searchOmpSessions(query) {
 
         const projectDir = join(OMP_SESSIONS_DIR, dir.name);
         const decodedPath = dir.name.replace(/^--/, '/').replace(/--$/, '').replace(/-/g, '/');
-        const files = readdirSync(projectDir).filter(f => f.endsWith('.jsonl'));
+        const files = readdirSync(projectDir).filter((f) => f.endsWith('.jsonl'));
 
         for (const file of files) {
             if (results.length >= MAX_RESULTS) break;
@@ -902,7 +916,10 @@ async function searchOmpSessions(query) {
                             let text = '';
                             if (typeof content === 'string') text = content;
                             else if (Array.isArray(content)) {
-                                text = content.filter(b => b.type === 'text').map(b => b.text).join(' ');
+                                text = content
+                                    .filter((b) => b.type === 'text')
+                                    .map((b) => b.text)
+                                    .join(' ');
                             }
 
                             if (!firstMessage && entry.message?.role === 'user' && text) {
@@ -913,7 +930,10 @@ async function searchOmpSessions(query) {
                                 const idx = text.toLowerCase().indexOf(q);
                                 const start = Math.max(0, idx - 60);
                                 const end = Math.min(text.length, idx + q.length + 60);
-                                const snippet = (start > 0 ? '\u2026' : '') + text.substring(start, end) + (end < text.length ? '\u2026' : '');
+                                const snippet =
+                                    (start > 0 ? '\u2026' : '') +
+                                    text.substring(start, end) +
+                                    (end < text.length ? '\u2026' : '');
 
                                 matches.push({
                                     role: entry.message?.role || 'unknown',
@@ -923,7 +943,9 @@ async function searchOmpSessions(query) {
                                 if (matches.length >= 3) break;
                             }
                         }
-                    } catch { /* skip line */ }
+                    } catch {
+                        /* skip line */
+                    }
                 }
 
                 rl.close();
@@ -941,7 +963,9 @@ async function searchOmpSessions(query) {
                         matches,
                     });
                 }
-            } catch { /* skip file */ }
+            } catch {
+                /* skip file */
+            }
         }
     }
 
