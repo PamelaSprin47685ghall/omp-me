@@ -259,6 +259,11 @@ let proxyPortResolve = null;
 let proxyPortPromise = null;
 const browserClients = new Set();
 
+const SESSION_CATALOG_DEBOUNCE_MS = 80;
+let sessionCatalogDebounceTimer = null;
+let sessionCatalogDirty = false;
+let pendingSessionCatalogFile = null;
+
 export function setTauPort(port) {
     if (tauPort) return null;
     tauPort = port;
@@ -279,6 +284,12 @@ export function _closeProxy() {
         try { client.close(); } catch {}
     }
     browserClients.clear();
+    if (sessionCatalogDebounceTimer) {
+        clearTimeout(sessionCatalogDebounceTimer);
+        sessionCatalogDebounceTimer = null;
+    }
+    sessionCatalogDirty = false;
+    pendingSessionCatalogFile = null;
 }
 
 function startProxy() {
@@ -297,6 +308,7 @@ function startProxy() {
                 }
                 wss.handleUpgrade(req, socket, head, (browserWs) => {
                     browserClients.add(browserWs);
+                    flushSessionCatalogChanged();
                     const upstreamWs = new WsClient(`ws://127.0.0.1:${tauPort}/ws`);
                     const pending = [];
 
@@ -359,7 +371,6 @@ function startProxy() {
 const knownSessions = new Set();
 const knownSessionFiles = new Set();
 const knownSessionIdentities = new Set();
-const sessionFileMtimes = new Map();
 
 function expandSessionFile(sf) {
     if (!sf) return null;
@@ -396,14 +407,40 @@ function broadcastBrowserEvent(event) {
     }
 }
 
+function hasOpenBrowserClient() {
+    for (const browserClient of browserClients) {
+        if (browserClient.readyState === WsClient.OPEN) return true;
+    }
+    return false;
+}
+
+function flushSessionCatalogChanged() {
+    if (!sessionCatalogDirty || !pendingSessionCatalogFile) return;
+    if (!hasOpenBrowserClient()) return;
+    broadcastBrowserEvent({ type: 'session_catalog_changed', sessionFile: pendingSessionCatalogFile });
+    sessionCatalogDirty = false;
+}
+
+function scheduleSessionCatalogChanged(sessionFile) {
+    if (!sessionFile) return;
+    pendingSessionCatalogFile = sessionFile;
+    sessionCatalogDirty = true;
+    if (sessionCatalogDebounceTimer) return;
+    sessionCatalogDebounceTimer = setTimeout(() => {
+        sessionCatalogDebounceTimer = null;
+        flushSessionCatalogChanged();
+    }, SESSION_CATALOG_DEBOUNCE_MS);
+}
+
 /**
  * Add a session file path to the known set.
  * Session paths from oh-my-pi are always .omp; identity matching
  * handles any .pi paths that tau-mirror might still produce.
  *
- * Broadcasts session_catalog_changed on first registration and on
- * any subsequent call where the underlying file's mtime has changed
- * (covers initial empty file, writes during conversation, etc.).
+ * Marks catalog dirty on each observed session event and emits
+ * session_catalog_changed in a short debounce window. If no browser
+ * clients are connected at flush time, the dirty marker is preserved
+ * and replayed on the next browser connection.
  */
 export function addSessionFile(sf) {
     const expandedSessionFile = expandSessionFile(sf);
@@ -414,30 +451,11 @@ export function addSessionFile(sf) {
     const identity = getSessionIdentity(expandedSessionFile);
     if (identity) knownSessionIdentities.add(identity);
 
-    const wasKnown = knownSessionFiles.has(expandedSessionFile);
-
-    if (wasKnown) {
-        // Re-broadcast if the file exists and has been modified since our last broadcast
-        if (existsSync(expandedSessionFile)) {
-            try {
-                const cur = statSync(expandedSessionFile).mtimeMs;
-                const prev = sessionFileMtimes.get(expandedSessionFile) || 0;
-                if (cur > prev) {
-                    sessionFileMtimes.set(expandedSessionFile, cur);
-                    broadcastBrowserEvent({ type: 'session_catalog_changed', sessionFile: expandedSessionFile });
-                }
-            } catch {}
-        }
-        return;
+    if (!knownSessionFiles.has(expandedSessionFile)) {
+        knownSessionFiles.add(expandedSessionFile);
     }
 
-    knownSessionFiles.add(expandedSessionFile);
-    if (existsSync(expandedSessionFile)) {
-        try {
-            sessionFileMtimes.set(expandedSessionFile, statSync(expandedSessionFile).mtimeMs);
-        } catch {}
-    }
-    broadcastBrowserEvent({ type: 'session_catalog_changed', sessionFile: expandedSessionFile });
+    scheduleSessionCatalogChanged(expandedSessionFile);
 }
 
 // ---------------------------------------------------------------------------

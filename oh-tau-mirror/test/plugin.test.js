@@ -506,13 +506,12 @@ describe('proxy module', () => {
         assert.equal(scrollCalls, 2);
     });
 
-    it('addSessionFile re-broadcasts when session file mtime changes', async () => {
+    it('addSessionFile debounces repeated calls into a single catalog change broadcast', async () => {
         const [{ WebSocket }, { WebSocketServer }] = await Promise.all([
             import('ws'),
             import('ws'),
         ]);
         const mod = await import('../proxy.js');
-
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
         const upstreamWss = new WebSocketServer({ port: 0 });
@@ -541,38 +540,72 @@ describe('proxy module', () => {
             await sleep(150);
             const initial = messages.length;
 
-            const tempPath = join(tmpdir(), `tau-mtime-${randomUUID()}.jsonl`);
+            const tempPath = join(tmpdir(), `tau-debounce-${randomUUID()}.jsonl`);
 
-            // 1) First call – no file → broadcast
-            mod.addSessionFile(tempPath);
-            await sleep(150);
-            assert.equal(messages.length - initial, 1, 'step 1: first add broadcasts');
+            // Rapid repeated calls should coalesce into a single broadcast
+            for (let i = 0; i < 20; i++) {
+                mod.addSessionFile(tempPath);
+            }
 
-            // 2) Second call – still no file → silent
-            mod.addSessionFile(tempPath);
-            await sleep(150);
-            assert.equal(messages.length - initial, 1, 'step 2: unchanged');
+            await sleep(250);
+            const afterBurst = messages.length - initial;
+            assert.equal(afterBurst, 1, 'rapid burst should produce exactly one broadcast');
 
-            // 3) Create file → mtime changes → broadcast
-            writeFileSync(tempPath, '{"type":"session","id":"a"}\n');
-            const mtimeAfterCreate = statSync(tempPath).mtimeMs;
-            mod.addSessionFile(tempPath);
-            await sleep(150);
-            assert.equal(messages.length - initial, 2, 'step 3: file created');
+            // Another burst after debounce should produce a second broadcast
+            for (let i = 0; i < 10; i++) {
+                mod.addSessionFile(tempPath);
+            }
+            await sleep(250);
+            assert.equal(messages.length - initial, 2, 'second burst after debounce should produce one more broadcast');
 
-            // 4) No modification → silent
-            mod.addSessionFile(tempPath);
-            await sleep(150);
-            assert.equal(messages.length - initial, 2, 'step 4: unchanged');
+            ws.close();
+            if (existsSync(tempPath)) unlinkSync(tempPath);
+        } finally {
+            mod._closeProxy();
+            upstreamWss.close();
+        }
+    });
 
-            // 5) Append content → mtime changes → broadcast
-            await sleep(50);
-            appendFileSync(tempPath, '{"type":"message","message":{"role":"user","content":"hi"}}\n');
-            const mtimeAfterAppend = statSync(tempPath).mtimeMs;
-            assert.ok(mtimeAfterAppend > mtimeAfterCreate, 'mtime must increase after append');
+    it('addSessionFile replays missed catalog change to late browser connection', async () => {
+        const [{ WebSocket }, { WebSocketServer }] = await Promise.all([
+            import('ws'),
+            import('ws'),
+        ]);
+        const mod = await import('../proxy.js');
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+        const upstreamWss = new WebSocketServer({ port: 0 });
+        upstreamWss.on('connection', () => {});
+
+        const upstreamPort = await new Promise((resolve) => {
+            upstreamWss.on('listening', () => resolve(upstreamWss.address().port));
+        });
+
+        try {
+            const proxyPort = await mod.setTauPort(upstreamPort);
+            if (!proxyPort) throw new Error('Proxy failed to start');
+
+            const tempPath = join(tmpdir(), `tau-replay-${randomUUID()}.jsonl`);
+
+            // Change occurs while no browser client is connected
             mod.addSessionFile(tempPath);
-            await sleep(150);
-            assert.equal(messages.length - initial, 3, 'step 5: content appended');
+            await sleep(200); // debounce fires but no client to receive
+
+            // Now connect a browser client
+            const messages = [];
+            const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}/ws`);
+            ws.on('message', (data) => {
+                try { messages.push(JSON.parse(data.toString())); } catch {}
+            });
+            await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('WS connect timeout')), 3000);
+                ws.on('open', () => { clearTimeout(t); resolve(); });
+                ws.on('error', (e) => { clearTimeout(t); reject(e); });
+            });
+
+            await sleep(200);
+            const catalogEvents = messages.filter(m => m?.type === 'event' && m?.event?.type === 'session_catalog_changed');
+            assert.equal(catalogEvents.length, 1, 'late client should receive the missed catalog change');
 
             ws.close();
             if (existsSync(tempPath)) unlinkSync(tempPath);
