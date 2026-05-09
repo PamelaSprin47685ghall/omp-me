@@ -140,6 +140,29 @@ export const INJECTED = `
   let sidebarRefreshPromise = null;
   let sidebarRefreshQueued = false;
 
+  function alignKnownSessionFilePaths() {
+    if (!Array.isArray(sidebar.projects)) return;
+    if (!mirrorActiveSessionFile) return;
+    for (const project of sidebar.projects) {
+      if (!Array.isArray(project?.sessions)) continue;
+      for (const session of project.sessions) {
+        if (sameSessionFile(session?.filePath, mirrorActiveSessionFile)) {
+          session.filePath = mirrorActiveSessionFile;
+        }
+      }
+    }
+    if (typeof document.querySelectorAll === 'function') {
+      for (const item of document.querySelectorAll('.session-item')) {
+        if (sameSessionFile(item?.dataset?.filePath, mirrorActiveSessionFile)) {
+          item.dataset.filePath = mirrorActiveSessionFile;
+        }
+      }
+    }
+    if (currentSessionFile && sameSessionFile(currentSessionFile, mirrorActiveSessionFile)) {
+      currentSessionFile = mirrorActiveSessionFile;
+    }
+  }
+
   function patchSessionSwitchForMirrorPaths() {
     if (typeof switchSession !== 'function') return;
     if (switchSession.__tauMirrorPatched) return;
@@ -162,6 +185,7 @@ export const INJECTED = `
     }
 
     sidebarRefreshPromise = sidebar.loadSessions().then(() => {
+      alignKnownSessionFilePaths();
       patchSessionSwitchForMirrorPaths();
       syncActiveSessionForMirror();
     }).finally(() => {
@@ -185,19 +209,11 @@ export const INJECTED = `
       const contentDiv = messageElement.querySelector('.message-content');
       if (!contentDiv) return;
 
-      const thinkingBlock = contentDiv.querySelector('.streaming-thinking');
       let streamingTextNode = contentDiv.querySelector('.streaming-text');
-
       if (!streamingTextNode) {
         streamingTextNode = document.createElement('div');
         streamingTextNode.className = 'streaming-text';
-
-        if (thinkingBlock) {
-          contentDiv.appendChild(streamingTextNode);
-        } else {
-          contentDiv.innerHTML = '';
-          contentDiv.appendChild(streamingTextNode);
-        }
+        contentDiv.appendChild(streamingTextNode);
       }
 
       if (typeof messageRenderer.escapeHtml === 'function') {
@@ -210,6 +226,19 @@ export const INJECTED = `
         messageRenderer.scrollToBottom();
       }
     };
+
+    if (typeof messageRenderer.finalizeStreamingMessage === 'function') {
+      const origFinalize = messageRenderer.finalizeStreamingMessage.bind(messageRenderer);
+      messageRenderer.finalizeStreamingMessage = function (messageElement, usage, thinking) {
+        const contentDiv = messageElement.querySelector('.message-content');
+        if (contentDiv && !contentDiv.querySelector('.streaming-text')) {
+          const st = document.createElement('div');
+          st.className = 'streaming-text';
+          contentDiv.appendChild(st);
+        }
+        return origFinalize(messageElement, usage, thinking);
+      };
+    }
 
     messageRenderer.__tauMirrorStreamingPatched = true;
   }
@@ -230,6 +259,7 @@ export const INJECTED = `
       }
       const handled = origHandleMessage(msg);
       if (msg.type === 'mirror_sync') {
+        alignKnownSessionFilePaths();
         syncActiveSessionForMirror();
       }
       return handled;

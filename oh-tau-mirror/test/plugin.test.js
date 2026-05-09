@@ -410,6 +410,153 @@ describe('proxy module', () => {
         assert.equal(renderedSessionItem.dataset.filePath, '/home/test/.omp/agent/sessions/p/main-thread.jsonl');
     });
 
+    it('injected client script normalizes .pi paths to .omp after sidebar reload', async () => {
+        const mod = await import('../proxy.js');
+
+        const context = {
+            JSON,
+            Map,
+            Promise,
+            clearInterval() {},
+            clearTimeout() {},
+            document: {
+                head: { appendChild() {} },
+                createElement() {
+                    return {
+                        className: '',
+                        textContent: '',
+                        querySelector() { return null; },
+                        appendChild() {},
+                        remove() {},
+                    };
+                },
+                querySelector() { return null; },
+                querySelectorAll() { return []; },
+            },
+            handleRPCEvent() {},
+            isMirrorMode: true,
+            mirrorActiveSessionFile: '/home/test/.omp/agent/sessions/p/main-thread.jsonl',
+            setInterval() { return 1; },
+            setTimeout() { return 1; },
+            sidebar: {
+                projects: [{
+                    sessions: [{
+                        filePath: '/home/test/.pi/agent/sessions/p/main-thread.jsonl',
+                    }],
+                }],
+                container: {
+                    addEventListener() {},
+                },
+                loadSessions() {
+                    return Promise.resolve();
+                },
+            },
+            updateMirrorLiveIndicator() {},
+            wsClient: {
+                handleMessage() {},
+            },
+        };
+
+        runInNewContext(mod.INJECTED, context);
+
+        context.wsClient.handleMessage({
+            type: 'event',
+            event: {
+                type: 'session_catalog_changed',
+                sessionFile: '/home/test/.omp/agent/sessions/p/main-thread.jsonl',
+            },
+        });
+
+        await Promise.resolve();
+        await Promise.resolve();
+
+        assert.equal(context.sidebar.projects[0].sessions[0].filePath, '/home/test/.omp/agent/sessions/p/main-thread.jsonl');
+    });
+
+    it('injected client script ensures streaming-text exists before finalize to avoid thinking duplication', async () => {
+        const mod = await import('../proxy.js');
+
+        const finalizedArgs = [];
+        const contentDiv = {
+            children: [],
+            querySelector(selector) {
+                if (selector === '.streaming-text') return this.children.find((c) => c.className === 'streaming-text') || null;
+                return null;
+            },
+            appendChild(node) {
+                this.children.push(node);
+            },
+        };
+
+        const messageElement = {
+            querySelector(selector) {
+                if (selector === '.message-content') return contentDiv;
+                return null;
+            },
+        };
+
+        const context = {
+            JSON,
+            Map,
+            Promise,
+            clearInterval() {},
+            clearTimeout() {},
+            document: {
+                head: { appendChild() {} },
+                createElement() {
+                    return {
+                        className: '',
+                        innerHTML: '',
+                        textContent: '',
+                        querySelector() { return null; },
+                        appendChild() {},
+                        remove() {},
+                    };
+                },
+                querySelector() { return null; },
+            },
+            handleRPCEvent() {},
+            isMirrorMode: false,
+            messageRenderer: {
+                updateStreamingMessage() {},
+                finalizeStreamingMessage(...args) {
+                    finalizedArgs.push(args);
+                },
+                escapeHtml(text) {
+                    return `safe:${text}`;
+                },
+                scrollToBottom() {},
+            },
+            mirrorActiveSessionFile: null,
+            setInterval() { return 1; },
+            setTimeout() { return 1; },
+            sidebar: {
+                projects: [],
+                container: {
+                    addEventListener() {},
+                },
+                loadSessions() {
+                    return Promise.resolve();
+                },
+            },
+            updateMirrorLiveIndicator() {},
+            wsClient: {
+                handleMessage() {},
+            },
+        };
+
+        runInNewContext(mod.INJECTED, context);
+
+        // finalize without .streaming-text should create one before calling orig
+        context.messageRenderer.finalizeStreamingMessage(messageElement, null, 'some thinking');
+
+        assert.equal(finalizedArgs.length, 1);
+        assert.equal(contentDiv.children.length, 1);
+        assert.equal(contentDiv.children[0].className, 'streaming-text');
+        assert.equal(finalizedArgs[0][0], messageElement);
+        assert.equal(finalizedArgs[0][2], 'some thinking');
+    });
+
     it('injected client script always creates streaming text container for text-first deltas', async () => {
         const mod = await import('../proxy.js');
 
