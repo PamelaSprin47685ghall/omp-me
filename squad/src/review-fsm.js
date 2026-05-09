@@ -130,6 +130,10 @@ function buildBaseSessionOptions(ctx, pi, modelSlot) {
     const options = {
         cwd: ctx?.cwd ?? process.cwd(),
         hasUI: false,
+        // Subagent 不需要重新发现扩展——主 session 已加载完毕。
+        // omp 14.8 下 `omp-legacy-pi-file:` namespace 的扩展发现
+        // 在 Linux 上会卡住。
+        disableExtensionDiscovery: true,
     };
 
     // 继承父会话的 AGENTS.md 搜索和 workspace tree，避免 subagent 重新扫描
