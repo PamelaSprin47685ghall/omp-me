@@ -50,10 +50,27 @@ export const INJECTED = `
     return null;
   }
 
-  function syncActiveSessionForMirror() {
+  function findSessionObject(sessionFile) {
+    if (!sessionFile || !Array.isArray(sidebar.projects)) return null;
+    for (const project of sidebar.projects) {
+      if (!Array.isArray(project?.sessions)) continue;
+      for (const session of project.sessions) {
+        if (sameSessionFile(session?.filePath, sessionFile)) {
+          return { session, project };
+        }
+      }
+    }
+    return null;
+  }
+
+  let pendingMirrorSyncFile = null;
+
+  function syncActiveSessionForMirror(force) {
     if (!mirrorActiveSessionFile) return;
-    const isTrackingMirrorSession = !currentSessionFile || sameSessionFile(currentSessionFile, mirrorActiveSessionFile);
-    if (!isTrackingMirrorSession) return;
+    if (!force) {
+      const isTrackingMirrorSession = !currentSessionFile || sameSessionFile(currentSessionFile, mirrorActiveSessionFile);
+      if (!isTrackingMirrorSession) return;
+    }
 
     currentSessionFile = mirrorActiveSessionFile;
     const matchedSessionItem = findSessionItem(mirrorActiveSessionFile);
@@ -62,6 +79,15 @@ export const INJECTED = `
     }
     if (typeof sidebar.setActive === 'function' && currentSessionFile) {
       sidebar.setActive(currentSessionFile);
+    }
+
+    if (force && typeof switchSession === 'function') {
+      const found = findSessionObject(mirrorActiveSessionFile);
+      if (found) {
+        switchSession(currentSessionFile, found.session, found.project);
+      } else {
+        pendingMirrorSyncFile = mirrorActiveSessionFile;
+      }
     }
 
     // Restore streaming element so that mid-stream message_update events
@@ -194,6 +220,16 @@ export const INJECTED = `
       sidebarRefreshPromise = null;
       if (typeof updateMirrorLiveIndicator === 'function') updateMirrorLiveIndicator();
       if (currentSessionFile) flushBg(currentSessionFile);
+      if (pendingMirrorSyncFile && sameSessionFile(pendingMirrorSyncFile, mirrorActiveSessionFile)) {
+        const found = findSessionObject(mirrorActiveSessionFile);
+        if (found && typeof switchSession === 'function') {
+          currentSessionFile = found.session.filePath || mirrorActiveSessionFile;
+          if (typeof sidebar.setActive === 'function') sidebar.setActive(currentSessionFile);
+          switchSession(currentSessionFile, found.session, found.project);
+          flushBg(currentSessionFile);
+        }
+        pendingMirrorSyncFile = null;
+      }
       if (shouldReloadAgain) reloadSidebar();
     });
 
@@ -260,7 +296,7 @@ export const INJECTED = `
       const handled = origHandleMessage(msg);
       if (msg.type === 'mirror_sync') {
         alignKnownSessionFilePaths();
-        syncActiveSessionForMirror();
+        syncActiveSessionForMirror(msg.forced === true);
       }
       return handled;
     };
@@ -460,6 +496,23 @@ function scheduleSessionCatalogChanged(sessionFile) {
         sessionCatalogDebounceTimer = null;
         flushSessionCatalogChanged();
     }, SESSION_CATALOG_DEBOUNCE_MS);
+}
+
+/**
+ * Notify the browser that a session should become the active/viewing session.
+ * Used when the console creates a new session (e.g. /new) so the browser follows.
+ * Sends a native-format mirror_sync with forced=true so the frontend knows
+ * this is an explicit activation, not a background status sync.
+ */
+export function activateSessionFile(sf) {
+    const expandedSessionFile = expandSessionFile(sf);
+    if (!expandedSessionFile) return;
+    const payload = JSON.stringify({ type: 'mirror_sync', sessionFile: expandedSessionFile, forced: true });
+    for (const browserClient of browserClients) {
+        if (browserClient.readyState === WsClient.OPEN) {
+            browserClient.send(payload);
+        }
+    }
 }
 
 /**

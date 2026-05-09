@@ -761,6 +761,123 @@ describe('proxy module', () => {
             upstreamWss.close();
         }
     });
+    it('activateSessionFile sends forced mirror_sync to connected browser clients', async () => {
+        const [{ WebSocket }, { WebSocketServer }] = await Promise.all([
+            import('ws'),
+            import('ws'),
+        ]);
+        const mod = await import('../proxy.js');
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+        const upstreamWss = new WebSocketServer({ port: 0 });
+        upstreamWss.on('connection', () => {});
+
+        const upstreamPort = await new Promise((resolve) => {
+            upstreamWss.on('listening', () => resolve(upstreamWss.address().port));
+        });
+
+        try {
+            const proxyPort = await mod.setTauPort(upstreamPort);
+            if (!proxyPort) throw new Error('Proxy failed to start');
+
+            const messages = [];
+            const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}/ws`);
+            await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('WS connect timeout')), 3000);
+                ws.on('open', () => { clearTimeout(t); resolve(); });
+                ws.on('error', (e) => { clearTimeout(t); reject(e); });
+            });
+
+            ws.on('message', (data) => {
+                try { messages.push(JSON.parse(data.toString())); } catch {}
+            });
+
+            await sleep(100);
+
+            mod.activateSessionFile('/home/test/.omp/agent/sessions/p/new.jsonl');
+
+            await sleep(100);
+            const syncEvents = messages.filter(m => m?.type === 'mirror_sync');
+            assert.equal(syncEvents.length, 1, 'should emit exactly one mirror_sync');
+            assert.equal(syncEvents[0].sessionFile, '/home/test/.omp/agent/sessions/p/new.jsonl');
+            assert.equal(syncEvents[0].forced, true, 'should mark the sync as forced');
+
+            ws.close();
+        } finally {
+            mod._closeProxy();
+            upstreamWss.close();
+        }
+    });
+
+    it('injected client script forces session switch on forced mirror_sync', async () => {
+        const mod = await import('../proxy.js');
+
+        const switchedArgs = [];
+        const setActiveCalls = [];
+
+        const context = {
+            JSON,
+            Map,
+            Promise,
+            clearInterval() {},
+            clearTimeout() { return 1; },
+            document: {
+                head: { appendChild() {} },
+                createElement() {
+                    return {
+                        className: '',
+                        textContent: '',
+                        querySelector() { return null; },
+                        appendChild() {},
+                        remove() {},
+                    };
+                },
+                querySelector() { return null; },
+                querySelectorAll() { return []; },
+            },
+            handleRPCEvent() {},
+            isMirrorMode: true,
+            mirrorActiveSessionFile: '/home/test/.omp/agent/sessions/p/forced.jsonl',
+            setInterval() { return 1; },
+            sidebar: {
+                projects: [{
+                    sessions: [{
+                        filePath: '/home/test/.omp/agent/sessions/p/forced.jsonl',
+                    }],
+                }],
+                container: {
+                    addEventListener() {},
+                },
+                loadSessions() {
+                    return Promise.resolve();
+                },
+                setActive(filePath) {
+                    setActiveCalls.push(filePath);
+                },
+            },
+            switchSession(sessionFile, session, project) {
+                switchedArgs.push({ sessionFile, session, project });
+            },
+            updateMirrorLiveIndicator() {},
+            wsClient: {
+                handleMessage() {},
+            },
+        };
+
+        runInNewContext(mod.INJECTED, context);
+
+        // Simulate a forced mirror_sync (as sent by activateSessionFile)
+        context.wsClient.handleMessage({
+            type: 'mirror_sync',
+            sessionFile: '/home/test/.omp/agent/sessions/p/forced.jsonl',
+            forced: true,
+        });
+
+        assert.equal(setActiveCalls.length, 1, 'sidebar.setActive should be called');
+        assert.equal(setActiveCalls[0], '/home/test/.omp/agent/sessions/p/forced.jsonl');
+        assert.equal(switchedArgs.length, 1, 'switchSession should be called for forced sync');
+        assert.equal(switchedArgs[0].sessionFile, '/home/test/.omp/agent/sessions/p/forced.jsonl');
+    });
 });
 
 // --------------------------------------------------------------------------

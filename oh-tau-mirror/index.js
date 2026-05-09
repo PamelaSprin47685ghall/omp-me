@@ -40,6 +40,7 @@ export default async function ohTauMirrorAdaptor(pi) {
         return origOn(event, async (evt, ctx) => {
             const sf = ctx?.sessionManager?.getSessionFile?.();
             proxy.addSessionFile(sf);
+            proxy.activateSessionFile(sf);
 
             const proxyPortP = interceptPort(ctx);
             await handler(evt, ctx);
