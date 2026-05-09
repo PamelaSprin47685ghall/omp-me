@@ -130,7 +130,6 @@ function buildBaseSessionOptions(ctx, pi, modelSlot) {
     const options = {
         cwd: ctx?.cwd ?? process.cwd(),
         hasUI: false,
-        disableExtensionDiscovery: true,
     };
 
     // 继承父会话的 AGENTS.md 搜索和 workspace tree，避免 subagent 重新扫描

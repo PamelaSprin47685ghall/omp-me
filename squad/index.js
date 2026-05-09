@@ -4,7 +4,7 @@ import { loadModelsConfig, saveModelsConfig, getConfigPath } from './src/model-p
 import SquadFSM from './src/squad-fsm.js';
 import { runOuterReview } from './src/outer-review.js';
 
-const registered = new WeakSet();
+let _registered = false;
 const activeRunsBySessionId = new Map();
 let nextRunId = 0;
 
@@ -19,7 +19,7 @@ const CLASSIFICATION_PROMPT = [
 ].join('\n');
 
 export default async function squadPlugin(pi) {
-    if (registered.has(pi)) return;
+    if (_registered) return;
 
     const fsm = new SquadFSM();
 
@@ -274,7 +274,7 @@ export default async function squadPlugin(pi) {
         },
     });
 
-    registered.add(pi);
+    _registered = true;
 }
 
 // ---------------------------------------------------------------------------
