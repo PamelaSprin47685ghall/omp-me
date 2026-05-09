@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "bun test squad/ oh-tau-mirror/ oh-rpiv-advisor/ system-to-user/ block-head-tail/ ollama-search/",
     "prepare": "simple-git-hooks",
     "format": "bun x prettier --write \"**/*.{js,mjs}\"",
     "format:check": "bun x prettier --check \"**/*.{js,mjs}\""
