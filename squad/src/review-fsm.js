@@ -130,7 +130,14 @@ function buildBaseSessionOptions(ctx, pi, modelSlot) {
     const options = {
         cwd: ctx?.cwd ?? process.cwd(),
         hasUI: false,
+        disableExtensionDiscovery: true,
+        enableMCP: false,
+        enableLsp: false,
     };
+
+    // 继承父会话的 AGENTS.md 搜索和 workspace tree，避免 subagent 重新扫描
+    if (ctx?.agentsMdSearch) options.agentsMdSearch = ctx.agentsMdSearch;
+    if (ctx?.workspaceTree) options.workspaceTree = ctx.workspaceTree;
 
     if (ctx?.modelRegistry) options.modelRegistry = ctx.modelRegistry;
     if (ctx?.model) options.model = ctx.model;
