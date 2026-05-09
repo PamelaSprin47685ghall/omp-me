@@ -40,7 +40,6 @@ export default async function ohTauMirrorAdaptor(pi) {
         return origOn(event, async (evt, ctx) => {
             const sf = ctx?.sessionManager?.getSessionFile?.();
             proxy.addSessionFile(sf);
-            proxy.activateSessionFile(sf);
 
             const proxyPortP = interceptPort(ctx);
             await handler(evt, ctx);
@@ -104,6 +103,11 @@ export function createBridge(pi) {
             pi.on(event, (evt, ctx) => {
                 const sf = ctx?.sessionManager?.getSessionFile?.();
                 proxy.addSessionFile(sf);
+
+                // When the user speaks in a session, make it the active session
+                if (event === 'message_start' && evt?.message?.role === 'user') {
+                    proxy.activateSessionFile(sf);
+                }
 
                 // Tag event with session file for multi-session routing in the browser
                 if (evt && typeof evt === 'object' && sf) {

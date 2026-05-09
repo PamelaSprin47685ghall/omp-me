@@ -885,6 +885,76 @@ describe('proxy module', () => {
 // --------------------------------------------------------------------------
 
 describe('createBridge', () => {
+    it('activates session on message_start from user via end-to-end WS', async () => {
+        const [{ WebSocket }, { WebSocketServer }] = await Promise.all([
+            import('ws'),
+            import('ws'),
+        ]);
+        const { createBridge } = await import('../index.js');
+        const proxyMod = await import('../proxy.js');
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+        const upstreamWss = new WebSocketServer({ port: 0 });
+        upstreamWss.on('connection', () => {});
+
+        const upstreamPort = await new Promise((resolve) => {
+            upstreamWss.on('listening', () => resolve(upstreamWss.address().port));
+        });
+
+        try {
+            const proxyPort = await proxyMod.setTauPort(upstreamPort);
+            if (!proxyPort) throw new Error('Proxy failed to start');
+
+            const messages = [];
+            const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}/ws`);
+            await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('WS connect timeout')), 3000);
+                ws.on('open', () => { clearTimeout(t); resolve(); });
+                ws.on('error', (e) => { clearTimeout(t); reject(e); });
+            });
+
+            ws.on('message', (data) => {
+                try { messages.push(JSON.parse(data.toString())); } catch {}
+            });
+
+            await sleep(100);
+
+            // Mock pi.on to capture the handler that createBridge registers
+            const handlers = {};
+            const pi = {
+                on: (event, handler) => { handlers[event] = handler; },
+            };
+
+            const bridge = createBridge(pi);
+            bridge.on('message_start', () => {});
+
+            // Simulate OMP firing message_start for a user message
+            const ctx = {
+                sessionManager: {
+                    getSessionFile: () => '/home/test/.omp/agent/sessions/p/chat.jsonl',
+                },
+            };
+            handlers['message_start']({ message: { role: 'user', content: 'hello' } }, ctx);
+
+            await sleep(100);
+            const syncEvents = messages.filter(m => m?.type === 'mirror_sync');
+            assert.equal(syncEvents.length, 1, 'should emit mirror_sync when user speaks');
+            assert.equal(syncEvents[0].sessionFile, '/home/test/.omp/agent/sessions/p/chat.jsonl');
+            assert.equal(syncEvents[0].forced, true);
+
+            // A non-user message_start should NOT activate
+            handlers['message_start']({ message: { role: 'assistant', content: 'hi' } }, ctx);
+            await sleep(100);
+            const syncEventsAfter = messages.filter(m => m?.type === 'mirror_sync');
+            assert.equal(syncEventsAfter.length, 1, 'assistant message_start should not activate');
+
+            ws.close();
+        } finally {
+            proxyMod._closeProxy();
+            upstreamWss.close();
+        }
+    });
+
     it('forwards registerCommand', async () => {
         const { createBridge } = await import('../index.js');
 
