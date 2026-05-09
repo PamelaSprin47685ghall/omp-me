@@ -4,7 +4,10 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import { writeFileSync, appendFileSync, unlinkSync, existsSync, statSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 
 // --------------------------------------------------------------------------
@@ -499,6 +502,82 @@ describe('proxy module', () => {
 
         assert.equal(contentDiv.streamingTextNode.innerHTML, 'safe:second text delta');
         assert.equal(scrollCalls, 2);
+    });
+
+    it('addSessionFile re-broadcasts when session file mtime changes', async () => {
+        const [{ WebSocket }, { WebSocketServer }] = await Promise.all([
+            import('ws'),
+            import('ws'),
+        ]);
+        const mod = await import('../proxy.js');
+
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+        const upstreamWss = new WebSocketServer({ port: 0 });
+        upstreamWss.on('connection', () => {});
+
+        const upstreamPort = await new Promise((resolve) => {
+            upstreamWss.on('listening', () => resolve(upstreamWss.address().port));
+        });
+
+        try {
+            const proxyPort = await mod.setTauPort(upstreamPort);
+            if (!proxyPort) throw new Error('Proxy failed to start');
+
+            const messages = [];
+            const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}/ws`);
+            await new Promise((resolve, reject) => {
+                const t = setTimeout(() => reject(new Error('WS connect timeout')), 3000);
+                ws.on('open', () => { clearTimeout(t); resolve(); });
+                ws.on('error', (e) => { clearTimeout(t); reject(e); });
+            });
+
+            ws.on('message', (data) => {
+                try { messages.push(JSON.parse(data.toString())); } catch {}
+            });
+
+            await sleep(150);
+            const initial = messages.length;
+
+            const tempPath = join(tmpdir(), `tau-mtime-${randomUUID()}.jsonl`);
+
+            // 1) First call – no file → broadcast
+            mod.addSessionFile(tempPath);
+            await sleep(150);
+            assert.equal(messages.length - initial, 1, 'step 1: first add broadcasts');
+
+            // 2) Second call – still no file → silent
+            mod.addSessionFile(tempPath);
+            await sleep(150);
+            assert.equal(messages.length - initial, 1, 'step 2: unchanged');
+
+            // 3) Create file → mtime changes → broadcast
+            writeFileSync(tempPath, '{"type":"session","id":"a"}\n');
+            const mtimeAfterCreate = statSync(tempPath).mtimeMs;
+            mod.addSessionFile(tempPath);
+            await sleep(150);
+            assert.equal(messages.length - initial, 2, 'step 3: file created');
+
+            // 4) No modification → silent
+            mod.addSessionFile(tempPath);
+            await sleep(150);
+            assert.equal(messages.length - initial, 2, 'step 4: unchanged');
+
+            // 5) Append content → mtime changes → broadcast
+            await sleep(50);
+            appendFileSync(tempPath, '{"type":"message","message":{"role":"user","content":"hi"}}\n');
+            const mtimeAfterAppend = statSync(tempPath).mtimeMs;
+            assert.ok(mtimeAfterAppend > mtimeAfterCreate, 'mtime must increase after append');
+            mod.addSessionFile(tempPath);
+            await sleep(150);
+            assert.equal(messages.length - initial, 3, 'step 5: content appended');
+
+            ws.close();
+            if (existsSync(tempPath)) unlinkSync(tempPath);
+        } finally {
+            mod._closeProxy();
+            upstreamWss.close();
+        }
     });
 });
 

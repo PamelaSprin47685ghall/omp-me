@@ -3,13 +3,15 @@
  *
  * - Injects __sessionFile into WS events for multi-session routing
  * - Appends tau-override code to frontend JS
- * - Filters /api/sessions to only this process's sessions
+ * - Serves session data from ~/.omp (tau-mirror hardcodes .pi; we replace)
  * - Runs on tauPort + 1000 (try offsets of 1000 if busy)
  */
 
 import http from 'node:http';
 import { homedir } from 'node:os';
-import { realpathSync } from 'node:fs';
+import { existsSync, readdirSync, statSync, createReadStream } from 'node:fs';
+import { join } from 'node:path';
+import { createInterface } from 'node:readline';
 import { WebSocketServer, WebSocket as WsClient } from 'ws';
 
 // ---------------------------------------------------------------------------
@@ -60,6 +62,26 @@ export const INJECTED = `
     }
     if (typeof sidebar.setActive === 'function' && currentSessionFile) {
       sidebar.setActive(currentSessionFile);
+    }
+
+    // Restore streaming element so that mid-stream message_update events
+    // rendered by handleMirrorSync can be updated incrementally.
+    if (typeof currentStreamingElement !== 'undefined' && !currentStreamingElement) {
+      const streamingMsg = typeof document.querySelector === 'function'
+        ? document.querySelector('.message.assistant .message-content.streaming')
+        : null;
+      if (streamingMsg) {
+        currentStreamingElement = streamingMsg.closest('.message.assistant');
+        // Reconstruct accumulated text from the DOM
+        if (typeof currentStreamingText !== 'undefined') {
+          const textNode = streamingMsg.querySelector('.streaming-text');
+          if (textNode) currentStreamingText = textNode.textContent || '';
+        }
+        if (typeof currentStreamingThinking !== 'undefined') {
+          const thinkingNode = streamingMsg.querySelector('.streaming-thinking .thinking-content');
+          if (thinkingNode) currentStreamingThinking = thinkingNode.textContent || '';
+        }
+      }
     }
   }
 
@@ -272,6 +294,18 @@ export function setTauPort(port) {
     return proxyPortPromise;
 }
 
+export function _closeProxy() {
+    if (proxyServer) {
+        proxyServer.close();
+        proxyServer = null;
+    }
+    tauPort = null;
+    for (const client of browserClients) {
+        try { client.close(); } catch {}
+    }
+    browserClients.clear();
+}
+
 function startProxy() {
     if (proxyServer) return;
     const basePort = tauPort + 1000;
@@ -344,6 +378,322 @@ function startProxy() {
 }
 
 // ---------------------------------------------------------------------------
+// Session tracking — paths from oh-my-pi (always .omp)
+// ---------------------------------------------------------------------------
+
+const knownSessions = new Set();
+const knownSessionFiles = new Set();
+const knownSessionIdentities = new Set();
+const sessionFileMtimes = new Map();
+
+function expandSessionFile(sf) {
+    if (!sf) return null;
+    return sf.startsWith('~/') ? `${homedir()}${sf.slice(1)}` : sf;
+}
+
+function getSessionIdentity(sf) {
+    if (!sf || typeof sf !== 'string') return '';
+    const normalizedSessionFile = sf.replaceAll('\\', '/').replace(/^~\//, '/');
+    const marker = '/agent/sessions/';
+    const markerIndex = normalizedSessionFile.indexOf(marker);
+    if (markerIndex === -1) return normalizedSessionFile;
+    return normalizedSessionFile.slice(markerIndex + marker.length);
+}
+
+export function normalizeSessionFile(sf) {
+    return expandSessionFile(sf);
+}
+
+export function isKnownSessionFile(sf) {
+    const expandedSessionFile = expandSessionFile(sf);
+    if (!expandedSessionFile) return false;
+    if (knownSessions.has(expandedSessionFile)) return true;
+    const sessionIdentity = getSessionIdentity(expandedSessionFile);
+    return sessionIdentity ? knownSessionIdentities.has(sessionIdentity) : false;
+}
+
+function broadcastBrowserEvent(event) {
+    const payload = JSON.stringify({ type: 'event', event });
+    for (const browserClient of browserClients) {
+        if (browserClient.readyState === WsClient.OPEN) {
+            browserClient.send(payload);
+        }
+    }
+}
+
+/**
+ * Add a session file path to the known set.
+ * Session paths from oh-my-pi are always .omp; identity matching
+ * handles any .pi paths that tau-mirror might still produce.
+ *
+ * Broadcasts session_catalog_changed on first registration and on
+ * any subsequent call where the underlying file's mtime has changed
+ * (covers initial empty file, writes during conversation, etc.).
+ */
+export function addSessionFile(sf) {
+    const expandedSessionFile = expandSessionFile(sf);
+    if (!expandedSessionFile) return;
+
+    knownSessions.add(expandedSessionFile);
+
+    const identity = getSessionIdentity(expandedSessionFile);
+    if (identity) knownSessionIdentities.add(identity);
+
+    const wasKnown = knownSessionFiles.has(expandedSessionFile);
+
+    if (wasKnown) {
+        // Re-broadcast if the file exists and has been modified since our last broadcast
+        if (existsSync(expandedSessionFile)) {
+            try {
+                const cur = statSync(expandedSessionFile).mtimeMs;
+                const prev = sessionFileMtimes.get(expandedSessionFile) || 0;
+                if (cur > prev) {
+                    sessionFileMtimes.set(expandedSessionFile, cur);
+                    broadcastBrowserEvent({ type: 'session_catalog_changed', sessionFile: expandedSessionFile });
+                }
+            } catch {}
+        }
+        return;
+    }
+
+    knownSessionFiles.add(expandedSessionFile);
+    if (existsSync(expandedSessionFile)) {
+        try {
+            sessionFileMtimes.set(expandedSessionFile, statSync(expandedSessionFile).mtimeMs);
+        } catch {}
+    }
+    broadcastBrowserEvent({ type: 'session_catalog_changed', sessionFile: expandedSessionFile });
+}
+
+// ---------------------------------------------------------------------------
+// OMP session scanning — replaces tau-mirror's .pi-based scanning
+// ---------------------------------------------------------------------------
+
+const OMP_SESSIONS_DIR = join(homedir(), '.omp', 'agent', 'sessions');
+
+async function parseOmpSessionFile(filePath) {
+    const stream = createReadStream(filePath, { encoding: 'utf8' });
+    const rl = createInterface({ input: stream, crlfDelay: Infinity });
+
+    let header = null;
+    let firstMessage = null;
+    let sessionName = null;
+    let userMessageCount = 0;
+    let lineCount = 0;
+
+    for await (const line of rl) {
+        if (!line.trim()) continue;
+        lineCount++;
+        try {
+            const entry = JSON.parse(line);
+            if (entry.type === 'session') header = entry;
+            else if (entry.type === 'session_info' && entry.name) sessionName = entry.name;
+            else if (entry.type === 'message' && entry.message?.role === 'user') {
+                userMessageCount++;
+                if (!firstMessage) {
+                    const content = entry.message.content;
+                    if (typeof content === 'string') firstMessage = content.substring(0, 120);
+                    else if (Array.isArray(content)) {
+                        const tb = content.find(b => b.type === 'text');
+                        if (tb) firstMessage = tb.text.substring(0, 120);
+                    }
+                }
+            }
+        } catch { /* skip */ }
+        if (lineCount > 50 && firstMessage) break;
+    }
+
+    rl.close();
+    stream.destroy();
+
+    if (!header?.id) return null;
+
+    return {
+        id: header.id,
+        timestamp: header.timestamp || '',
+        name: sessionName,
+        firstMessage,
+        cwd: header.cwd || null,
+    };
+}
+
+async function scanOmpSessions() {
+    if (!existsSync(OMP_SESSIONS_DIR)) return { projects: [] };
+
+    const dirEntries = readdirSync(OMP_SESSIONS_DIR, { withFileTypes: true });
+    const projects = [];
+
+    for (const dir of dirEntries) {
+        if (!dir.isDirectory()) continue;
+
+        const projectDir = join(OMP_SESSIONS_DIR, dir.name);
+        const files = readdirSync(projectDir).filter(f => f.endsWith('.jsonl'));
+        const decodedPath = dir.name.replace(/^--/, '/').replace(/--$/, '').replace(/-/g, '/');
+        const sessions = [];
+
+        for (const file of files) {
+            try {
+                const filePath = join(projectDir, file);
+                if (!isKnownSessionFile(filePath)) continue;
+                const parsed = await parseOmpSessionFile(filePath);
+                if (parsed) {
+                    const stat = statSync(filePath);
+                    sessions.push({ ...parsed, file, filePath, mtime: stat.mtimeMs });
+                }
+            } catch { /* skip */ }
+        }
+
+        sessions.sort((a, b) => b.mtime - a.mtime);
+
+        if (sessions.length > 0) {
+            projects.push({ path: decodedPath, dirName: dir.name, sessions });
+        }
+    }
+
+    projects.sort((a, b) => {
+        const aTime = a.sessions[0]?.mtime || 0;
+        const bTime = b.sessions[0]?.mtime || 0;
+        return bTime - aTime;
+    });
+
+    return { projects };
+}
+
+function serveOmpSessionFile(res, dirName, file) {
+    const filePath = join(OMP_SESSIONS_DIR, dirName, file);
+
+    if (!existsSync(filePath)) {
+        res.writeHead(404, { 'Content-Type': 'application/json', ...corsHeaders() });
+        res.end(JSON.stringify({ error: 'Session not found' }));
+        return;
+    }
+
+    const entries = [];
+    const stream = createReadStream(filePath, { encoding: 'utf8' });
+    let buffer = '';
+
+    stream.on('data', (chunk) => {
+        buffer += chunk;
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+            if (line.trim()) {
+                try { entries.push(JSON.parse(line)); } catch { /* skip */ }
+            }
+        }
+    });
+
+    stream.on('end', () => {
+        if (buffer.trim()) {
+            try { entries.push(JSON.parse(buffer)); } catch { /* skip */ }
+        }
+        res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders() });
+        res.end(JSON.stringify({ entries }));
+    });
+
+    stream.on('error', (e) => {
+        res.writeHead(500, { 'Content-Type': 'application/json', ...corsHeaders() });
+        res.end(JSON.stringify({ error: e.message }));
+    });
+}
+
+async function searchOmpSessions(query) {
+    if (!existsSync(OMP_SESSIONS_DIR)) return { results: [] };
+
+    const q = query.toLowerCase();
+    const results = [];
+    const MAX_RESULTS = 30;
+
+    const dirEntries = readdirSync(OMP_SESSIONS_DIR, { withFileTypes: true });
+
+    for (const dir of dirEntries) {
+        if (!dir.isDirectory()) continue;
+        if (results.length >= MAX_RESULTS) break;
+
+        const projectDir = join(OMP_SESSIONS_DIR, dir.name);
+        const decodedPath = dir.name.replace(/^--/, '/').replace(/--$/, '').replace(/-/g, '/');
+        const files = readdirSync(projectDir).filter(f => f.endsWith('.jsonl'));
+
+        for (const file of files) {
+            if (results.length >= MAX_RESULTS) break;
+
+            try {
+                const filePath = join(projectDir, file);
+                if (!isKnownSessionFile(filePath)) continue;
+
+                const stream = createReadStream(filePath, { encoding: 'utf8' });
+                const rl = createInterface({ input: stream, crlfDelay: Infinity });
+
+                let sessionId = '';
+                let sessionName = '';
+                let sessionTimestamp = '';
+                let firstMessage = '';
+                const matches = [];
+
+                for await (const line of rl) {
+                    if (!line.trim()) continue;
+                    try {
+                        const entry = JSON.parse(line);
+
+                        if (entry.type === 'session') {
+                            sessionId = entry.id;
+                            sessionTimestamp = entry.timestamp || '';
+                        }
+                        if (entry.type === 'session_info' && entry.name) {
+                            sessionName = entry.name;
+                        }
+                        if (entry.type === 'message') {
+                            const content = entry.message?.content;
+                            let text = '';
+                            if (typeof content === 'string') text = content;
+                            else if (Array.isArray(content)) {
+                                text = content.filter(b => b.type === 'text').map(b => b.text).join(' ');
+                            }
+
+                            if (!firstMessage && entry.message?.role === 'user' && text) {
+                                firstMessage = text.substring(0, 120);
+                            }
+
+                            if (text && text.toLowerCase().includes(q)) {
+                                const idx = text.toLowerCase().indexOf(q);
+                                const start = Math.max(0, idx - 60);
+                                const end = Math.min(text.length, idx + q.length + 60);
+                                const snippet = (start > 0 ? '\u2026' : '') + text.substring(start, end) + (end < text.length ? '\u2026' : '');
+
+                                matches.push({
+                                    role: entry.message?.role || 'unknown',
+                                    snippet: snippet.replace(/\n/g, ' '),
+                                });
+
+                                if (matches.length >= 3) break;
+                            }
+                        }
+                    } catch { /* skip line */ }
+                }
+
+                rl.close();
+                stream.destroy();
+
+                if (matches.length > 0) {
+                    results.push({
+                        id: sessionId,
+                        name: sessionName,
+                        timestamp: sessionTimestamp,
+                        path: decodedPath,
+                        file,
+                        filePath,
+                        firstMessage,
+                        matches,
+                    });
+                }
+            } catch { /* skip file */ }
+        }
+    }
+
+    return { results };
+}
+
+// ---------------------------------------------------------------------------
 // HTTP proxy
 // ---------------------------------------------------------------------------
 
@@ -377,7 +727,7 @@ function buildUpstreamHeaders(req) {
 const UPSTREAM_BASE = () => `http://127.0.0.1:${tauPort}`;
 
 async function proxyHandler(req, res) {
-    // WebSocket upgrade — handled by the 'upgrade' event listener below;
+    // WebSocket upgrade — handled by the 'upgrade' event listener;
     // must not send an HTTP response or upgrade will be suppressed.
     if (req.headers.upgrade && req.headers.upgrade.toLowerCase() === 'websocket') return;
 
@@ -387,24 +737,53 @@ async function proxyHandler(req, res) {
         return;
     }
 
+    const urlPath = req.url.split('?')[0];
+
+    // --- Session endpoints: served from ~/.omp directly ---
+    // tau-mirror hardcodes .pi; we replace with .omp scanning.
+
+    if (urlPath === '/api/sessions' && req.method === 'GET') {
+        try {
+            const data = await scanOmpSessions();
+            res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders() });
+            res.end(JSON.stringify(data));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json', ...corsHeaders() });
+            res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+    }
+
+    const sessionMatch = urlPath.match(/^\/api\/sessions\/([^/]+)\/([^/]+)$/);
+    if (sessionMatch && req.method === 'GET') {
+        serveOmpSessionFile(res, sessionMatch[1], sessionMatch[2]);
+        return;
+    }
+
+    if (urlPath === '/api/search' && req.method === 'GET') {
+        try {
+            const searchUrl = new URL(`http://localhost${req.url}`);
+            const q = searchUrl.searchParams.get('q') || '';
+            const data = await searchOmpSessions(q);
+            res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders() });
+            res.end(JSON.stringify(data));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json', ...corsHeaders() });
+            res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+    }
+
+    // --- All other requests: forward to upstream (tau-mirror) ---
+
     const body = req.method !== 'GET' && req.method !== 'HEAD' ? await collectBody(req) : undefined;
     const upstreamUrl = UPSTREAM_BASE() + req.url;
     const upstreamHeaders = buildUpstreamHeaders(req);
     const fetchOpts = { method: req.method, headers: upstreamHeaders };
     if (body && body.length > 0) fetchOpts.body = body;
 
-    // /api/sessions — filter to this process's sessions
-    if (req.url === '/api/sessions') {
-        const upstreamRes = await fetch(upstreamUrl, fetchOpts);
-        const data = await upstreamRes.json();
-        filterSessions(data);
-        res.writeHead(200, { 'Content-Type': 'application/json', ...corsHeaders() });
-        res.end(JSON.stringify(data));
-        return;
-    }
-
     // /api/qr — rewrite tau-mirror URL to proxy URL
-    if (req.url === '/api/qr') {
+    if (urlPath === '/api/qr') {
         const upstreamRes = await fetch(upstreamUrl, fetchOpts);
         let html = await upstreamRes.text();
         const proxyPort = getProxyPort();
@@ -420,7 +799,7 @@ async function proxyHandler(req, res) {
     const upstreamRes = await fetch(upstreamUrl, fetchOpts);
 
     // /app.js — needs tau-override appended
-    if (req.url === '/app.js') {
+    if (urlPath === '/app.js') {
         const text = await upstreamRes.text();
         res.writeHead(upstreamRes.status, { 'Content-Type': 'application/javascript', ...corsHeaders() });
         res.end(text + INJECTED);
@@ -448,85 +827,4 @@ function corsHeaders() {
         'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
         'Access-Control-Allow-Headers': 'Content-Type',
     };
-}
-
-/** Session file paths known to this process (original + realpath-resolved). */
-const knownSessions = new Set();
-const knownSessionFiles = new Set();
-const knownSessionIdentities = new Set();
-
-function expandSessionFile(sf) {
-    if (!sf) return null;
-    return sf.startsWith('~/') ? `${homedir()}${sf.slice(1)}` : sf;
-}
-
-function getSessionIdentity(sf) {
-    if (!sf || typeof sf !== 'string') return '';
-    const normalizedSessionFile = sf.replaceAll('\\', '/').replace(/^~\//, '/');
-    const marker = '/agent/sessions/';
-    const markerIndex = normalizedSessionFile.indexOf(marker);
-    if (markerIndex === -1) return normalizedSessionFile;
-    return normalizedSessionFile.slice(markerIndex + marker.length);
-}
-
-export function normalizeSessionFile(sf) {
-    const expandedSessionFile = expandSessionFile(sf);
-    if (!expandedSessionFile) return null;
-    try {
-        return realpathSync(expandedSessionFile);
-    } catch {
-        return expandedSessionFile;
-    }
-}
-
-export function isKnownSessionFile(sf) {
-    const expandedSessionFile = expandSessionFile(sf);
-    if (!expandedSessionFile) return false;
-    if (knownSessions.has(expandedSessionFile)) return true;
-
-    const normalizedSessionFile = normalizeSessionFile(sf);
-    if (normalizedSessionFile && knownSessions.has(normalizedSessionFile)) return true;
-
-    const sessionIdentity = getSessionIdentity(expandedSessionFile);
-    return sessionIdentity ? knownSessionIdentities.has(sessionIdentity) : false;
-}
-
-function broadcastBrowserEvent(event) {
-    const payload = JSON.stringify({ type: 'event', event });
-    for (const browserClient of browserClients) {
-        if (browserClient.readyState === WsClient.OPEN) {
-            browserClient.send(payload);
-        }
-    }
-}
-
-/**
- * Add a session file path to the known set.
- * Expands ~ and resolves symlinks so paths from getSessionFile()
- * match what /api/sessions returns regardless of .pi vs .omp.
- */
-export function addSessionFile(sf) {
-    const expandedSessionFile = expandSessionFile(sf);
-    const normalizedSessionFile = normalizeSessionFile(sf);
-    if (!expandedSessionFile || !normalizedSessionFile) return;
-
-    knownSessions.add(expandedSessionFile);
-    knownSessions.add(normalizedSessionFile);
-
-    const expandedSessionIdentity = getSessionIdentity(expandedSessionFile);
-    const normalizedSessionIdentity = getSessionIdentity(normalizedSessionFile);
-    if (expandedSessionIdentity) knownSessionIdentities.add(expandedSessionIdentity);
-    if (normalizedSessionIdentity) knownSessionIdentities.add(normalizedSessionIdentity);
-
-    if (knownSessionFiles.has(normalizedSessionFile)) return;
-    knownSessionFiles.add(normalizedSessionFile);
-    broadcastBrowserEvent({ type: 'session_catalog_changed', sessionFile: normalizedSessionFile });
-}
-
-function filterSessions(data) {
-    if (!data.projects) return;
-    for (const project of data.projects) {
-        project.sessions = project.sessions.filter((session) => isKnownSessionFile(session.filePath));
-    }
-    data.projects = data.projects.filter((project) => project.sessions.length > 0);
 }
