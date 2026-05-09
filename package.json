@@ -4,15 +4,15 @@
   "type": "module",
   "scripts": {
     "prepare": "simple-git-hooks",
-    "format": "prettier --write \"**/*.js\"",
-    "format:check": "prettier --check \"**/*.js\""
+    "format": "bun x prettier --write \"**/*.{js,mjs}\"",
+    "format:check": "bun x prettier --check \"**/*.{js,mjs}\""
   },
   "devDependencies": {
     "lint-staged": "^15.5.2",
     "simple-git-hooks": "^2.12.1"
   },
   "lint-staged": {
-    "*.js": "bun x prettier --write"
+    "*.{js,mjs}": "bun x prettier --write"
   },
   "simple-git-hooks": {
     "pre-commit": "npx lint-staged"

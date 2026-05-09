@@ -17,6 +17,9 @@
     "web-ui",
     "mirror"
   ],
+  "scripts": {
+    "test": "bun test"
+  },
   "dependencies": {
     "tau-mirror": "^1.0.7"
   }

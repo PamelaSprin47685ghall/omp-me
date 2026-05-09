@@ -29,8 +29,7 @@ function validateNodes(nodes) {
         if (
             !node.review_criteria ||
             (typeof node.review_criteria !== 'string' &&
-                (!Array.isArray(node.review_criteria) ||
-                !node.review_criteria.every((c) => typeof c === 'string')))
+                (!Array.isArray(node.review_criteria) || !node.review_criteria.every((c) => typeof c === 'string')))
         ) {
             throw new Error(`node "${node.id}" is missing valid review_criteria`);
         }

@@ -2,7 +2,7 @@
  * Tests for oh-rpiv-advisor — the oh-my-pi adaptor for @juicesharp/rpiv-advisor.
  */
 
-import { describe, it } from 'node:test';
+import { describe, it } from 'bun:test';
 import assert from 'node:assert/strict';
 
 // --------------------------------------------------------------------------

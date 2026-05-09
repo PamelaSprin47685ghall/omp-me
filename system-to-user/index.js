@@ -7,7 +7,7 @@ export default async function systemToUserExtension(pi) {
         let modified = false;
         for (let i = 0; i < payload.input.length; i++) {
             const item = payload.input[i];
-            if (item && (item.role === 'system' || item.role === 'developer')) {
+            if (item && item.role === 'system') {
                 payload.input[i] = { ...item, role: 'user' };
                 modified = true;
             }

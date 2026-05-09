@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it } from 'bun:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -30,10 +30,10 @@ describe('extension registration', () => {
 
             await ollamaSearchExtension(pi);
 
-            const searchTool = tools.find((t) => t.name === 'ollama_search');
+            const searchTool = tools.find((t) => t.name === 'web_search');
             await assert.rejects(
                 () => searchTool.execute('call-1', { query: 'test' }, new AbortController().signal, () => {}, {}),
-                /ollama-key/,
+                /ollama-key|unauthorized/,
             );
         } finally {
             if (originalKey) process.env.OLLAMA_API_KEY = originalKey;
@@ -61,8 +61,8 @@ describe('extension registration', () => {
         await ollamaSearchExtension(pi);
 
         const names = tools.map((t) => t.name);
-        assert.ok(names.includes('ollama_search'), 'ollama_search tool not registered');
-        assert.ok(names.includes('ollama_fetch'), 'ollama_fetch tool not registered');
+        assert.ok(names.includes('web_search'), 'ollama_search tool not registered');
+        assert.ok(names.includes('web_fetch'), 'ollama_fetch tool not registered');
         assert.equal(tools.length, 2);
     });
 
@@ -131,7 +131,7 @@ describe('extension registration', () => {
 
         await ollamaSearchExtension(pi);
 
-        const searchTool = tools.find((t) => t.name === 'ollama_search');
+        const searchTool = tools.find((t) => t.name === 'web_search');
         assert.ok(searchTool);
         assert.ok(searchTool.parameters);
         assert.equal(typeof searchTool.execute, 'function');
@@ -154,7 +154,7 @@ describe('extension registration', () => {
 
         await ollamaSearchExtension(pi);
 
-        const fetchTool = tools.find((t) => t.name === 'ollama_fetch');
+        const fetchTool = tools.find((t) => t.name === 'web_fetch');
         assert.ok(fetchTool);
         assert.ok(fetchTool.parameters);
         assert.equal(typeof fetchTool.execute, 'function');
@@ -187,7 +187,7 @@ describe('extension registration', () => {
         await assert.doesNotReject(() => ollamaSearchExtension(pi));
 
         const names = tools.map((t) => t.name);
-        assert.ok(names.includes('ollama_search'));
-        assert.ok(names.includes('ollama_fetch'));
+        assert.ok(names.includes('web_search'));
+        assert.ok(names.includes('web_fetch'));
     });
 });

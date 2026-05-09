@@ -5,6 +5,9 @@
   "main": "index.js",
   "exports": "./index.js",
   "description": "DAG-based multi-agent orchestration with mandatory Worker-Reviewer loops and native session switching for oh-my-pi",
+  "scripts": {
+    "test": "bun test"
+  },
   "omp": {
     "extensions": ["index.js"]
   }

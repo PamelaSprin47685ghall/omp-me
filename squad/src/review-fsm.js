@@ -303,7 +303,11 @@ function buildRejectTool(resolve) {
 // ---------------------------------------------------------------------------
 
 async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHint, onSessionCreated) {
-    const DIAG = (msg) => { try { require('fs').appendFileSync('/tmp/squad-diag.log', `${Date.now()} ${msg}\n`); } catch {} };
+    const DIAG = (msg) => {
+        try {
+            require('fs').appendFileSync('/tmp/squad-diag.log', `${Date.now()} ${msg}\n`);
+        } catch {}
+    };
     DIAG('runSession start');
 
     const createAgentSession = pi?.pi?.createAgentSession;
@@ -375,12 +379,8 @@ async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHi
         DIAG('session.model=' + (session.model?.provider + '/' + session.model?.id || 'null'));
         DIAG('session.sessionId=' + session.sessionId);
         const promptPromise = session.prompt(promptText);
-        const timeoutMs = 30000;
-        const timeoutPromise = Bun.sleep(timeoutMs).then(() => {
-            throw new Error('session.prompt timed out after ' + timeoutMs + 'ms');
-        });
         try {
-            await Promise.race([promptPromise, timeoutPromise]);
+            await promptPromise;
             DIAG('session.prompt returned');
         } catch (e) {
             DIAG('session.prompt ERROR: ' + e.message);

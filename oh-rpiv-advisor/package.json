@@ -20,6 +20,9 @@
     "rpiv-advisor",
     "advisor"
   ],
+  "scripts": {
+    "test": "bun test"
+  },
   "dependencies": {
     "@juicesharp/rpiv-advisor": "^1.1.5",
     "@mariozechner/pi-ai": "file:./shim-packages/pi-ai",

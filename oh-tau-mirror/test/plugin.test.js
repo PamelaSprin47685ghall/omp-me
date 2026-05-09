@@ -2,7 +2,7 @@
  * Tests for oh-tau-mirror — the oh-my-pi adaptor for tau-mirror.
  */
 
-import { describe, it } from 'node:test';
+import { describe, it } from 'bun:test';
 import assert from 'node:assert/strict';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -89,18 +89,26 @@ describe('proxy module', () => {
                     return {
                         className: '',
                         textContent: '',
-                        querySelector() { return null; },
+                        querySelector() {
+                            return null;
+                        },
                         appendChild() {},
                         remove() {},
                     };
                 },
-                querySelector() { return null; },
+                querySelector() {
+                    return null;
+                },
             },
             handleRPCEvent() {},
             isMirrorMode: false,
             mirrorActiveSessionFile: null,
-            setInterval() { return 1; },
-            setTimeout() { return 1; },
+            setInterval() {
+                return 1;
+            },
+            setTimeout() {
+                return 1;
+            },
             sidebar: {
                 projects: [],
                 container: {
@@ -120,8 +128,14 @@ describe('proxy module', () => {
         runInNewContext(mod.INJECTED, context);
 
         // Trigger via handleMessage (our injected code wraps it)
-        context.wsClient.handleMessage({ type: 'event', event: { type: 'session_catalog_changed', sessionFile: '/tmp/test.jsonl' } });
-        context.wsClient.handleMessage({ type: 'event', event: { type: 'session_catalog_changed', sessionFile: '/tmp/test.jsonl' } });
+        context.wsClient.handleMessage({
+            type: 'event',
+            event: { type: 'session_catalog_changed', sessionFile: '/tmp/test.jsonl' },
+        });
+        context.wsClient.handleMessage({
+            type: 'event',
+            event: { type: 'session_catalog_changed', sessionFile: '/tmp/test.jsonl' },
+        });
         assert.equal(reloadCount, 1);
 
         resolveReload();
@@ -146,18 +160,26 @@ describe('proxy module', () => {
                     return {
                         className: '',
                         textContent: '',
-                        querySelector() { return null; },
+                        querySelector() {
+                            return null;
+                        },
                         appendChild() {},
                         remove() {},
                     };
                 },
-                querySelector() { return null; },
+                querySelector() {
+                    return null;
+                },
             },
             handleRPCEvent() {},
             isMirrorMode: false,
             mirrorActiveSessionFile: null,
-            setInterval() { return 1; },
-            setTimeout() { return 1; },
+            setInterval() {
+                return 1;
+            },
+            setTimeout() {
+                return 1;
+            },
             sidebar: {
                 projects: [],
                 container: {
@@ -178,8 +200,14 @@ describe('proxy module', () => {
 
         runInNewContext(mod.INJECTED, context);
 
-        context.wsClient.handleMessage({ type: 'event', event: { type: 'session_catalog_changed', sessionFile: '/tmp/one.jsonl' } });
-        context.wsClient.handleMessage({ type: 'event', event: { type: 'session_catalog_changed', sessionFile: '/tmp/two.jsonl' } });
+        context.wsClient.handleMessage({
+            type: 'event',
+            event: { type: 'session_catalog_changed', sessionFile: '/tmp/one.jsonl' },
+        });
+        context.wsClient.handleMessage({
+            type: 'event',
+            event: { type: 'session_catalog_changed', sessionFile: '/tmp/two.jsonl' },
+        });
 
         assert.equal(reloadCount, 1);
 
@@ -212,18 +240,26 @@ describe('proxy module', () => {
                     return {
                         className: '',
                         textContent: '',
-                        querySelector() { return null; },
+                        querySelector() {
+                            return null;
+                        },
                         appendChild() {},
                         remove() {},
                     };
                 },
-                querySelector() { return null; },
+                querySelector() {
+                    return null;
+                },
             },
             handleRPCEvent() {},
             isMirrorMode: true,
             mirrorActiveSessionFile: '/home/test/.omp/agent/sessions/p/demo.jsonl',
-            setInterval() { return 1; },
-            setTimeout() { return 1; },
+            setInterval() {
+                return 1;
+            },
+            setTimeout() {
+                return 1;
+            },
             sidebar: {
                 projects: [],
                 container: {
@@ -245,7 +281,11 @@ describe('proxy module', () => {
         };
 
         runInNewContext(mod.INJECTED, context);
-        await context.switchSession('/home/test/.pi/agent/sessions/p/demo.jsonl', { filePath: '/home/test/.pi/agent/sessions/p/demo.jsonl' }, null);
+        await context.switchSession(
+            '/home/test/.pi/agent/sessions/p/demo.jsonl',
+            { filePath: '/home/test/.pi/agent/sessions/p/demo.jsonl' },
+            null,
+        );
 
         assert.equal(switchedSessionFiles.length, 1);
         assert.equal(switchedSessionFiles[0], '/home/test/.omp/agent/sessions/p/demo.jsonl');
@@ -269,12 +309,16 @@ describe('proxy module', () => {
                     return {
                         className: '',
                         textContent: '',
-                        querySelector() { return null; },
+                        querySelector() {
+                            return null;
+                        },
                         appendChild() {},
                         remove() {},
                     };
                 },
-                querySelector() { return null; },
+                querySelector() {
+                    return null;
+                },
                 querySelectorAll() {
                     return [];
                 },
@@ -282,8 +326,12 @@ describe('proxy module', () => {
             handleRPCEvent() {},
             isMirrorMode: false,
             mirrorActiveSessionFile: null,
-            setInterval() { return 1; },
-            setTimeout() { return 1; },
+            setInterval() {
+                return 1;
+            },
+            setTimeout() {
+                return 1;
+            },
             sidebar: {
                 projects: [],
                 container: {
@@ -351,12 +399,16 @@ describe('proxy module', () => {
                     return {
                         className: '',
                         textContent: '',
-                        querySelector() { return null; },
+                        querySelector() {
+                            return null;
+                        },
                         appendChild() {},
                         remove() {},
                     };
                 },
-                querySelector() { return null; },
+                querySelector() {
+                    return null;
+                },
                 querySelectorAll(selector) {
                     if (selector === '.session-item') return [renderedSessionItem];
                     return [];
@@ -365,19 +417,27 @@ describe('proxy module', () => {
             handleRPCEvent() {},
             isMirrorMode: true,
             mirrorActiveSessionFile: '/home/test/.omp/agent/sessions/p/main-thread.jsonl',
-            setInterval() { return 1; },
-            setTimeout() { return 1; },
+            setInterval() {
+                return 1;
+            },
+            setTimeout() {
+                return 1;
+            },
             sidebar: {
                 projects: [],
                 container: {
                     addEventListener() {},
                 },
                 loadSessions() {
-                    context.sidebar.projects = [{
-                        sessions: [{
-                            filePath: '/home/test/.omp/agent/sessions/p/main-thread.jsonl',
-                        }],
-                    }];
+                    context.sidebar.projects = [
+                        {
+                            sessions: [
+                                {
+                                    filePath: '/home/test/.omp/agent/sessions/p/main-thread.jsonl',
+                                },
+                            ],
+                        },
+                    ];
                     return Promise.resolve();
                 },
                 setActive(filePath) {
@@ -425,25 +485,39 @@ describe('proxy module', () => {
                     return {
                         className: '',
                         textContent: '',
-                        querySelector() { return null; },
+                        querySelector() {
+                            return null;
+                        },
                         appendChild() {},
                         remove() {},
                     };
                 },
-                querySelector() { return null; },
-                querySelectorAll() { return []; },
+                querySelector() {
+                    return null;
+                },
+                querySelectorAll() {
+                    return [];
+                },
             },
             handleRPCEvent() {},
             isMirrorMode: true,
             mirrorActiveSessionFile: '/home/test/.omp/agent/sessions/p/main-thread.jsonl',
-            setInterval() { return 1; },
-            setTimeout() { return 1; },
+            setInterval() {
+                return 1;
+            },
+            setTimeout() {
+                return 1;
+            },
             sidebar: {
-                projects: [{
-                    sessions: [{
-                        filePath: '/home/test/.pi/agent/sessions/p/main-thread.jsonl',
-                    }],
-                }],
+                projects: [
+                    {
+                        sessions: [
+                            {
+                                filePath: '/home/test/.pi/agent/sessions/p/main-thread.jsonl',
+                            },
+                        ],
+                    },
+                ],
                 container: {
                     addEventListener() {},
                 },
@@ -470,7 +544,10 @@ describe('proxy module', () => {
         await Promise.resolve();
         await Promise.resolve();
 
-        assert.equal(context.sidebar.projects[0].sessions[0].filePath, '/home/test/.omp/agent/sessions/p/main-thread.jsonl');
+        assert.equal(
+            context.sidebar.projects[0].sessions[0].filePath,
+            '/home/test/.omp/agent/sessions/p/main-thread.jsonl',
+        );
     });
 
     it('injected client script ensures streaming-text exists before finalize to avoid thinking duplication', async () => {
@@ -480,7 +557,8 @@ describe('proxy module', () => {
         const contentDiv = {
             children: [],
             querySelector(selector) {
-                if (selector === '.streaming-text') return this.children.find((c) => c.className === 'streaming-text') || null;
+                if (selector === '.streaming-text')
+                    return this.children.find((c) => c.className === 'streaming-text') || null;
                 return null;
             },
             appendChild(node) {
@@ -508,12 +586,16 @@ describe('proxy module', () => {
                         className: '',
                         innerHTML: '',
                         textContent: '',
-                        querySelector() { return null; },
+                        querySelector() {
+                            return null;
+                        },
                         appendChild() {},
                         remove() {},
                     };
                 },
-                querySelector() { return null; },
+                querySelector() {
+                    return null;
+                },
             },
             handleRPCEvent() {},
             isMirrorMode: false,
@@ -528,8 +610,12 @@ describe('proxy module', () => {
                 scrollToBottom() {},
             },
             mirrorActiveSessionFile: null,
-            setInterval() { return 1; },
-            setTimeout() { return 1; },
+            setInterval() {
+                return 1;
+            },
+            setTimeout() {
+                return 1;
+            },
             sidebar: {
                 projects: [],
                 container: {
@@ -602,12 +688,16 @@ describe('proxy module', () => {
                         className: '',
                         innerHTML: '',
                         textContent: '',
-                        querySelector() { return null; },
+                        querySelector() {
+                            return null;
+                        },
                         appendChild() {},
                         remove() {},
                     };
                 },
-                querySelector() { return null; },
+                querySelector() {
+                    return null;
+                },
             },
             handleRPCEvent() {},
             isMirrorMode: false,
@@ -621,8 +711,12 @@ describe('proxy module', () => {
                 },
             },
             mirrorActiveSessionFile: null,
-            setInterval() { return 1; },
-            setTimeout() { return 1; },
+            setInterval() {
+                return 1;
+            },
+            setTimeout() {
+                return 1;
+            },
             sidebar: {
                 projects: [],
                 container: {
@@ -654,10 +748,7 @@ describe('proxy module', () => {
     });
 
     it('addSessionFile debounces repeated calls into a single catalog change broadcast', async () => {
-        const [{ WebSocket }, { WebSocketServer }] = await Promise.all([
-            import('ws'),
-            import('ws'),
-        ]);
+        const [{ WebSocket }, { WebSocketServer }] = await Promise.all([import('ws'), import('ws')]);
         const mod = await import('../proxy.js');
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -676,12 +767,20 @@ describe('proxy module', () => {
             const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}/ws`);
             await new Promise((resolve, reject) => {
                 const t = setTimeout(() => reject(new Error('WS connect timeout')), 3000);
-                ws.on('open', () => { clearTimeout(t); resolve(); });
-                ws.on('error', (e) => { clearTimeout(t); reject(e); });
+                ws.on('open', () => {
+                    clearTimeout(t);
+                    resolve();
+                });
+                ws.on('error', (e) => {
+                    clearTimeout(t);
+                    reject(e);
+                });
             });
 
             ws.on('message', (data) => {
-                try { messages.push(JSON.parse(data.toString())); } catch {}
+                try {
+                    messages.push(JSON.parse(data.toString()));
+                } catch {}
             });
 
             await sleep(150);
@@ -714,10 +813,7 @@ describe('proxy module', () => {
     });
 
     it('addSessionFile replays missed catalog change to late browser connection', async () => {
-        const [{ WebSocket }, { WebSocketServer }] = await Promise.all([
-            import('ws'),
-            import('ws'),
-        ]);
+        const [{ WebSocket }, { WebSocketServer }] = await Promise.all([import('ws'), import('ws')]);
         const mod = await import('../proxy.js');
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -742,16 +838,26 @@ describe('proxy module', () => {
             const messages = [];
             const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}/ws`);
             ws.on('message', (data) => {
-                try { messages.push(JSON.parse(data.toString())); } catch {}
+                try {
+                    messages.push(JSON.parse(data.toString()));
+                } catch {}
             });
             await new Promise((resolve, reject) => {
                 const t = setTimeout(() => reject(new Error('WS connect timeout')), 3000);
-                ws.on('open', () => { clearTimeout(t); resolve(); });
-                ws.on('error', (e) => { clearTimeout(t); reject(e); });
+                ws.on('open', () => {
+                    clearTimeout(t);
+                    resolve();
+                });
+                ws.on('error', (e) => {
+                    clearTimeout(t);
+                    reject(e);
+                });
             });
 
             await sleep(200);
-            const catalogEvents = messages.filter(m => m?.type === 'event' && m?.event?.type === 'session_catalog_changed');
+            const catalogEvents = messages.filter(
+                (m) => m?.type === 'event' && m?.event?.type === 'session_catalog_changed',
+            );
             assert.equal(catalogEvents.length, 1, 'late client should receive the missed catalog change');
 
             ws.close();
@@ -762,10 +868,7 @@ describe('proxy module', () => {
         }
     });
     it('activateSessionFile sends forced mirror_sync to connected browser clients', async () => {
-        const [{ WebSocket }, { WebSocketServer }] = await Promise.all([
-            import('ws'),
-            import('ws'),
-        ]);
+        const [{ WebSocket }, { WebSocketServer }] = await Promise.all([import('ws'), import('ws')]);
         const mod = await import('../proxy.js');
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -784,12 +887,20 @@ describe('proxy module', () => {
             const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}/ws`);
             await new Promise((resolve, reject) => {
                 const t = setTimeout(() => reject(new Error('WS connect timeout')), 3000);
-                ws.on('open', () => { clearTimeout(t); resolve(); });
-                ws.on('error', (e) => { clearTimeout(t); reject(e); });
+                ws.on('open', () => {
+                    clearTimeout(t);
+                    resolve();
+                });
+                ws.on('error', (e) => {
+                    clearTimeout(t);
+                    reject(e);
+                });
             });
 
             ws.on('message', (data) => {
-                try { messages.push(JSON.parse(data.toString())); } catch {}
+                try {
+                    messages.push(JSON.parse(data.toString()));
+                } catch {}
             });
 
             await sleep(100);
@@ -797,7 +908,7 @@ describe('proxy module', () => {
             mod.activateSessionFile('/home/test/.omp/agent/sessions/p/new.jsonl');
 
             await sleep(100);
-            const syncEvents = messages.filter(m => m?.type === 'mirror_sync');
+            const syncEvents = messages.filter((m) => m?.type === 'mirror_sync');
             assert.equal(syncEvents.length, 1, 'should emit exactly one mirror_sync');
             assert.equal(syncEvents[0].sessionFile, '/home/test/.omp/agent/sessions/p/new.jsonl');
             assert.equal(syncEvents[0].forced, true, 'should mark the sync as forced');
@@ -820,31 +931,45 @@ describe('proxy module', () => {
             Map,
             Promise,
             clearInterval() {},
-            clearTimeout() { return 1; },
+            clearTimeout() {
+                return 1;
+            },
             document: {
                 head: { appendChild() {} },
                 createElement() {
                     return {
                         className: '',
                         textContent: '',
-                        querySelector() { return null; },
+                        querySelector() {
+                            return null;
+                        },
                         appendChild() {},
                         remove() {},
                     };
                 },
-                querySelector() { return null; },
-                querySelectorAll() { return []; },
+                querySelector() {
+                    return null;
+                },
+                querySelectorAll() {
+                    return [];
+                },
             },
             handleRPCEvent() {},
             isMirrorMode: true,
             mirrorActiveSessionFile: '/home/test/.omp/agent/sessions/p/forced.jsonl',
-            setInterval() { return 1; },
+            setInterval() {
+                return 1;
+            },
             sidebar: {
-                projects: [{
-                    sessions: [{
-                        filePath: '/home/test/.omp/agent/sessions/p/forced.jsonl',
-                    }],
-                }],
+                projects: [
+                    {
+                        sessions: [
+                            {
+                                filePath: '/home/test/.omp/agent/sessions/p/forced.jsonl',
+                            },
+                        ],
+                    },
+                ],
                 container: {
                     addEventListener() {},
                 },
@@ -886,10 +1011,7 @@ describe('proxy module', () => {
 
 describe('createBridge', () => {
     it('activates session on message_start from user via end-to-end WS', async () => {
-        const [{ WebSocket }, { WebSocketServer }] = await Promise.all([
-            import('ws'),
-            import('ws'),
-        ]);
+        const [{ WebSocket }, { WebSocketServer }] = await Promise.all([import('ws'), import('ws')]);
         const { createBridge } = await import('../index.js');
         const proxyMod = await import('../proxy.js');
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -909,12 +1031,20 @@ describe('createBridge', () => {
             const ws = new WebSocket(`ws://127.0.0.1:${proxyPort}/ws`);
             await new Promise((resolve, reject) => {
                 const t = setTimeout(() => reject(new Error('WS connect timeout')), 3000);
-                ws.on('open', () => { clearTimeout(t); resolve(); });
-                ws.on('error', (e) => { clearTimeout(t); reject(e); });
+                ws.on('open', () => {
+                    clearTimeout(t);
+                    resolve();
+                });
+                ws.on('error', (e) => {
+                    clearTimeout(t);
+                    reject(e);
+                });
             });
 
             ws.on('message', (data) => {
-                try { messages.push(JSON.parse(data.toString())); } catch {}
+                try {
+                    messages.push(JSON.parse(data.toString()));
+                } catch {}
             });
 
             await sleep(100);
@@ -922,7 +1052,9 @@ describe('createBridge', () => {
             // Mock pi.on to capture the handler that createBridge registers
             const handlers = {};
             const pi = {
-                on: (event, handler) => { handlers[event] = handler; },
+                on: (event, handler) => {
+                    handlers[event] = handler;
+                },
             };
 
             const bridge = createBridge(pi);
@@ -937,7 +1069,7 @@ describe('createBridge', () => {
             handlers['message_start']({ message: { role: 'user', content: 'hello' } }, ctx);
 
             await sleep(100);
-            const syncEvents = messages.filter(m => m?.type === 'mirror_sync');
+            const syncEvents = messages.filter((m) => m?.type === 'mirror_sync');
             assert.equal(syncEvents.length, 1, 'should emit mirror_sync when user speaks');
             assert.equal(syncEvents[0].sessionFile, '/home/test/.omp/agent/sessions/p/chat.jsonl');
             assert.equal(syncEvents[0].forced, true);
@@ -945,7 +1077,7 @@ describe('createBridge', () => {
             // A non-user message_start should NOT activate
             handlers['message_start']({ message: { role: 'assistant', content: 'hi' } }, ctx);
             await sleep(100);
-            const syncEventsAfter = messages.filter(m => m?.type === 'mirror_sync');
+            const syncEventsAfter = messages.filter((m) => m?.type === 'mirror_sync');
             assert.equal(syncEventsAfter.length, 1, 'assistant message_start should not activate');
 
             ws.close();

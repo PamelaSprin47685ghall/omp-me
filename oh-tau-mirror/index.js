@@ -86,7 +86,7 @@ function interceptPort(ctx) {
 
     return new Promise((resolve) => {
         const timeout = setTimeout(() => resolve(null), 3000);
-        
+
         us.setStatus = (key, text) => {
             if (key === 'mirror' && text) {
                 const m = text.match(/:\d+/);
@@ -112,10 +112,7 @@ export function createBridge(pi) {
     // Events that genuinely affect the sidebar catalog (new message,
     // title generated, new session). Streaming tokens (message_update)
     // must NOT be here — they fire dozens of times per second.
-    const CATALOG_REFRESH_EVENTS = new Set([
-        'message_end',
-        'turn_end',
-    ]);
+    const CATALOG_REFRESH_EVENTS = new Set(['message_end', 'turn_end']);
 
     return {
         registerCommand(name, opts) {

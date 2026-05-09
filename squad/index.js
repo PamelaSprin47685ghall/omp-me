@@ -124,7 +124,11 @@ export default async function squadPlugin(pi) {
                             review_criteria: {
                                 anyOf: [
                                     { type: 'string', description: 'Criteria for reviewer approval' },
-                                    { type: 'array', items: { type: 'string' }, description: 'Criteria for reviewer approval' },
+                                    {
+                                        type: 'array',
+                                        items: { type: 'string' },
+                                        description: 'Criteria for reviewer approval',
+                                    },
                                 ],
                             },
                             depends_on: {
