@@ -300,12 +300,18 @@ function buildRejectTool(resolve) {
 // ---------------------------------------------------------------------------
 
 async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHint, onSessionCreated) {
+    const DIAG = (msg) => { try { require('fs').appendFileSync('/tmp/squad-diag.log', `${Date.now()} ${msg}\n`); } catch {} };
+    DIAG('runSession start');
+
     const createAgentSession = pi?.pi?.createAgentSession;
     if (!createAgentSession) {
         throw new Error('squad: createAgentSession unavailable — is the coding-agent loaded?');
     }
+    DIAG('createAgentSession found');
 
+    DIAG('loading getCodingAgentMod...');
     const { SessionManager } = await getCodingAgentMod();
+    DIAG('SessionManager loaded');
 
     const childAbort = new AbortController();
     let settled = false;
@@ -334,21 +340,23 @@ async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHi
     let unsub = null;
 
     try {
+        DIAG('creating SessionManager...');
         const sessionOpts = {
             ...options,
             customTools: tools,
             sessionManager: SessionManager.create(options.cwd),
         };
+        DIAG('SessionManager created, cwd=' + options.cwd);
 
+        DIAG('calling createAgentSession...');
         const factoryResult = await createAgentSession(sessionOpts);
+        DIAG('createAgentSession returned');
         session = factoryResult.session;
 
         if (onSessionCreated) {
             onSessionCreated(session);
         }
 
-        // Forward subagent streaming events to main session's EventBus
-        // so oh-tau-mirror can relay them to the browser.
         if (options.eventBus) {
             unsub = session.subscribe((event) => {
                 options.eventBus.emit('squad:subagent:stream', {
@@ -358,7 +366,9 @@ async function runSession(pi, options, promptText, signal, toolBuilders, nudgeHi
             });
         }
 
+        DIAG('calling session.prompt...');
         await session.prompt(promptText);
+        DIAG('session.prompt returned');
 
         let emptyTurnCount = 0;
         while (!settled && emptyTurnCount < MAX_EMPTY_TURNS) {
