@@ -7,10 +7,19 @@ function getShimDir() {
   if (idx === -1) throw new Error('Cannot locate shim.mjs');
 
   let dir = raw.slice(0, idx);
-  if (dir.startsWith('file://')) dir = dir.slice(7);
-  else if (dir.startsWith('file:/')) dir = dir.slice(6);
-  if (dir.startsWith('omp-legacy-pi-file:')) dir = dir.slice('omp-legacy-pi-file:'.length);
 
+  // omp-legacy-pi-file: namespace wraps as file:///omp-legacy-pi-file:/real/path
+  const LEGACY_PREFIX = 'omp-legacy-pi-file:';
+  const nsIdx = dir.indexOf(LEGACY_PREFIX);
+  if (nsIdx !== -1) {
+    dir = dir.slice(nsIdx + LEGACY_PREFIX.length);
+  } else if (dir.startsWith('file://')) {
+    dir = dir.slice(7);
+  } else if (dir.startsWith('file:/')) {
+    dir = dir.slice(5);
+  }
+
+  // Strip extra leading / before Windows drive letter (e.g., /C: → C:)
   if (/^\/[A-Za-z]:/.test(dir)) dir = dir.slice(1);
 
   return dir;
