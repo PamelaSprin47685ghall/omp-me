@@ -140,29 +140,6 @@ export const INJECTED = `
   let sidebarRefreshPromise = null;
   let sidebarRefreshQueued = false;
 
-  function alignKnownSessionFilePaths() {
-    if (!Array.isArray(sidebar.projects)) return;
-    if (!mirrorActiveSessionFile) return;
-    for (const project of sidebar.projects) {
-      if (!Array.isArray(project?.sessions)) continue;
-      for (const session of project.sessions) {
-        if (sameSessionFile(session?.filePath, mirrorActiveSessionFile)) {
-          session.filePath = mirrorActiveSessionFile;
-        }
-      }
-    }
-    if (typeof document.querySelectorAll === 'function') {
-      for (const item of document.querySelectorAll('.session-item')) {
-        if (sameSessionFile(item?.dataset?.filePath, mirrorActiveSessionFile)) {
-          item.dataset.filePath = mirrorActiveSessionFile;
-        }
-      }
-    }
-    if (currentSessionFile && sameSessionFile(currentSessionFile, mirrorActiveSessionFile)) {
-      currentSessionFile = mirrorActiveSessionFile;
-    }
-  }
-
   function patchSessionSwitchForMirrorPaths() {
     if (typeof switchSession !== 'function') return;
     if (switchSession.__tauMirrorPatched) return;
@@ -185,7 +162,6 @@ export const INJECTED = `
     }
 
     sidebarRefreshPromise = sidebar.loadSessions().then(() => {
-      alignKnownSessionFilePaths();
       patchSessionSwitchForMirrorPaths();
       syncActiveSessionForMirror();
     }).finally(() => {
@@ -254,7 +230,6 @@ export const INJECTED = `
       }
       const handled = origHandleMessage(msg);
       if (msg.type === 'mirror_sync') {
-        alignKnownSessionFilePaths();
         syncActiveSessionForMirror();
       }
       return handled;

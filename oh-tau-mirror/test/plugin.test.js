@@ -335,7 +335,7 @@ describe('proxy module', () => {
         const activeSessionFiles = [];
         const renderedSessionItem = {
             dataset: {
-                filePath: '/home/test/.pi/agent/sessions/p/main-thread.jsonl',
+                filePath: '/home/test/.omp/agent/sessions/p/main-thread.jsonl',
             },
         };
 
@@ -375,7 +375,7 @@ describe('proxy module', () => {
                 loadSessions() {
                     context.sidebar.projects = [{
                         sessions: [{
-                            filePath: '/home/test/.pi/agent/sessions/p/main-thread.jsonl',
+                            filePath: '/home/test/.omp/agent/sessions/p/main-thread.jsonl',
                         }],
                     }];
                     return Promise.resolve();
@@ -404,6 +404,8 @@ describe('proxy module', () => {
         await Promise.resolve();
 
         assert.equal(activeSessionFiles.length, 1);
+        // Without alignKnownSessionFilePaths, the active file comes from syncActiveSessionForMirror
+        // which finds the matching DOM item (identity match) and uses its path
         assert.equal(activeSessionFiles[0], '/home/test/.omp/agent/sessions/p/main-thread.jsonl');
         assert.equal(renderedSessionItem.dataset.filePath, '/home/test/.omp/agent/sessions/p/main-thread.jsonl');
     });
