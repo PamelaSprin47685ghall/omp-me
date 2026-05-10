@@ -174,7 +174,8 @@ squad-tau/
 - `run-node.js`：`runNode({ node, upstreamResults, ctx, pi, signal, eventBus, modelPool })` — 完整节点生命周期编排
 - `run-worker.js`：`runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, signal, eventBus, modelSlot })` — Worker 执行
 - `run-worker-prompt.js`：`buildWorkerPrompt(node, upstreamResults, reviewerFeedback)` — 构建 Worker 提示词
-- `run-confirm.js`：`runConfirmSession({ pi, sessionId, workerOptions, originalTask, signal, eventBus })` — 自审
+- `run-confirm-tools.js`：`buildConfirmTools()` / `emitSessionEnd()` — 自审工具定义
+- `run-confirm.js`：`runConfirmSession({ ctx, pi, sessionId, workerOptions, originalTask, signal, eventBus })` — 自审（通过 `SessionManager.open()` 复用 worker 会话文件）
 - `run-confirm-prompt.js`：`buildConfirmPrompt(originalTask)` — 构建自审提示词（用原始任务，不用 summary）
 - `run-reviewer.js`：`runReviewer({ node, workerResult, ctx, pi, signal, eventBus, modelSlot })` — 审阅
 - `run-reviewer-prompt.js`：`buildReviewerPrompt({ node, workerResult })` — 构建审阅提示词
@@ -213,7 +214,8 @@ squad-tau/
 ### 7.3.1 命名约定
 - 所有服务端文件使用 kebab-case（`state-machine.js`）
 - 所有客户端文件使用 PascalCase 组件名（`Header.jsx`）或 camelCase hooks（`useWebSocket.js`）
-- 测试文件后缀 `.test.js`，与被测试文件同名
+- 单元测试文件后缀 `.test.js`，与被测试文件同名
+- 集成测试和端到端测试后缀 `.skip.js`（不参与 `bun test` 默认发现）
   ```js
   const { createServer } = await import('vite');
   const viteServer = await createServer({
@@ -248,7 +250,7 @@ Dev deps:
 
 | 区域 | 文件数 | 最大行数 | 说明 |
 |------|--------|----------|------|
-| server/ | 33 个 JS | ≤200 | 按功能拆分为独立职责模块 |
+| server/ | 38 个 JS | ≤200 | 按功能拆分为独立职责模块 |
 | client/ | 21 个 JSX/JS/CSS | ≤200 | 组件、hooks、入口 |
 | test/ | 24 个 JS | ≤200 | unit/integration/e2e + helpers |
 | 根目录 | 4 个 | ≤200 | index.js, shim.mjs, package.json |

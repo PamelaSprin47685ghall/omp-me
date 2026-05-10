@@ -50,6 +50,7 @@ async function runNode({ node, upstreamResults, ctx, pi, signal, eventBus, model
 
             while (true) {
                 const confirmResult = await runConfirmSession({
+                    ctx,
                     pi,
                     sessionId: workerResult.sessionFile,
                     workerOptions: {
@@ -129,7 +130,7 @@ async function runNode({ node, upstreamResults, ctx, pi, signal, eventBus, model
         if (workerSlot) modelPool.release(workerSlot);
         if (reviewerSlot) modelPool.release(reviewerSlot);
 
-        const finalStatus = signal.aborted ? STATUS.FAILED : STATUS.FAILED;
+        const finalStatus = STATUS.FAILED;
 
         eventBus.emit('squad', 'node_state', {
             nodeId,

@@ -1,12 +1,12 @@
 import { runOuterReview } from './outer-review.js';
 
 export function createOnCompleteHandler({ task, ctx, pi, signal, eventBus, modelPool, fsm, startTime }) {
-    return async ({ results, mode, nodes }) => {
-        const nodeResults = nodes.map((n) => ({
-            id: n.id,
-            status: n.status,
-            summary: n.summary || '',
-            affectedFiles: n.affectedFiles || [],
+    return async ({ results, mode }) => {
+        const nodeResults = results.map((r) => ({
+            id: r.nodeId,
+            status: r.status,
+            summary: r.summary || '',
+            affectedFiles: r.affectedFiles || [],
         }));
 
         if (mode === 'L') {

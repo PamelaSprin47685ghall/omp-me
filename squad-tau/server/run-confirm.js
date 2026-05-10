@@ -1,178 +1,147 @@
+import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
 import buildConfirmPrompt from './run-confirm-prompt.js';
 import { captureFileSnapshots, filesChanged } from './tamper-detection.js';
 import { createCounter, CONFIRM_MAX_EMPTY } from './empty-turns.js';
+import { buildBaseSessionOptions } from './session-options.js';
+import { register, unregister } from './session-registry.js';
+import { subscribeToSessionEvents } from './session-events.js';
+import { buildConfirmTools, emitSessionEnd } from './run-confirm-tools.js';
 
-const TOOL_DEFS = {
-    confirm: {
-        name: 'confirm',
-        label: 'Confirm Submission',
-        desc: 'Confirm your work passes self-review. Only call after verifying all dimensions.',
-        props: { comment: { type: 'string', description: 'Optional confirmation note' } },
-        required: [],
-    },
-    return_work: {
-        name: 'return_work',
-        label: 'Return Work',
-        desc: 'Submit completed work. You MUST call this tool to finish.',
-        props: {
-            summary: { type: 'string', description: 'Concise description of what you accomplished' },
-            affected_files: { type: 'string[]', description: 'Every file you created or modified' },
-        },
-        required: ['summary', 'affected_files'],
-    },
-};
-
-export async function runConfirmSession({ pi, sessionId, workerOptions, originalTask, signal, eventBus }) {
-    const cwd = workerOptions?.cwd || process.cwd();
-    let affectedFiles = workerOptions?.affectedFiles || [];
-    let snapshots = await captureFileSnapshots(affectedFiles, cwd);
-
-    while (true) {
-        const confirmPrompt = buildConfirmPrompt(originalTask);
-        const settledPromise = Promise.withResolvers();
-        const tools = buildTools(TOOL_DEFS, settledPromise);
-
-        const emptyCounter = createCounter(CONFIRM_MAX_EMPTY);
-        let settled = false;
-        let lastToolCallTime = Date.now();
-
-        const unsubscribeSettled = pi.on('session:settled', (data) => {
-            if (data.sessionId === sessionId) settledPromise.resolve(data.result);
-        });
-
-        const unsubscribeTool = pi.on('session:tool_call', (data) => {
-            if (data.sessionId === sessionId) lastToolCallTime = Date.now();
-        });
-
-        try {
-            pi.sendUserMessage(sessionId, confirmPrompt, { signal, tools });
-
-            while (!settled && !emptyCounter.exceeded()) {
-                const raceResult = await Promise.race([
-                    settledPromise.promise,
-                    waitForActivity(pi, sessionId, signal, 500),
-                ]);
-
-                if (raceResult?.settled !== undefined) {
-                    if (raceResult.settled) {
-                        settled = true;
-                        emptyCounter.reset();
-                    } else {
-                        const idleTime = Date.now() - lastToolCallTime;
-                        if (idleTime >= 500) {
-                            emptyCounter.increment();
-                            if (!emptyCounter.exceeded()) {
-                                const nudgeHint = buildNudgeHint();
-                                pi.sendUserMessage(sessionId, nudgeHint, { signal, tools });
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (!settled && emptyCounter.exceeded()) {
-                const timeoutHint = buildTimeoutHint();
-                pi.sendUserMessage(sessionId, timeoutHint, { signal, tools });
-                await waitForSettled(pi, sessionId, signal, 2000);
-                if (!settled) {
-                    throw new Error('Self-Confirm did not call confirm() or return_work() within allowed empty turns');
-                }
-            }
-        } finally {
-            unsubscribeSettled();
-            unsubscribeTool();
-        }
-
-        const result = await settledPromise.promise;
-
-        if (!result) {
-            continue;
-        }
-
-        if (result.type === 'return_work') {
-            affectedFiles = result.affected_files || [];
-            snapshots = await captureFileSnapshots(affectedFiles, cwd);
-            if (eventBus) eventBus.emit('squad:confirm', 'resubmit', result);
-            continue;
-        }
-
-        const changed = await filesChanged(snapshots, cwd);
-        if (changed.length > 0) {
-            if (eventBus) eventBus.emit('squad', 'tampered', { files: changed, sessionId });
-            snapshots = await captureFileSnapshots(affectedFiles, cwd);
-            pi.sendUserMessage(
-                sessionId,
-                `FILES TAMPERED: ${changed.join(', ')}. Do NOT call confirm. Fix and call return_work({summary, affected_files}).`,
-                { signal, tools },
-            );
-            await waitForSettled(pi, sessionId, signal, 1000);
-            continue;
-        }
-
-        if (eventBus) eventBus.emit('squad:confirm', 'approved', result);
-        return result;
+/**
+ * Run self-confirm session reusing the worker's session file.
+ * Opens the existing session via SessionManager.open(sessionFile)
+ * and injects confirm + return_work tools for self-review.
+ */
+export async function runConfirmSession({ ctx, pi, sessionId, workerOptions, originalTask, signal, eventBus }) {
+    const createAgentSession = pi?.pi?.createAgentSession;
+    if (!createAgentSession) {
+        throw new Error('squad: createAgentSession unavailable — is the coding-agent loaded?');
     }
-}
 
-function buildTools(defs, settlePromise) {
-    const invokeMap = {
-        confirm: (params) => {
-            settlePromise.resolve({ approved: true, comment: params?.comment ?? null });
-        },
-        return_work: (params) => {
-            settlePromise.resolve({
-                type: 'return_work',
-                summary: params.summary,
-                affected_files: params.affected_files,
+    const { SessionManager } = await getCodingAgentModule();
+    const cwd = workerOptions?.cwd || process.cwd();
+
+    let session = null;
+    let unsub = null;
+    let confirmSessionId = sessionId;
+
+    const { promise: outcomePromise, resolve: outcomeResolve } = Promise.withResolvers();
+    const childAbort = new AbortController();
+    let settled = false;
+
+    const tools = buildConfirmTools(outcomeResolve, (v) => {
+        settled = v;
+    });
+
+    if (signal) {
+        signal.addEventListener('abort', () => childAbort.abort(), { once: true });
+    }
+
+    try {
+        const options = buildBaseSessionOptions(ctx, pi, null);
+        options.cwd = cwd;
+        options.toolNames = ['read', 'search', 'find', 'lsp', 'bash'];
+        options.customTools = tools;
+
+        const sessionOpts = {
+            ...options,
+            sessionManager: await SessionManager.open(sessionId),
+        };
+
+        const factoryResult = await createAgentSession(sessionOpts);
+        session = factoryResult.session;
+        confirmSessionId = session.sessionFile;
+
+        register(confirmSessionId, {
+            sendUserMessage: (text) => session.prompt(text),
+            session,
+            status: 'confirming',
+        });
+
+        if (eventBus) {
+            eventBus.emit('session', 'start', {
+                sessionId: confirmSessionId,
+                phase: 'confirming',
+                model: options.model ? { provider: options.model.provider, id: options.model.id } : undefined,
             });
-        },
-    };
+            eventBus.emit('session', 'state', { sessionId: confirmSessionId, phase: 'confirming' });
+            unsub = subscribeToSessionEvents(session, eventBus, confirmSessionId);
+        }
 
-    const executeMap = {
-        confirm: (id, params) => {
-            invokeMap.confirm(params);
-            return { content: [], display: false };
-        },
-        return_work: (id, params) => {
-            invokeMap.return_work(params);
-            return { content: [], display: false };
-        },
-    };
+        let affectedFiles = workerOptions?.affectedFiles || [];
+        let snapshots = await captureFileSnapshots(affectedFiles, cwd);
 
-    return Object.values(defs).map((def) => ({
-        ...def,
-        execute: (id, params) => executeMap[def.name]?.(id, params) ?? { content: [], display: false },
-    }));
-}
+        while (true) {
+            const confirmPrompt = buildConfirmPrompt(originalTask);
+            await session.prompt(confirmPrompt);
 
-function waitForActivity(pi, sessionId, signal, timeout) {
-    return new Promise((resolve) => {
-        const timer = setTimeout(() => resolve({ settled: false }), timeout);
-        signal?.addEventListener('abort', () => {
-            clearTimeout(timer);
-            resolve({ settled: false });
-        });
-    });
-}
+            const emptyCounter = createCounter(CONFIRM_MAX_EMPTY);
 
-function waitForSettled(pi, sessionId, signal, timeout) {
-    return new Promise((resolve) => {
-        const timer = setTimeout(resolve, timeout);
-        signal?.addEventListener('abort', () => {
-            clearTimeout(timer);
-            resolve();
-        });
-    });
-}
+            while (!settled) {
+                if (childAbort.signal.aborted) break;
 
-function buildNudgeHint() {
-    return [
-        'You have not confirmed or resubmitted. If your work is ready, call the `confirm` tool.',
-        'If you found issues, fix them and call `return_work` to re-submit.',
-        'Remember: any changes invalidate the current submission.',
-    ].join('\n');
-}
+                while (session.isStreaming) {
+                    await new Promise((r) => setTimeout(r, 200));
+                    if (settled || childAbort.signal.aborted) break;
+                }
 
-function buildTimeoutHint() {
-    return 'Self-review timed out. Call confirm() or return_work() now.';
+                if (settled || childAbort.signal.aborted) break;
+
+                emptyCounter.increment();
+                if (emptyCounter.exceeded()) {
+                    throw new Error(
+                        `Self-Confirm ended without calling confirm() or return_work() after ${CONFIRM_MAX_EMPTY} empty turns`,
+                    );
+                }
+
+                await session.prompt(
+                    'ERROR: You must call confirm() or return_work() to finish self-review. Do not output prose — call the tool.',
+                );
+            }
+
+            if (!settled) return null;
+
+            const result = await outcomePromise;
+
+            if (result.type === 'return_work') {
+                affectedFiles = result.affected_files || [];
+                snapshots = await captureFileSnapshots(affectedFiles, cwd);
+                if (eventBus) eventBus.emit('squad', 'confirm_resubmit', { sessionId: confirmSessionId, result });
+
+                const changed = await filesChanged(snapshots, cwd);
+                if (changed.length > 0 && eventBus) {
+                    eventBus.emit('squad', 'tampered', { files: changed, sessionId: confirmSessionId });
+                }
+
+                settled = false;
+                continue;
+            }
+
+            // confirm() was called — check for tampering
+            const changed = await filesChanged(snapshots, cwd);
+            if (changed.length > 0) {
+                if (eventBus) eventBus.emit('squad', 'tampered', { files: changed, sessionId: confirmSessionId });
+                snapshots = await captureFileSnapshots(affectedFiles, cwd);
+                settled = false;
+                continue;
+            }
+
+            emitSessionEnd(eventBus, confirmSessionId, 'completed', 'completed');
+            if (eventBus) eventBus.emit('squad', 'confirm_approved', result);
+            return result;
+        }
+    } catch (err) {
+        if (childAbort.signal.aborted && signal?.aborted) {
+            emitSessionEnd(eventBus, confirmSessionId, 'aborted', 'aborted');
+            return null;
+        }
+
+        emitSessionEnd(eventBus, confirmSessionId, 'error', 'error', err.message);
+        throw err;
+    } finally {
+        childAbort.abort();
+        session?.abort?.();
+        unsub?.();
+        if (confirmSessionId) unregister(confirmSessionId);
+    }
 }

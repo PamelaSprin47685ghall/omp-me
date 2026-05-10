@@ -24,7 +24,13 @@ function handleSessionMessage(state, payload) {
     const { sessionId, role, content, messageId, parentId } = payload;
     const messages = new Map(state.messages);
     const list = messages.get(sessionId) || [];
-    messages.set(sessionId, [...list, { role, content, messageId, parentId }]);
+    const existingIdx = list.findIndex((msg) => msg.messageId === messageId);
+    if (existingIdx !== -1) {
+        const updated = list.map((msg, i) => (i === existingIdx ? { ...msg, role, content, parentId } : msg));
+        messages.set(sessionId, updated);
+    } else {
+        messages.set(sessionId, [...list, { role, content, messageId, parentId }]);
+    }
     return { ...state, messages };
 }
 

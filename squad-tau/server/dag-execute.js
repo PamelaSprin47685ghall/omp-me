@@ -69,13 +69,6 @@ async function executeDAG({ nodes, ctx, pi, signal, eventBus, modelPool }) {
                 if (result.status === STATUS.FAILED || result.status === STATUS.BLOCKED) {
                     failedNodes.add(result.nodeId);
                 }
-
-                eventBus.emit('squad', 'node_state', {
-                    nodeId: result.nodeId,
-                    status: result.status,
-                    summary: result.summary,
-                    affectedFiles: result.affectedFiles,
-                });
             }
         }
     }

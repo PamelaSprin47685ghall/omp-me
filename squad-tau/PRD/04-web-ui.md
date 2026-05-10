@@ -155,7 +155,7 @@
 
 当前查看的 session 处于活跃状态时，消息列表底部显示输入区域。
 
-- Blueprint `InputGroup`（单行） + `Button`（发送），支持 Enter 发送，Shift+Enter 换行
+- Blueprint `TextArea`（支持多行）+ `Button`（发送），支持 Enter 发送，Shift+Enter 换行
 - 输入框占满宽度，发送按钮固定在右侧
 - 发送后清空输入框，用户消息立即出现在消息列表中（无需等待服务端确认）
 - 消息通过 WebSocket 发送 `session:user_message`，payload：`{ sessionId, text }`

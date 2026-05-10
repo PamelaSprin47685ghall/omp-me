@@ -4,8 +4,8 @@
 
 ## 代码约束
 
-- 单函数不超过 40 行，超过了强制拆解
-- 单文件不超过 200 行，超过了强制拆解
+- 单函数不超过 40 行，超过了不允许压缩，必须合理拆解
+- 单文件不超过 200 行，超过了不允许压缩，必须合理拆解
 - 纯 JavaScript（JSX），无 TypeScript
 - 所有图标使用 Blueprint `Icon` 组件 + `@blueprintjs/icons` 的 `IconNames`
 
