@@ -1,0 +1,140 @@
+import React, { useRef, useEffect, useCallback, useMemo } from 'react';
+import { Card, Collapse, Icon } from '@blueprintjs/core';
+import { IconNames } from '@blueprintjs/icons';
+import mermaid from 'mermaid';
+
+mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
+
+const PANEL_STYLE = { marginBottom: 12 };
+
+const TOGGLE_STYLE = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  cursor: 'pointer',
+  userSelect: 'none',
+  padding: '6px 0',
+  fontSize: 13,
+  fontWeight: 500,
+};
+
+const DAG_WRAPPER_STYLE = { padding: '8px 16px 16px', overflowX: 'auto' };
+
+const DAG_CONTAINER_STYLE = {
+  display: 'flex',
+  justifyContent: 'center',
+  minHeight: 120,
+};
+
+const STATUS_COLOR = {
+  approved: '#2b9842',
+  rejected: '#cc3440',
+  authoring: '#c1b90d',
+  pending: '#919191',
+  failed: '#8b1919',
+  waiting_deps: '#6f6f6f',
+  confirming: '#c1b90d',
+  reviewing: '#c1b90d',
+  blocked: '#8b1919',
+};
+
+function buildDiagram(nodeList, activeNodeId) {
+  if (!nodeList?.length) return 'graph LR\n    Empty["No nodes"]';
+  const nodeMap = new Map(nodeList.map(n => [n.id, n]));
+  const lines = ['graph TD'];
+  nodeList.forEach(n => {
+    const color = STATUS_COLOR[n.status] ?? STATUS_COLOR.pending;
+    const shape = n.id === activeNodeId ? `(${n.id})` : `[${n.id}]`;
+    lines.push(`    ${n.id}${shape}`);
+    lines.push(`    style ${n.id} fill:${color},stroke:${color},color:#fff`);
+  });
+  nodeList.forEach(n => {
+    if (n.depends_on?.length) {
+      n.depends_on.forEach(depId => {
+        if (nodeMap.has(depId)) lines.push(`    ${depId} --> ${n.id}`);
+      });
+    }
+  });
+  return lines.join('\n');
+}
+
+function nodeStateKey(nodes) {
+  if (!nodes) return '';
+  return nodes.map(n => `${n.id}:${n.status}`).join('|');
+}
+
+/**
+ * Renders a Mermaid DAG visualization for squad nodes.
+ *
+ * Re-render contract: The parent MUST memoize `nodes` such that it only
+ * changes when a `squad:node_state` event arrives (or on squad:init /
+ * squad:complete / squad:abort). The component uses a structural key derived
+ * from node IDs and statuses to guard against unnecessary Mermaid redraws.
+ *
+ * Navigation contract: `onNodeClick(nodeId)` is called with the squad node ID.
+ * The parent resolves this to the appropriate session (latest worker/reviewer
+ * session for that node) and switches the active session view.
+ *
+ * @param {import('../types').DAGViewProps} props
+ */
+export default function DAGView({ nodes, activeNodeId, onNodeClick, collapsed, onToggle }) {
+  const containerRef = useRef(null);
+  const renderedKeyRef = useRef(null);
+
+  const nodeList = useMemo(() => {
+    if (!nodes) return [];
+    if (Array.isArray(nodes)) return nodes;
+    if (nodes instanceof Map) return Array.from(nodes.values());
+    return [];
+  }, [nodes]);
+
+  const stateKey = nodeStateKey(nodeList);
+
+  const renderDiagram = useCallback(async (list) => {
+    if (!containerRef.current) return;
+    const diagram = buildDiagram(list, activeNodeId);
+    const id = `d-${Date.now()}`;
+    try {
+      const { svg } = await mermaid.render(id, diagram);
+      containerRef.current.innerHTML = svg;
+    } catch (err) {
+      console.error('[DAGView] mermaid render error:', err);
+    }
+  }, [activeNodeId]);
+
+  useEffect(() => {
+    if (stateKey === renderedKeyRef.current) return;
+    renderedKeyRef.current = stateKey;
+    renderDiagram(nodeList);
+  }, [stateKey, nodeList, renderDiagram]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const el = containerRef.current.querySelector('svg');
+    if (!el) return;
+    el.style.maxWidth = '100%';
+    el.querySelectorAll('g.node').forEach(g => {
+      g.style.cursor = 'pointer';
+      const label = g.querySelector('text');
+      if (label) label.style.fontFamily = 'inherit';
+      const nodeId = label?.textContent?.replace(/[()[\]]/g, '') ?? '';
+      g.onclick = () => nodeId && onNodeClick?.(nodeId);
+    });
+  });
+
+  return (
+    <Card style={PANEL_STYLE} elevation={2}>
+      <div style={TOGGLE_STYLE} onClick={onToggle} role="button" aria-expanded={!collapsed}>
+        <Icon icon={collapsed ? IconNames.CHEVRON_RIGHT : IconNames.CHEVRON_DOWN} size={14} />
+        <span>DAG View</span>
+      </div>
+      <Collapse isOpen={!collapsed}>
+        <div style={DAG_WRAPPER_STYLE}>
+          <div style={DAG_CONTAINER_STYLE}>
+            <div ref={containerRef} />
+          </div>
+        </div>
+      </Collapse>
+    </Card>
+  );
+}

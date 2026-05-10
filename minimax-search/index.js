@@ -256,7 +256,7 @@ async function runFetchSession(pi, url, instruction, signal) {
         const result = await createAgentSession({
             cwd: process.cwd(),
             hasUI: false,
-            tools: ['bash', 'read'],
+            toolNames: ['bash', 'read'],
             customTools: tools,
             model: {
                 provider: 'minimax',

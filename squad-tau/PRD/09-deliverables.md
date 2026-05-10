@@ -3,17 +3,33 @@
 ## 9.1 交付物清单
 
 - [x] PRD 文档（本文件集）
-- [ ] `squad-tau/` 完整源码
+- [ ] `squad-tau/` 完整源码（所有文件 ≤200 行，强制拆分）
   - [ ] 插件入口 `index.js` + `shim.mjs`
-  - [ ] 服务端：`server/http-server.js`, `server/event-bus.js`, `server/squad-engine.js`, `server/dag-executor.js`, `server/node-runner.js`, `server/model-pool.js`, `server/state-machine.js`, `server/outer-review.js`, `server/session-router.js`
-  - [ ] 客户端：`client/src/` + `client/index.html` + `client/vite.config.ts` + `client/package.json`（含 `MessageInput.jsx`）
+  - [ ] 服务端基础：`server/constants.js`, `server/state-machine.js`, `server/event-bus.js`, `server/session-registry.js`, `server/squad-fsm.js`, `server/empty-turns.js`, `server/tamper-detection.js`
+  - [ ] 模型池：`server/model-pool.js`, `server/model-pool-config.js`, `server/model-pool-events.js`
+  - [ ] DAG 引擎：`server/dag-validate.js`, `server/dag-sort.js`, `server/dag-execute.js`, `server/dag-concurrency.js`
+  - [ ] 节点执行器：`server/run-node.js`, `server/run-worker.js`, `server/run-worker-prompt.js`, `server/run-confirm.js`, `server/run-confirm-prompt.js`, `server/run-reviewer.js`, `server/run-reviewer-prompt.js`
+  - [ ] 外层控制：`server/outer-review.js`, `server/retry-logic.js`, `server/submit-plan.js`, `server/validate-plan.js`
+  - [ ] 引擎：`server/squad-engine.js`
+  - [ ] 网络层：`server/http-server.js`, `server/ws-server.js`, `server/ws-handler.js`, `server/ws-heartbeat.js`, `server/ws-events.js`, `server/vite-setup.js`
+  - [ ] 前端入口：`client/index.html`, `client/vite.config.js`, `client/main.jsx`, `client/App.jsx`, `client/App.css`, `client/types.js`
+  - [ ] 前端 hooks：`client/hooks/useWebSocket.js`, `client/hooks/useWebSocket-events.js`, `client/hooks/useSquadState.js`, `client/hooks/useSessionState.js`, `client/hooks/useModelPool.js`, `client/hooks/useAutoScroll.js`, `client/hooks/useDarkMode.js`
+  - [ ] 前端组件：`client/components/Header.jsx`, `client/components/Sidebar.jsx`, `client/components/SessionTree.jsx`, `client/components/MainContent.jsx`, `client/components/DAGView.jsx`, `client/components/MessageList.jsx`, `client/components/MessageItem.jsx`, `client/components/MessageInput.jsx`, `client/components/ThinkingBlock.jsx`, `client/components/ToolCall.jsx`, `client/components/WelcomeView.jsx`, `client/components/ErrorBanner.jsx`, `client/components/ModelPoolDrawer.jsx`, `client/components/StatusBar.jsx`
   - [ ] 配置：`package.json` + `README.md` + `SPEC.md`
-- [ ] 单元测试（> 80% 覆盖）
+- [ ] 单元测试（> 80% 覆盖，每文件 ≤200 行）
   - [ ] `state-machine.test.js`
-  - [ ] `dag-executor.test.js`
-  - [ ] `model-pool.test.js`
   - [ ] `event-bus.test.js`
-  - [ ] `node-runner.test.js`
+  - [ ] `model-pool.test.js`
+  - [ ] `dag-sort.test.js`
+  - [ ] `dag-validate.test.js`
+  - [ ] `dag-execute.test.js`
+  - [ ] `dag-concurrency.test.js`
+  - [ ] `tamper-detection.test.js`
+  - [ ] `empty-turns.test.js`
+  - [ ] `squad-fsm.test.js`
+  - [ ] `run-worker.test.js`
+  - [ ] `run-confirm.test.js`
+  - [ ] `run-reviewer.test.js`
 - [ ] 集成测试（核心流程覆盖）
   - [ ] `squad-flow.test.js`（M 模式、L 模式、外层 review）
   - [ ] `websocket.test.js`（通信、多客户端）
@@ -21,9 +37,10 @@
   - [ ] `browser.test.js`（OMP 内部 Puppeteer）
   - [ ] `standalone.test.js`（独立 Puppeteer 执行）
   - [ ] `rpc-e2e.test.js`（OMP RPC 模式，最终集成测试）
+  - [ ] `chaos-e2e.test.js`（混沌测试）
   - [ ] `helpers/puppeteer-setup.js`
   - [ ] `helpers/mock-pi.js`
-  - [ ] `helpers/rpc-client.js`
+  - [ ] `helpers/rpc-tmux.js`
   - [ ] `helpers/assertions.js`
 
 ## 9.2 非功能需求
@@ -53,29 +70,28 @@
 
 ## 9.3 里程碑
 
-### Phase 1: 核心引擎
-- [ ] 状态机（含测试）
-- [ ] DAG 执行器（含测试）
-- [ ] 模型池（含测试）
-- [ ] 事件总线（含测试）
-- [ ] 节点执行器
-- [ ] Squad 引擎（命令注册 + FSM）
-- [ ] 外层 review
-- [ ] `submit_plan` 工具
+### Phase 1: 核心引擎（28 个服务端文件）
+- [ ] Constants & 状态机：`constants.js`, `state-machine.js`（含测试）
+- [ ] 事件总线：`event-bus.js`（含测试）
+- [ ] 模型池：`model-pool.js`, `model-pool-config.js`, `model-pool-events.js`（含测试）
+- [ ] DAG 引擎：`dag-validate.js`, `dag-sort.js`, `dag-execute.js`, `dag-concurrency.js`（含测试）
+- [ ] 节点执行器：`run-node.js`, `run-worker.js`, `run-worker-prompt.js`, `run-confirm.js`, `run-confirm-prompt.js`, `run-reviewer.js`, `run-reviewer-prompt.js`（含测试）
+- [ ] 辅助模块：`session-registry.js`, `squad-fsm.js`, `empty-turns.js`, `tamper-detection.js`（含测试）
+- [ ] 外层控制：`outer-review.js`, `retry-logic.js`, `submit-plan.js`, `validate-plan.js`
+- [ ] Squad 引擎：`squad-engine.js`（命令注册 + FSM 编排）
+- [ ] 网络层：`http-server.js`, `ws-server.js`, `ws-handler.js`, `ws-heartbeat.js`, `ws-events.js`, `vite-setup.js`
 
-### Phase 2: Web UI
-- [ ] HTTP + WebSocket 服务器
-- [ ] React 项目脚手架（Vite + TypeScript + Blueprint）
-- [ ] WebSocket hook（useWebSocket）
-- [ ] 基础布局（Header + Sidebar + MainContent）
-- [ ] 侧边栏：Session Tree
-- [ ] 主内容：消息流
-- [ ] 消息输入框：MessageInput 组件，支持向任意活跃 session 发送用户消息
-- [ ] Thinking 块流式渲染
-- [ ] Tool 调用卡片
-- [ ] DAG View（Mermaid）
-- [ ] 模型池配置面板
-- [ ] 自动会话切换
+### Phase 2: Web UI（21 个前端文件）
+- [ ] HTTP + WebSocket 服务器（network layer from Phase 1）
+- [ ] 前端脚手架：`index.html`, `vite.config.js`, `main.jsx`, `App.jsx`, `App.css`, `types.js`
+- [ ] Hooks：`useWebSocket.js`, `useWebSocket-events.js`, `useSquadState.js`, `useSessionState.js`, `useModelPool.js`, `useAutoScroll.js`, `useDarkMode.js`
+- [ ] 基础布局：`Header.jsx`, `Sidebar.jsx`, `StatusBar.jsx`
+- [ ] 侧边栏：`SessionTree.jsx`
+- [ ] 主内容：`MainContent.jsx`, `MessageList.jsx`, `MessageItem.jsx`, `MessageInput.jsx`
+- [ ] 消息组件：`ThinkingBlock.jsx`, `ToolCall.jsx`
+- [ ] DAG View：`DAGView.jsx`（Mermaid）
+- [ ] 状态/错误：`WelcomeView.jsx`, `ErrorBanner.jsx`
+- [ ] 模型池：`ModelPoolDrawer.jsx`
 
 ### Phase 3: 测试
 - [ ] 集成测试：squad 完整流程

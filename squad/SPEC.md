@@ -15,6 +15,16 @@ Version: `1.0.0`.
 
 ## submit_plan API
 
+Agent writes a plan JSON file to the OS temp directory, then calls `submit_plan` with the absolute path.
+
+```ts
+{
+  plan_path: string; // absolute path to the plan JSON file
+}
+```
+
+The plan JSON file must conform to:
+
 ```ts
 {
   mode: 'M' | 'L';
@@ -38,6 +48,27 @@ Version: `1.0.0`.
 | Each node needs `id`, `task`, `review_criteria` | `node "?" missing required fields` |
 | `review_criteria` must be string or string[] | `must be a string or an array of strings` |
 | `depends_on` references must exist in node set | `depends on unknown node: "X"` |
+
+### Plan writing approach
+
+To avoid output truncation, the agent uses a two-phase approach:
+
+1. **Skeleton** — write the plan JSON with only `id`, `mode`, `reasoning`, and `depends_on` filled. Leave `task` and `review_criteria` as empty strings or `[]`.
+2. **Fill-in** — use `jq` to populate `task` and `review_criteria` for each node, one at a time. Example: `jq '.nodes[0].task = "detailed task description"' plan.json > tmp.json && mv tmp.json plan.json`
+
+### Node content requirements
+
+Each node's `task` field MUST include:
+
+- **Objective** — what this node accomplishes
+- **Acceptance criteria** — concrete, testable conditions that define "done"
+- **Reference materials** — file paths, API docs, existing patterns, or code snippets the worker should consult
+- **Caveats** — known pitfalls, edge cases, constraints, or things to avoid
+
+Each node's `review_criteria` field MUST include:
+
+- Specific, checkable assertions — not vague qualities like "good code"
+- At least 3 distinct criteria covering correctness, completeness, and edge cases
 
 ## Node state machine
 

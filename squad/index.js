@@ -1,4 +1,5 @@
 /** DAG-based multi-agent orchestration with Worker-Reviewer loops. */
+import { readFile } from 'node:fs/promises';
 import { executeDAG } from './dag-engine.js';
 import { createViewManager } from './view-manager.js';
 import { loadModelsConfig, saveModelsConfig, getConfigPath } from './model-pool.js';
@@ -9,14 +10,35 @@ let _registered = false;
 const activeRunsBySessionId = new Map();
 let nextRunId = 0;
 
+const PLAN_WRITING_GUIDE = [
+    '## Plan Writing Guide',
+    '',
+    '### Two-phase approach (avoids output truncation)',
+    '1. Write a JSON skeleton to a temp file — only fill `id`, `mode`, `reasoning`, and `depends_on`. Leave `task` and `review_criteria` as empty strings or `[]`.',
+    '2. Use `jq` to fill in `task` and `review_criteria` for each node, one at a time. Example:',
+    "   jq ''.nodes[0].task = \"detailed task description\"' plan.json > tmp.json && mv tmp.json plan.json",
+    '',
+    '### Each node MUST contain in its `task` field:',
+    '- **Objective** — what this node accomplishes',
+    '- **Acceptance criteria** — concrete, testable conditions that define "done"',
+    '- **Reference materials** — file paths, API docs, existing patterns, or code snippets the worker should consult',
+    '- **Caveats** — known pitfalls, edge cases, constraints, or things to avoid',
+    '',
+    '### Each node MUST contain in its `review_criteria` field:',
+    '- Specific, checkable assertions — not vague qualities like "good code"',
+    '- At least 3 distinct criteria covering correctness, completeness, and edge cases',
+].join('\n');
+
 const CLASSIFICATION_PROMPT = [
     '## Squad Task',
     '',
     'Classify this task:',
-    '- **M** — multi-file but cohesive, needs review: call `submit_plan` with mode "M" and exactly 1 node `{id, task, review_criteria}`.',
-    '- **L** — multi-module, strong dependencies, parallel work: call `submit_plan` with mode "L" and nodes `[{id, task, review_criteria, depends_on}]`.',
+    '- **M** — multi-file but cohesive, needs review: plan has exactly 1 node.',
+    '- **L** — multi-module, strong dependencies, parallel work: plan has multiple nodes with `depends_on`.',
     '',
-    'You MUST call `submit_plan` before ending your turn.',
+    PLAN_WRITING_GUIDE,
+    '',
+    'You MUST write the plan JSON to a temp file using the two-phase approach above, then call `submit_plan` with the absolute path before ending your turn.',
 ].join('\n');
 
 export default async function squadPlugin(pi) {
@@ -63,7 +85,8 @@ export default async function squadPlugin(pi) {
         pi.sendMessage(
             {
                 customType: 'squad-revision-force',
-                content: 'You MUST call `submit_plan` with a revised plan before ending your turn.',
+                content:
+                    'You MUST write a revised plan JSON to a temp file (two-phase: skeleton first, then use jq to fill in task details) and call `submit_plan` with its absolute path before ending your turn.',
                 display: false,
             },
             { triggerTurn: true },
@@ -94,48 +117,17 @@ export default async function squadPlugin(pi) {
         name: 'submit_plan',
         label: 'Submit Plan',
         description:
-            'Submit execution plan for squad. Mode M for single reviewable task, mode L for multi-module parallel work.',
+            'Submit execution plan for squad. Write your plan JSON to a temp file first, then pass the absolute path. Plan file: { mode: "M"|"L", reasoning: string, nodes: [{ id, task, review_criteria, depends_on? }] }.',
         parameters: {
             type: 'object',
             properties: {
-                mode: {
+                plan_path: {
                     type: 'string',
-                    enum: ['M', 'L'],
-                    description: 'Execution mode: M for single node, L for multi-node DAG',
-                },
-                reasoning: {
-                    type: 'string',
-                    description: 'Why this classification',
-                },
-                nodes: {
-                    type: 'array',
-                    description: 'Task nodes to execute',
-                    items: {
-                        type: 'object',
-                        properties: {
-                            id: { type: 'string', description: 'Unique node ID' },
-                            task: { type: 'string', description: 'Detailed task description' },
-                            review_criteria: {
-                                anyOf: [
-                                    { type: 'string', description: 'Criteria for reviewer approval' },
-                                    {
-                                        type: 'array',
-                                        items: { type: 'string' },
-                                        description: 'Criteria for reviewer approval',
-                                    },
-                                ],
-                            },
-                            depends_on: {
-                                type: 'array',
-                                items: { type: 'string' },
-                                description: 'IDs of prerequisite nodes',
-                            },
-                        },
-                        required: ['id', 'task', 'review_criteria'],
-                    },
+                    description:
+                        'Absolute path to the plan JSON file. The file must contain: { mode: "M"|"L", reasoning: string, nodes: [{ id, task, review_criteria, depends_on? }] }',
                 },
             },
-            required: ['mode', 'reasoning', 'nodes'],
+            required: ['plan_path'],
         },
         defaultInactive: true,
 
@@ -147,7 +139,35 @@ export default async function squadPlugin(pi) {
                 };
             }
 
-            const plan = validatePlan(params);
+            const filePath = params?.plan_path;
+            if (!filePath || typeof filePath !== 'string') {
+                return {
+                    content: [{ type: 'text', text: 'plan_path is required and must be a string.' }],
+                    isError: true,
+                };
+            }
+
+            let raw;
+            try {
+                raw = await readFile(filePath, 'utf8');
+            } catch (err) {
+                return {
+                    content: [{ type: 'text', text: `Failed to read plan file: ${err.message}` }],
+                    isError: true,
+                };
+            }
+
+            let parsed;
+            try {
+                parsed = JSON.parse(raw);
+            } catch (err) {
+                return {
+                    content: [{ type: 'text', text: `Plan file is not valid JSON: ${err.message}` }],
+                    isError: true,
+                };
+            }
+
+            const plan = validatePlan(parsed);
             const start = Date.now();
             const sessionId = ctx?.sessionManager?.getSessionId?.();
             const viewManager = createViewManager(ctx);
@@ -206,8 +226,10 @@ export default async function squadPlugin(pi) {
                                     '',
                                     verdict.feedback,
                                     '',
-                                    'Analyze this feedback and call `submit_plan` again with a revised plan.',
+                                    'Analyze this feedback, write a revised plan JSON to a temp file, then call `submit_plan` again with its absolute path.',
                                     'Choose mode M or L based on the remaining work.',
+                                    'Use the two-phase approach: skeleton first, then use jq to fill in detailed task descriptions.',
+                                    'Each node task MUST include: objective, acceptance criteria, reference materials, caveats.',
                                     'You MUST call `submit_plan` before ending your turn.',
                                 ].join('\n'),
                             },
@@ -239,14 +261,10 @@ export default async function squadPlugin(pi) {
         },
 
         renderCall(args, _renderState, theme) {
-            const count = args?.nodes?.length ?? 0;
-            const mode = args?.mode ?? '?';
+            const planPath = args?.plan_path ?? '?';
             return {
                 render() {
-                    return [
-                        theme.fg('toolTitle', theme.bold('submit_plan ')) +
-                            theme.fg('accent', `${mode} · ${count} node${count !== 1 ? 's' : ''}`),
-                    ];
+                    return [theme.fg('toolTitle', theme.bold('submit_plan ')) + theme.fg('accent', planPath)];
                 },
             };
         },

@@ -1,0 +1,59 @@
+/* Squad-Tau Application Styles */
+
+/* --- Role Border Colors (4.6) --- */
+.role-main {
+  border-left: 4px solid #2B95D6;
+}
+
+.role-worker {
+  border-left: 4px solid #238551;
+}
+
+.role-reviewer {
+  border-left: 4px solid #D9822B;
+}
+
+.role-outer {
+  border-left: 4px solid #7157D9;
+}
+
+/* --- Message Styles (4.6) --- */
+.message-user {
+  background: rgba(43, 149, 214, 0.12);
+  text-align: right;
+}
+
+.message-system {
+  text-align: center;
+  font-style: italic;
+  color: #888;
+}
+
+/* --- Scroll-to-bottom Button --- */
+.scroll-bottom-btn {
+  position: fixed;
+  bottom: 80px;
+  right: 24px;
+  border-radius: 50%;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  z-index: 100;
+}
+
+/* --- Header Responsive (4.5) --- */
+@media (max-width: 1280px) {
+  .brand-text {
+    display: none;
+  }
+}
+
+/* --- DAG View --- */
+.dag-view {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+/* --- Sidebar --- */
+.sidebar {
+  min-width: 240px;
+  max-width: 320px;
+}

@@ -1,0 +1,58 @@
+import { useReducer, useCallback, useRef } from 'react';
+
+const INITIAL_STATE = {
+    slots: [],
+    isOpen: false,
+};
+
+function modelPoolReducer(state, action) {
+    switch (action.type) {
+        case 'model_pool:snapshot':
+        case 'model_pool:changed':
+            return { ...state, slots: action.payload.slots };
+        case 'drawer:open':
+            return { ...state, isOpen: true };
+        case 'drawer:close':
+            return { ...state, isOpen: false };
+        default:
+            return state;
+    }
+}
+
+export function useModelPool() {
+    const [state, dispatch] = useReducer(modelPoolReducer, INITIAL_STATE);
+    const sendRef = useRef(null);
+
+    const openDrawer = useCallback(() => {
+        dispatch({ type: 'drawer:open' });
+    }, []);
+
+    const closeDrawer = useCallback(() => {
+        dispatch({ type: 'drawer:close' });
+    }, []);
+
+    const updateSlot = useCallback((action, slot, index) => {
+        if (!sendRef.current) {
+            console.warn('WebSocket send not wired, cannot update model pool');
+            return;
+        }
+        sendRef.current({
+            type: 'model_pool:update',
+            payload: { action, slot, index },
+        });
+    }, []);
+
+    const sendModelPoolUpdate = useCallback((send) => {
+        sendRef.current = send;
+    }, []);
+
+    return {
+        slots: state.slots,
+        isOpen: state.isOpen,
+        openDrawer,
+        closeDrawer,
+        updateSlot,
+        sendModelPoolUpdate,
+        dispatch,
+    };
+}
