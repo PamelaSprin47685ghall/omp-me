@@ -1,11 +1,9 @@
 import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
-import { createCounter } from './empty-turns.js';
+import { OUTER_REVIEW_MAX_EMPTY, createCounter } from './empty-turns.js';
 import { buildReviewerTools } from './reviewer-tools.js';
 import { buildBaseSessionOptions } from './session-options.js';
 import { register, unregister } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
-
-const OUTER_REVIEW_MAX_EMPTY = 20;
 
 function buildOuterReviewPrompt(originalTask, nodeResults, round) {
     const nodeList = nodeResults
@@ -29,6 +27,12 @@ If yes, call approve({ comment: "..." }).
 If no, call reject({ feedback: "..." }) with specific guidance for the next round.`;
 }
 
+function emitSessionEnd(eventBus, sessionId, phase, reason, errorMessage) {
+    if (!eventBus || !sessionId) return;
+    eventBus.emit('session', 'state', { sessionId, phase });
+    eventBus.emit('session', 'end', { sessionId, reason, errorMessage });
+}
+
 async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal, eventBus, modelPool, startTime) {
     const createAgentSession = pi?.pi?.createAgentSession;
     if (!createAgentSession) {
@@ -36,6 +40,10 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
     }
 
     const { SessionManager } = await getCodingAgentModule();
+
+    if (eventBus) {
+        eventBus.emit('squad', 'outer_review_start', { round });
+    }
 
     const modelSlot = await modelPool.acquire('reviewer', signal);
 
@@ -91,6 +99,10 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
                 round,
                 model: options.model ? { provider: options.model.provider, id: options.model.id } : undefined,
             });
+            eventBus.emit('session', 'state', {
+                sessionId,
+                phase: 'reviewing',
+            });
 
             unsub = subscribeToSessionEvents(session, eventBus, sessionId);
         }
@@ -129,9 +141,11 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
         const outcome = await outcomePromise;
 
         if (eventBus) {
-            eventBus.emit('session', 'end', {
-                sessionId,
-                reason: 'completed',
+            emitSessionEnd(eventBus, sessionId, 'completed', 'completed');
+            eventBus.emit('squad', 'outer_review_result', {
+                round,
+                verdict: outcome.approved ? 'approved' : 'rejected',
+                feedback: outcome.comment || outcome.feedback,
             });
         }
 
@@ -139,24 +153,12 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
         return outcome;
     } catch (err) {
         if (childAbort.signal.aborted && signal?.aborted) {
-            if (eventBus && sessionId) {
-                eventBus.emit('session', 'end', {
-                    sessionId,
-                    reason: 'aborted',
-                });
-            }
+            emitSessionEnd(eventBus, sessionId, 'aborted', 'aborted');
             modelPool.release(modelSlot);
             return null;
         }
 
-        if (eventBus && sessionId) {
-            eventBus.emit('session', 'end', {
-                sessionId,
-                reason: 'error',
-                errorMessage: err.message,
-            });
-        }
-
+        emitSessionEnd(eventBus, sessionId, 'error', 'error', err.message);
         modelPool.release(modelSlot);
         throw err;
     } finally {

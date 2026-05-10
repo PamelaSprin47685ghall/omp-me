@@ -8,10 +8,11 @@
  * @param {{action:string, slot?:object, index?:number, thinkingLevel?:string}} msg
  * @param {import('./model-pool.js').ModelPool} modelPool
  * @param {object} configModule
- * @param {(slot: object) => Promise<void>} configModule.saveModelsConfig
- * @param {() => Promise<object[]>} configModule.loadModelsConfig
+ * @param {object} configModule
+ * @param {Function} configModule.saveModelsConfig
+ * @param {Function} configModule.loadModelsConfig
  */
-export async function handleModelPoolMessage(msg, modelPool, configModule) {
+export async function handleModelPoolMessage(msg, modelPool, configModule, eventBus) {
     const { action, slot, index, thinkingLevel } = msg;
     switch (action) {
         case 'add':
@@ -25,7 +26,11 @@ export async function handleModelPoolMessage(msg, modelPool, configModule) {
         case 'edit':
             if (index === undefined || thinkingLevel === undefined) break;
             modelPool.updateSlotThinkingLevel(index, thinkingLevel);
+            await configModule.saveModelsConfig(modelPool.getSlots());
             break;
+    }
+    if (eventBus) {
+        eventBus.emit('model_pool', 'changed', buildSnapshot(modelPool));
     }
 }
 

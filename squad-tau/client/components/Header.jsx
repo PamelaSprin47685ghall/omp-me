@@ -44,8 +44,9 @@ export default function Header({
   squadActive,
   onAbort,
 }) {
+  const port = typeof window !== 'undefined' ? window.location.port : '';
   const statusColor = connected ? '#0F9960' : '#DB3737';
-  const statusText = connected ? 'Connected' : 'Disconnected';
+  const statusText = connected ? `Connected :${port}` : 'Disconnected';
 
   return (
     <Navbar style={NAVBAR_STYLE}>
@@ -70,6 +71,7 @@ export default function Header({
           <Tooltip content={statusText}>
             <Icon icon={IconNames.DOT} size={16} color={statusColor} />
           </Tooltip>
+          {connected && <span style={{fontSize:12,color:'#5C7080'}}>:&#8203;{port}</span>}
         </div>
       </Navbar.Group>
 

@@ -21,7 +21,7 @@ export async function routeMessage(msg, modelPool, configModule, eventBus, ws) {
 
     switch (msg.type) {
         case 'model_pool:update':
-            await handleModelPoolMessage(msg.payload, modelPool, configModule);
+            await handleModelPoolMessage(msg.payload, modelPool, configModule, eventBus);
             return true;
 
         case 'session:user_message': {
@@ -49,7 +49,8 @@ export async function routeMessage(msg, modelPool, configModule, eventBus, ws) {
                 return true;
             }
 
-            eventBus.emit('session:message', {
+            // Broadcast user message to all connected clients (multi-tab sync)
+            eventBus.emit('session', 'message', {
                 sessionId,
                 role: 'user',
                 content: [{ type: 'text', text }],
@@ -66,7 +67,7 @@ export async function routeMessage(msg, modelPool, configModule, eventBus, ws) {
             return true;
 
         case 'abort':
-            eventBus.emit('squad:abort', msg.payload || {});
+            eventBus.emit('squad', 'abort', msg.payload || {});
             return true;
 
         default:

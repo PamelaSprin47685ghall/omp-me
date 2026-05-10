@@ -23,7 +23,7 @@ function get(sessionId) {
 function isActive(sessionId) {
     const entry = registry.get(sessionId);
     if (!entry) return false;
-    const inactive = [STATUS.APPROVED, STATUS.REJECTED, STATUS.BLOCKED, STATUS.FAILED];
+    const inactive = ['completed', 'aborted', 'error'];
     return !inactive.includes(entry.status);
 }
 

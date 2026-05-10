@@ -13,7 +13,7 @@ async function runNode({ node, upstreamResults, ctx, pi, signal, eventBus, model
 
     try {
         while (true) {
-            eventBus.emit('squad:node_state', {
+            eventBus.emit('squad', 'node_state', {
                 nodeId,
                 status: STATUS.AUTHORING,
                 retryCount,
@@ -40,7 +40,7 @@ async function runNode({ node, upstreamResults, ctx, pi, signal, eventBus, model
                 throw new Error('Worker returned null');
             }
 
-            eventBus.emit('squad:node_state', {
+            eventBus.emit('squad', 'node_state', {
                 nodeId,
                 status: STATUS.CONFIRMING,
                 timestamp: Date.now(),
@@ -75,7 +75,7 @@ async function runNode({ node, upstreamResults, ctx, pi, signal, eventBus, model
                 }
             }
 
-            eventBus.emit('squad:node_state', {
+            eventBus.emit('squad', 'node_state', {
                 nodeId,
                 status: STATUS.REVIEWING,
                 timestamp: Date.now(),
@@ -101,7 +101,7 @@ async function runNode({ node, upstreamResults, ctx, pi, signal, eventBus, model
             }
 
             if (reviewResult.approved) {
-                eventBus.emit('squad:node_state', {
+                eventBus.emit('squad', 'node_state', {
                     nodeId,
                     status: STATUS.APPROVED,
                     timestamp: Date.now(),
@@ -118,7 +118,7 @@ async function runNode({ node, upstreamResults, ctx, pi, signal, eventBus, model
             retryCount++;
             reviewerFeedback = reviewResult.feedback;
 
-            eventBus.emit('squad:node_state', {
+            eventBus.emit('squad', 'node_state', {
                 nodeId,
                 status: STATUS.REJECTED,
                 retryCount,
@@ -131,7 +131,7 @@ async function runNode({ node, upstreamResults, ctx, pi, signal, eventBus, model
 
         const finalStatus = signal.aborted ? STATUS.FAILED : STATUS.FAILED;
 
-        eventBus.emit('squad:node_state', {
+        eventBus.emit('squad', 'node_state', {
             nodeId,
             status: finalStatus,
             error: error.message,

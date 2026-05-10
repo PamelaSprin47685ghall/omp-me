@@ -1,40 +1,21 @@
 import { WebSocketServer, WebSocket } from 'ws';
 
+let nextConnId = 1;
+
 export function createWsServer(httpServer) {
     const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
-    function broadcast(data) {
-        const message = JSON.stringify(data);
-        const deadClients = [];
+    wss.on('connection', (ws) => {
+        ws._connId = nextConnId++;
 
-        wss.clients.forEach((client) => {
-            if (client.readyState === WebSocket.OPEN) {
-                try {
-                    client.send(message);
-                } catch (err) {
-                    deadClients.push(client);
-                }
-            } else if (client.readyState === WebSocket.CLOSED) {
-                deadClients.push(client);
-            }
-        });
+        ws.send(
+            JSON.stringify({
+                type: 'connection:established',
+                payload: { sessionId: ws._connId, serverVersion: '1.0.0' },
+                timestamp: Date.now(),
+            }),
+        );
+    });
 
-        deadClients.forEach((client) => {
-            try {
-                client.terminate();
-            } catch {}
-        });
-    }
-
-    function getClientCount() {
-        let count = 0;
-        wss.clients.forEach((client) => {
-            if (client.readyState === WebSocket.OPEN) {
-                count++;
-            }
-        });
-        return count;
-    }
-
-    return { wss, broadcast, getClientCount };
+    return { wss };
 }

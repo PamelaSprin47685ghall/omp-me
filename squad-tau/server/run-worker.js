@@ -5,6 +5,13 @@ import { MAX_EMPTY_TURNS, createCounter } from './empty-turns.js';
 import { buildReturnWorkTool } from './lifecycle-tools.js';
 import { buildWorkerSessionOptions } from './session-options.js';
 import { register, unregister } from './session-registry.js';
+import { subscribeToSessionEvents } from './session-events.js';
+
+function emitSessionEnd(eventBus, sessionId, phase, reason, errorMessage) {
+    if (!eventBus || !sessionId) return;
+    eventBus.emit('session', 'state', { sessionId, phase });
+    eventBus.emit('session', 'end', { sessionId, reason, errorMessage });
+}
 
 async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, signal, eventBus, modelSlot }) {
     const createAgentSession = pi?.pi?.createAgentSession;
@@ -65,53 +72,12 @@ async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, sig
                 phase: 'worker',
                 model: options.model ? { provider: options.model.provider, id: options.model.id } : undefined,
             });
-
-            unsub = session.subscribe((event) => {
-                if (event.type === 'message_update') {
-                    const assistantEvent = event.assistantMessageEvent;
-                    if (assistantEvent.type === 'text_delta') {
-                        eventBus.emit('session', 'message_delta', {
-                            sessionId,
-                            messageId: event.message.id,
-                            delta: {
-                                type: 'text_delta',
-                                text: assistantEvent.delta,
-                            },
-                        });
-                    } else if (assistantEvent.type === 'thinking_delta') {
-                        eventBus.emit('session', 'message_delta', {
-                            sessionId,
-                            messageId: event.message.id,
-                            delta: {
-                                type: 'thinking_delta',
-                                text: assistantEvent.delta,
-                            },
-                        });
-                    }
-                } else if (event.type === 'tool_execution_start') {
-                    eventBus.emit('session', 'tool_call', {
-                        sessionId,
-                        toolName: event.toolName,
-                        toolId: event.toolCallId,
-                        params: event.args,
-                    });
-                } else if (event.type === 'tool_execution_end') {
-                    eventBus.emit('session', 'tool_result', {
-                        sessionId,
-                        toolId: event.toolCallId,
-                        result: event.result,
-                        isError: event.isError || false,
-                    });
-                } else if (event.type === 'message_end') {
-                    eventBus.emit('session', 'message', {
-                        sessionId,
-                        role: event.message.role,
-                        content: event.message.content,
-                        messageId: event.message.id,
-                        parentId: event.message.parentId,
-                    });
-                }
+            eventBus.emit('session', 'state', {
+                sessionId,
+                phase: 'authoring',
             });
+
+            unsub = subscribeToSessionEvents(session, eventBus, sessionId);
         }
 
         await session.prompt(promptText);
@@ -146,12 +112,7 @@ async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, sig
 
         const snapshots = await captureFileSnapshots(workerResult.affected_files || [], options.cwd);
 
-        if (eventBus) {
-            eventBus.emit('session', 'end', {
-                sessionId,
-                reason: 'completed',
-            });
-        }
+        emitSessionEnd(eventBus, sessionId, 'completed', 'completed');
 
         return {
             ...workerResult,
@@ -161,22 +122,11 @@ async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, sig
         };
     } catch (err) {
         if (childAbort.signal.aborted && signal?.aborted) {
-            if (eventBus && sessionId) {
-                eventBus.emit('session', 'end', {
-                    sessionId,
-                    reason: 'aborted',
-                });
-            }
+            emitSessionEnd(eventBus, sessionId, 'aborted', 'aborted');
             return null;
         }
 
-        if (eventBus && sessionId) {
-            eventBus.emit('session', 'end', {
-                sessionId,
-                reason: 'error',
-                errorMessage: err.message,
-            });
-        }
+        emitSessionEnd(eventBus, sessionId, 'error', 'error', err.message);
 
         throw err;
     } finally {

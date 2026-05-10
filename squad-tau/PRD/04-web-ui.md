@@ -175,7 +175,7 @@
 | anthropic | claude-3-5-haiku | reviewer | — | [icon:cross] | [icon:edit] [icon:delete] |
 
 ### 操作
-- **添加**：`Select` 选择 provider，`InputGroup` 输入 modelId，`RadioGroup` 选 role，`Select` 选 thinkingLevel → 添加按钮
+- **添加**：`Select` 选择 provider，`InputGroup` 输入 modelId，`Select` 选 role，`Select` 选 thinkingLevel → 添加按钮
 - **编辑**：点击编辑图标 → 行内编辑 `thinkingLevel` → 保存/取消
 - **删除**：点击删除图标 → Blueprint `Alert` 确认对话框
 - 实时生效：每次操作发送 `model_pool:update` → 服务端更新 `models.json` 文件 → 广播 `model_pool:changed` → 所有已连接浏览器同步

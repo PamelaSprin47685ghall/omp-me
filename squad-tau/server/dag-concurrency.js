@@ -1,8 +1,8 @@
-import { STATUS } from './constants.js';
+import { STATUS, DEFAULTS } from './constants.js';
 import { runNode } from './run-node.js';
 
 async function executeLayer(nodes, ctx, pi, signal, eventBus, modelPool) {
-    const concurrency = ctx.concurrency || 5;
+    const concurrency = ctx.concurrency || DEFAULTS.FALLBACK_CONCURRENCY;
     const results = [];
     const queue = [...nodes];
     const running = new Set();
@@ -17,7 +17,7 @@ async function executeLayer(nodes, ctx, pi, signal, eventBus, modelPool) {
             };
         }
 
-        eventBus.emit('squad:node_start', { nodeId: node.id });
+        eventBus.emit('squad', 'node_start', { nodeId: node.id });
 
         try {
             const result = await runNode({
@@ -30,7 +30,7 @@ async function executeLayer(nodes, ctx, pi, signal, eventBus, modelPool) {
                 modelPool,
             });
 
-            eventBus.emit('squad:node_end', { nodeId: node.id, status: result.status });
+            eventBus.emit('squad', 'node_end', { nodeId: node.id, status: result.status });
 
             return {
                 nodeId: node.id,
@@ -39,7 +39,7 @@ async function executeLayer(nodes, ctx, pi, signal, eventBus, modelPool) {
                 affectedFiles: result.affectedFiles || [],
             };
         } catch (error) {
-            eventBus.emit('squad:node_end', { nodeId: node.id, status: STATUS.FAILED, error: error.message });
+            eventBus.emit('squad', 'node_end', { nodeId: node.id, status: STATUS.FAILED, error: error.message });
 
             return {
                 nodeId: node.id,

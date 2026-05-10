@@ -74,6 +74,9 @@ export async function runConfirmSession({ pi, sessionId, workerOptions, original
                 const timeoutHint = buildTimeoutHint();
                 pi.sendUserMessage(sessionId, timeoutHint, { signal, tools });
                 await waitForSettled(pi, sessionId, signal, 2000);
+                if (!settled) {
+                    throw new Error('Self-Confirm did not call confirm() or return_work() within allowed empty turns');
+                }
             }
         } finally {
             unsubscribeSettled();
@@ -89,13 +92,13 @@ export async function runConfirmSession({ pi, sessionId, workerOptions, original
         if (result.type === 'return_work') {
             affectedFiles = result.affected_files || [];
             snapshots = await captureFileSnapshots(affectedFiles, cwd);
-            if (eventBus) eventBus.emit('squad:confirm:resubmit', result);
+            if (eventBus) eventBus.emit('squad:confirm', 'resubmit', result);
             continue;
         }
 
         const changed = await filesChanged(snapshots, cwd);
         if (changed.length > 0) {
-            if (eventBus) eventBus.emit('squad:SQUAD_TAMPERED', { files: changed, sessionId });
+            if (eventBus) eventBus.emit('squad', 'tampered', { files: changed, sessionId });
             snapshots = await captureFileSnapshots(affectedFiles, cwd);
             pi.sendUserMessage(
                 sessionId,
@@ -106,7 +109,7 @@ export async function runConfirmSession({ pi, sessionId, workerOptions, original
             continue;
         }
 
-        if (eventBus) eventBus.emit('squad:confirm:approved', result);
+        if (eventBus) eventBus.emit('squad:confirm', 'approved', result);
         return result;
     }
 }

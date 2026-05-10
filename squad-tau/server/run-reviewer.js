@@ -1,12 +1,16 @@
 import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
 import { buildReviewerPrompt } from './run-reviewer-prompt.js';
-import { createCounter } from './empty-turns.js';
+import { REVIEWER_MAX_EMPTY, createCounter } from './empty-turns.js';
 import { buildReviewerTools } from './reviewer-tools.js';
 import { buildBaseSessionOptions } from './session-options.js';
 import { register, unregister } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
 
-const REVIEWER_MAX_EMPTY = 20;
+function emitSessionEnd(eventBus, sessionId, phase, reason, errorMessage) {
+    if (!eventBus || !sessionId) return;
+    eventBus.emit('session', 'state', { sessionId, phase });
+    eventBus.emit('session', 'end', { sessionId, reason, errorMessage });
+}
 
 async function runReviewer({ node, workerResult, ctx, pi, signal, eventBus, modelSlot }) {
     const createAgentSession = pi?.pi?.createAgentSession;
@@ -68,6 +72,10 @@ async function runReviewer({ node, workerResult, ctx, pi, signal, eventBus, mode
                 phase: 'reviewer',
                 model: options.model ? { provider: options.model.provider, id: options.model.id } : undefined,
             });
+            eventBus.emit('session', 'state', {
+                sessionId,
+                phase: 'reviewing',
+            });
 
             unsub = subscribeToSessionEvents(session, eventBus, sessionId);
         }
@@ -104,32 +112,16 @@ async function runReviewer({ node, workerResult, ctx, pi, signal, eventBus, mode
 
         const outcome = await outcomePromise;
 
-        if (eventBus) {
-            eventBus.emit('session', 'end', {
-                sessionId,
-                reason: 'completed',
-            });
-        }
+        emitSessionEnd(eventBus, sessionId, 'completed', 'completed');
 
         return outcome;
     } catch (err) {
         if (childAbort.signal.aborted && signal?.aborted) {
-            if (eventBus && sessionId) {
-                eventBus.emit('session', 'end', {
-                    sessionId,
-                    reason: 'aborted',
-                });
-            }
+            emitSessionEnd(eventBus, sessionId, 'aborted', 'aborted');
             return null;
         }
 
-        if (eventBus && sessionId) {
-            eventBus.emit('session', 'end', {
-                sessionId,
-                reason: 'error',
-                errorMessage: err.message,
-            });
-        }
+        emitSessionEnd(eventBus, sessionId, 'error', 'error', err.message);
 
         throw err;
     } finally {

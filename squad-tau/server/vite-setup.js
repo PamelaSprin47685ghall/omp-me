@@ -24,5 +24,5 @@ export async function createViteDevServer() {
         },
     });
 
-    return server;
+    return server.middlewares;
 }

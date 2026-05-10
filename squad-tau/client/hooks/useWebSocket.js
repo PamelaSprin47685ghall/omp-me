@@ -4,6 +4,7 @@ const BACKOFF_STEPS = [1000, 2000, 4000, 8000, 16000, 30000];
 const PING_INTERVAL = 30000;
 
 export function useWebSocket({ port, onEvent }) {
+    const resolvedPort = port || (typeof window !== 'undefined' ? window.location.port : 9527);
     const wsRef = useRef(null);
     const reconnectTimeoutRef = useRef(null);
     const pingIntervalRef = useRef(null);
@@ -44,7 +45,7 @@ export function useWebSocket({ port, onEvent }) {
         clearTimers();
         disconnect();
 
-        const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+        const ws = new WebSocket(`ws://127.0.0.1:${resolvedPort}/ws`);
         wsRef.current = ws;
 
         ws.onopen = () => {

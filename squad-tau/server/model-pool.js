@@ -26,10 +26,25 @@ class ModelPool {
         const slots = role === 'worker' ? this.workerSlots : this.reviewerSlots;
         const queue = role === 'worker' ? this.workerQueue : this.reviewerQueue;
 
+        // Pool completely empty (no slots of any role) → fallback to current session model
+        if (this.workerSlots.length === 0 && this.reviewerSlots.length === 0) {
+            return null;
+        }
+
+        // This role has slots, but all are pending_delete → no slot can ever free up
+        if (slots.length > 0 && slots.every((s) => s.pendingDelete)) {
+            return null;
+        }
+
         const availableSlot = slots.find((s) => !s.inUse && !s.pendingDelete);
         if (availableSlot) {
             availableSlot.inUse = true;
-            return { provider: availableSlot.provider, modelId: availableSlot.modelId, role: availableSlot.role };
+            return {
+                provider: availableSlot.provider,
+                modelId: availableSlot.modelId,
+                role: availableSlot.role,
+                _slot: availableSlot,
+            };
         }
 
         return new Promise((resolve, reject) => {
@@ -52,10 +67,12 @@ class ModelPool {
     }
 
     release(slot) {
+        if (!slot) return;
         const roleSlots = slot.role === 'worker' ? this.workerSlots : this.reviewerSlots;
         const queue = slot.role === 'worker' ? this.workerQueue : this.reviewerQueue;
 
-        const targetSlot = roleSlots.find((s) => s.provider === slot.provider && s.modelId === slot.modelId && s.inUse);
+        const targetSlot =
+            slot._slot || roleSlots.find((s) => s.provider === slot.provider && s.modelId === slot.modelId && s.inUse);
         if (!targetSlot) return;
 
         targetSlot.inUse = false;
@@ -72,7 +89,12 @@ class ModelPool {
             targetSlot.inUse = true;
             const waiter = queue.shift();
             waiter.cleanup?.();
-            waiter.resolve({ provider: targetSlot.provider, modelId: targetSlot.modelId, role: targetSlot.role });
+            waiter.resolve({
+                provider: targetSlot.provider,
+                modelId: targetSlot.modelId,
+                role: targetSlot.role,
+                _slot: targetSlot,
+            });
         }
     }
 
@@ -92,7 +114,7 @@ class ModelPool {
                 slot.inUse = true;
                 const waiter = this.workerQueue.shift();
                 waiter.cleanup?.();
-                waiter.resolve({ provider: slot.provider, modelId: slot.modelId, role: slot.role });
+                waiter.resolve({ provider: slot.provider, modelId: slot.modelId, role: slot.role, _slot: slot });
             }
         } else if (config.role === 'reviewer') {
             this.reviewerSlots.push(slot);
@@ -100,7 +122,7 @@ class ModelPool {
                 slot.inUse = true;
                 const waiter = this.reviewerQueue.shift();
                 waiter.cleanup?.();
-                waiter.resolve({ provider: slot.provider, modelId: slot.modelId, role: slot.role });
+                waiter.resolve({ provider: slot.provider, modelId: slot.modelId, role: slot.role, _slot: slot });
             }
         }
     }

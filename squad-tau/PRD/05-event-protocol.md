@@ -34,7 +34,7 @@
 { type: 'pong' }
 ```
 
-**会话 ID**：使用自然数递增（1, 2, 3, ...），每个新会话分配下一个 ID。
+**连接 ID**：使用自然数递增（1, 2, 3, ...），每个新 WebSocket 连接分配下一个 ID。squad 子会话使用 session 文件路径作为 ID (string)，非自增数字。
 
 ## 5.4 Squad 状态事件
 
@@ -116,7 +116,7 @@
 { type: 'session:state',
   payload: {
     sessionId: string,
-    phase: 'authoring' | 'confirming' | 'reviewing' | 'completed' | 'aborted'
+    phase: 'authoring' | 'confirming' | 'reviewing' | 'completed' | 'aborted' | 'error'
   }
 }
 
@@ -212,7 +212,18 @@
 }
 ```
 
-## 5.7 用户消息事件（浏览器 → 服务端）
+## 5.7 错误事件
+
+```javascript
+// 服务端 → 浏览器：处理失败（如 session 不存在、消息格式错误）
+{ type: 'error',
+  payload: {
+    message: string      // 错误描述
+  }
+}
+```
+
+## 5.8 用户消息事件（浏览器 → 服务端）
 
 ```javascript
 // 浏览器 → 服务端：用户发送消息到指定 session
@@ -236,7 +247,7 @@
 
 服务端不发送单独的 ack 事件。用户消息通过广播的 `session:message`（role=user）隐式确认。如果消息未能投递（session 已结束），服务端发送 `error` 事件。
 
-## 5.8 增量渲染策略
+## 5.9 增量渲染策略
 
 - `session:message` 只发送完整消息（如 tool_result、system 消息）
 - `session:message_delta` 用于流式文本，浏览器端逐 token 追加到对应 message

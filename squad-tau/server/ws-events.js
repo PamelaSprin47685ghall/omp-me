@@ -12,7 +12,7 @@ import { WebSocket } from 'ws';
  * @param {Set<import('ws').WebSocket>} clients - Set of connected WebSocket clients
  */
 export function bridgeEventsToWebSocket(eventBus, clients) {
-    eventBus.on('*', (type, payload) => {
+    eventBus.on('*', (payload, type) => {
         const message = JSON.stringify({
             type,
             payload,

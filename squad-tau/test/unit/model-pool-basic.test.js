@@ -79,6 +79,27 @@ test('same config row multiple times = multiple slots', async () => {
     assert.equal(pool.workerSlots.filter((s) => s.inUse).length, 3);
 });
 
+test('empty pool returns null for any role', async () => {
+    const pool = new ModelPool([]);
+    const workerSlot = await pool.acquire('worker');
+    assert.strictEqual(workerSlot, null, 'empty pool acquire returns null for worker');
+    const reviewerSlot = await pool.acquire('reviewer');
+    assert.strictEqual(reviewerSlot, null, 'empty pool acquire returns null for reviewer');
+});
+
+test('all pending_delete pool returns null', async () => {
+    const pool = new ModelPool([
+        { provider: 'anthropic', modelId: 'm1', role: 'worker' },
+        { provider: 'anthropic', modelId: 'm2', role: 'reviewer' },
+    ]);
+    pool.workerSlots[0].pendingDelete = true;
+    pool.reviewerSlots[0].pendingDelete = true;
+    const workerSlot = await pool.acquire('worker');
+    assert.strictEqual(workerSlot, null);
+    const reviewerSlot = await pool.acquire('reviewer');
+    assert.strictEqual(reviewerSlot, null);
+});
+
 test('acquire resolves exactly once', async () => {
     const config = [{ provider: 'anthropic', modelId: 'single', role: 'worker' }];
     const pool = new ModelPool(config);

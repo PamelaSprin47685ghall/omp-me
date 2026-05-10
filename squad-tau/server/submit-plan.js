@@ -1,6 +1,6 @@
 import { validatePlan } from './validate-plan.js';
 
-function createSubmitPlanHandler({ fsm, executeDAG, ctx, pi, signal, eventBus, modelPool, onComplete }) {
+function createSubmitPlanHandler({ fsm, executeDAG, ctx, pi, signal, eventBus, modelPool, onComplete, originalTask }) {
     return {
         name: 'submit_plan',
         description: 'Submit execution plan with nodes for DAG execution',
@@ -55,6 +55,14 @@ function createSubmitPlanHandler({ fsm, executeDAG, ctx, pi, signal, eventBus, m
                 throw new Error('Mode L requires at least two nodes');
             }
 
+            if (eventBus) {
+                eventBus.emit('squad', 'init', {
+                    mode,
+                    nodes,
+                    originalTask: originalTask || '',
+                });
+            }
+
             try {
                 const results = await executeDAG({
                     nodes,
@@ -66,7 +74,7 @@ function createSubmitPlanHandler({ fsm, executeDAG, ctx, pi, signal, eventBus, m
                 });
 
                 if (onComplete) {
-                    await onComplete(results);
+                    await onComplete({ results, mode, nodes });
                 }
 
                 return {

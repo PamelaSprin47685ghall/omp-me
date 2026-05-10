@@ -23,7 +23,7 @@ async function executeDAG({ nodes, ctx, pi, signal, eventBus, modelPool }) {
                     };
                     allResults.push(result);
                     completedNodes.set(node.id, result);
-                    eventBus.emit('squad:node_state', { nodeId: node.id, status: STATUS.FAILED });
+                    eventBus.emit('squad', 'node_state', { nodeId: node.id, status: STATUS.FAILED });
                 }
             }
             continue;
@@ -53,7 +53,7 @@ async function executeDAG({ nodes, ctx, pi, signal, eventBus, modelPool }) {
             allResults.push(result);
             completedNodes.set(node.id, result);
             failedNodes.add(node.id);
-            eventBus.emit('squad:node_state', { nodeId: node.id, status: STATUS.BLOCKED });
+            eventBus.emit('squad', 'node_state', { nodeId: node.id, status: STATUS.BLOCKED });
         }
 
         if (nodesToExecute.length > 0) {
@@ -70,7 +70,7 @@ async function executeDAG({ nodes, ctx, pi, signal, eventBus, modelPool }) {
                     failedNodes.add(result.nodeId);
                 }
 
-                eventBus.emit('squad:node_state', {
+                eventBus.emit('squad', 'node_state', {
                     nodeId: result.nodeId,
                     status: result.status,
                     summary: result.summary,

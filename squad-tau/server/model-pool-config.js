@@ -13,7 +13,6 @@ function loadModelsConfig() {
         return JSON.parse(content);
     } catch (err) {
         if (err.code === 'ENOENT') return [];
-        console.error('Failed to parse models.json:', err.message);
         return [];
     }
 }
@@ -49,4 +48,32 @@ function unwatchConfig() {
     fs.unwatchFile(CONFIG_PATH);
 }
 
-export { CONFIG_PATH, loadModelsConfig, saveModelsConfig, watchConfig, unwatchConfig };
+/**
+ * Sync a ModelPool instance to match a given configuration array.
+ * Adds new slots, removes deleted slots. In-use removed slots
+ * are marked pending_delete and removed on release.
+ * @param {import('./model-pool.js').ModelPool} modelPool
+ * @param {Array} newConfig - New configuration array
+ */
+function syncModelPoolFromConfig(modelPool, newConfig) {
+    const oldSlots = modelPool.getSlots();
+    const oldMap = new Map(oldSlots.map((s) => [`${s.provider}|${s.modelId}|${s.role}`, s]));
+    const newKeys = new Set(newConfig.map((s) => `${s.provider}|${s.modelId}|${s.role}`));
+
+    for (const entry of newConfig) {
+        const key = `${entry.provider}|${entry.modelId}|${entry.role}`;
+        if (!oldMap.has(key)) {
+            modelPool.addSlot(entry);
+        }
+    }
+
+    for (const [key, slot] of oldMap) {
+        if (!newKeys.has(key)) {
+            const allSlots = [...modelPool.workerSlots, ...modelPool.reviewerSlots];
+            const idx = allSlots.indexOf(slot);
+            if (idx !== -1) modelPool.removeSlot(idx);
+        }
+    }
+}
+
+export { CONFIG_PATH, loadModelsConfig, saveModelsConfig, watchConfig, unwatchConfig, syncModelPoolFromConfig };

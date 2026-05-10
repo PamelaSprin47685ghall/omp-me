@@ -3,7 +3,7 @@ import { Drawer, Button, Icon, HTMLTable, InputGroup, Alert, HTMLSelect } from '
 import { IconNames } from '@blueprintjs/icons';
 
 const PROVIDERS = ['anthropic', 'openai', 'google', 'ollama'];
-const ROLES = ['worker', 'reviewer', 'outer'];
+const ROLES = ['worker', 'reviewer'];
 const THINKING_LEVELS = ['none', 'low', 'medium', 'high'];
 
 const TABLE_CONTAINER_STYLE = { overflowX: 'auto', marginTop: '16px' };
@@ -114,7 +114,7 @@ export default function ModelPoolDrawer({ isOpen, onClose, slots, onUpdateSlot }
                       </td>
                       <td>
                         <Button icon={IconNames.EDIT} small minimal onClick={() => handleEditStart(index, slot.thinkingLevel)} disabled={editingIndex !== null} />
-                        <Button icon={IconNames.TRASH} small minimal intent="danger" onClick={() => setDeleteIndex(index)} disabled={slot.inUse} />
+                        <Button icon={IconNames.TRASH} small minimal intent="danger" onClick={() => setDeleteIndex(index)} />
                       </td>
                     </tr>
                   ))}

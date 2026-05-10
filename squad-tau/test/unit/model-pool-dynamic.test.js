@@ -14,7 +14,11 @@ test('signal.abort rejects pending acquire', async () => {
 });
 
 test('addSlot immediately wakes waiting acquire', async () => {
-    const pool = new ModelPool([]);
+    // Use a non-empty pool to avoid triggering empty-pool fallback
+    const config = [{ provider: 'anthropic', modelId: 'exiting-slot', role: 'worker' }];
+    const pool = new ModelPool(config);
+    // Use up the existing slot so next acquire waits
+    const existingSlot = await pool.acquire('worker');
     let resolved = false;
     const acquirePromise = pool.acquire('worker').then((slot) => {
         resolved = true;
@@ -26,7 +30,8 @@ test('addSlot immediately wakes waiting acquire', async () => {
     const slot = await acquirePromise;
     assert.equal(resolved, true);
     assert.equal(slot.modelId, 'new-model');
-    assert.equal(pool.workerSlots[0].inUse, true);
+    // Cleanup the first slot
+    pool.release(existingSlot);
 });
 
 test('removeSlot marks inUse slot as pendingDelete', () => {

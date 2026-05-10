@@ -25,24 +25,42 @@ const BODY_STYLE = {
 };
 
 export default function App() {
-  const isDark = useDarkMode();
+  const { isDark } = useDarkMode();
   const { squad, nodes, dispatch: squadDispatch } = useSquadState();
   const { sessions, messages, activeSessionId, setActiveSessionId, dispatch: sessionDispatch } = useSessionState();
   
+  const { isOpen: modelPoolOpen, openDrawer: openModelPool, closeDrawer: closeModelPool, slots, updateSlot, sendModelPoolUpdate, dispatch: modelPoolDispatch } = useModelPool();
+
   const handleEvent = useCallback((type, payload) => {
-    if (type.startsWith('squad:')) {
-      const eventType = type.replace('squad:', '').toUpperCase().replace(/:/g, '_');
-      squadDispatch({ type: eventType, payload });
-    } else if (type.startsWith('session:')) {
-      const eventType = type.replace('session:', '').toUpperCase().replace(/:/g, '_');
-      sessionDispatch({ type: eventType, payload });
+    switch (true) {
+      case type.startsWith('squad:'): {
+        const mapped = {
+          'squad:init': 'SQUAD_INIT',
+          'squad:complete': 'SQUAD_COMPLETE',
+          'squad:abort': 'SQUAD_ABORT',
+        };
+        const eventType = mapped[type] || type.replace('squad:', '').toUpperCase().replace(/:/g, '_');
+        squadDispatch({ type: eventType, payload });
+        break;
+      }
+      case type.startsWith('session:'): {
+        const eventType = type.replace('session:', '').toUpperCase().replace(/:/g, '_');
+        sessionDispatch({ type: eventType, payload });
+        break;
+      }
+      case type.startsWith('model_pool:'): {
+        modelPoolDispatch({ type, payload });
+        break;
+      }
+      case type === 'connection:established':
+      case type === 'connection:close':
+        break;
     }
-  }, [squadDispatch, sessionDispatch]);
+  }, [squadDispatch, sessionDispatch, modelPoolDispatch]);
   
-  const { connected, send } = useWebSocket({ port: 9527, onEvent: handleEvent });
+  const { connected, send } = useWebSocket({ onEvent: handleEvent });
   
   const [dagCollapsed, setDagCollapsed] = useState(false);
-  const { isOpen: modelPoolOpen, openDrawer: openModelPool, closeDrawer: closeModelPool, slots, updateSlot, sendModelPoolUpdate } = useModelPool();
 
   useEffect(() => {
     if (send) {
@@ -51,11 +69,7 @@ export default function App() {
   }, [send, sendModelPoolUpdate]);
   
   useEffect(() => {
-    if (isDark) {
-      document.body.classList.add(Classes.DARK);
-    } else {
-      document.body.classList.remove(Classes.DARK);
-    }
+    document.documentElement.classList.toggle(Classes.DARK, isDark);
   }, [isDark]);
   
   const handleToggleDAG = () => setDagCollapsed(!dagCollapsed);
