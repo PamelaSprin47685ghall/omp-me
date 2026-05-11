@@ -1,5 +1,6 @@
 /**
- * Browser UI E2E tests using standalone approach.
+ * Browser UI E2E test.
+ * Verifies the React app renders correctly with WebSocket integration.
  * @see PRD/08-testing.md §8.4.1
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
@@ -16,67 +17,72 @@ describe('Browser E2E', () => {
         const b = await setupBrowser();
         browser = b.browser;
         page = b.page;
-
-        await page.goto(`http://127.0.0.1:${port}`, { waitUntil: 'networkidle0' });
-        // Wait for connection
-        await page.waitForFunction(
-            (p) => {
-                return document.body.innerText.includes(p);
-            },
-            { timeout: 10000 },
-            port.toString(),
-        );
     }, 20000);
 
     afterAll(async () => {
         await teardownBrowser(browser);
-        await stopServer();
     });
 
-    test('Interact with UI and simulate events', async () => {
-        // 1. Verify basic elements
-        await page.waitForSelector('#root', { timeout: 10000 });
-        const brandText = await page.waitForSelector('.brand-text', { timeout: 10000 });
-        expect(await brandText.evaluate((el) => el.textContent)).toBe('Squad-Tau');
+    test('Page loads and React mounts', async () => {
+        await page.goto(`http://127.0.0.1:${port}`, { waitUntil: 'networkidle0', timeout: 15000 });
 
-        // 2. Simulate squad events
+        const root = await page.waitForSelector('#root', { timeout: 10000 });
+        expect(root).not.toBeNull();
+
+        // Brand text should be visible
+        const brandText = await page.waitForSelector('.brand-text', { timeout: 5000 });
+        const text = await brandText.evaluate((el) => el.textContent);
+        expect(text).toBe('Squad-Tau');
+
+        // WebSocket should connect and show the port
+        await page.waitForFunction((p) => document.body.innerText.includes(p), { timeout: 15000 }, port.toString());
+    }, 40000);
+
+    test('Squad init event triggers DAG appearance', async () => {
+        await page.goto(`http://127.0.0.1:${port}`, { waitUntil: 'networkidle0', timeout: 15000 });
+        // Wait for connection
+        await page.waitForFunction((p) => document.body.innerText.includes(p), { timeout: 15000 }, port.toString());
+
+        // Emit squad:init via event bus
         const eventBus = getGlobalEventBus();
-
-        // Emit squad:init
         eventBus.emit('squad', 'init', {
-            nodes: [{ id: 'Task1', type: 'worker', status: 'pending', dependencies: [] }],
+            mode: 'M',
+            nodes: [{ id: 'Task1', task: 'Do work', review_criteria: 'Check quality' }],
+            originalTask: 'Test task',
         });
 
-        // DAGView should appear (wait for svg element)
+        // The DAG view should appear (Mermaid renders SVG)
         await page.waitForSelector('svg', { timeout: 10000 });
 
-        // Emit session:start
+        // Emit session events
         eventBus.emit('session', 'start', {
             sessionId: '101',
             nodeId: 'Task1',
-            status: 'active',
-            phase: 'Working',
-            retryCount: 1,
+            phase: 'worker',
         });
 
-        // Verify status in Sidebar (R1-Working)
-        await page.waitForFunction(() => document.body.innerText.includes('R1-Working'), { timeout: 10000 });
+        eventBus.emit('session', 'message', {
+            sessionId: '101',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'Working on it' }],
+            messageId: 'm1',
+        });
 
-        // MainContent should show StatusBar for Task1
-        await page.waitForSelector('[class*="-tag"]', { timeout: 10000 });
-        const bodyText = await page.evaluate(() => document.body.innerText);
-        expect(bodyText).toContain('Node: Task1');
+        // Wait for the message to appear in the UI
+        await page.waitForFunction(() => document.body.innerText.includes('Working on it'), { timeout: 5000 });
     }, 40000);
 
-    test('Dark mode class presence', async () => {
-        // Toggle dark mode via media query emulation
+    test('Dark mode class toggles with media query', async () => {
+        await page.goto(`http://127.0.0.1:${port}`, { waitUntil: 'networkidle0', timeout: 15000 });
+
+        // Switch to dark mode
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
-        // Blueprint uses -dark class on html or body
         await page.waitForFunction(() => document.documentElement.classList.value.includes('-dark'), { timeout: 5000 });
 
+        // Switch back to light
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
         await page.waitForFunction(() => !document.documentElement.classList.value.includes('-dark'), {
             timeout: 5000,
         });
-    }, 15000);
+    }, 30000);
 });

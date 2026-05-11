@@ -27,12 +27,12 @@ describe('Squad Flow - M mode', () => {
         let events = [];
         eventBus.on('squad:*', (data, event) => events.push({ type: event.split(':')[1], data }));
         pi.pi.onPrompt(async (text, session) => {
-            if (text.includes('## Worker Submission'))
-                await session.callTool('return', { status: 'ok', reason: 'app' });
-            else if (text.includes('## Task'))
+            if (text.includes('审核专员')) await session.callTool('return', { status: 'ok', reason: 'app' });
+            else if (text.includes('你的任务:'))
                 await session.callTool('return', { status: 'ok', reason: 'work', affected_files: ['f1.js'] });
-            else if (text.includes('self-confirm')) await session.callTool('return', { status: 'ok', reason: 'conf' });
-            else if (text.includes('aggregated')) await session.callTool('return', { status: 'ok', reason: 'all' });
+            else if (text.includes('验证自己的交付质量'))
+                await session.callTool('return', { status: 'ok', reason: 'conf' });
+            else if (text.includes('最终审核者')) await session.callTool('return', { status: 'ok', reason: 'all' });
         });
         const res = await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
         expect(res.success).toBe(true);
@@ -61,9 +61,9 @@ describe('Squad Flow - L mode Basic', () => {
         fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "w1"');
         fs.writeFileSync(path.join(planDir, 'n2.toml'), 'task = "w2"');
         pi.pi.onPrompt(async (text, session) => {
-            if (text.includes('## Worker Submission') || text.includes('aggregated'))
+            if (text.includes('审核专员') || text.includes('最终审核者'))
                 await session.callTool('return', { status: 'ok', reason: 'ok' });
-            else if (text.includes('## Task') || text.includes('self-confirm'))
+            else if (text.includes('你的任务:') || text.includes('验证自己的交付质量'))
                 await session.callTool('return', { status: 'ok', reason: 'ok' });
         });
         const res = await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
@@ -133,7 +133,7 @@ describe('Squad Flow - Advanced', () => {
         squadFsm.activate();
         fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "long"');
         pi.pi.onPrompt(async (text, session) => {
-            if (text.includes('## Task')) abortController.abort();
+            if (text.includes('你的任务:')) abortController.abort();
             try {
                 await session.callTool('return', { status: 'ok', reason: 'ok' });
             } catch (e) {}

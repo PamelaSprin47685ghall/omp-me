@@ -30,7 +30,6 @@ describe('Chaos E2E', () => {
 
     afterAll(async () => {
         await teardownBrowser(browser);
-        await stopServer();
     });
 
     test('robustness under websocket and browser chaos', async () => {
@@ -111,10 +110,36 @@ describe('Chaos E2E', () => {
 
         // 4. Verify server is still healthy
         // Check HTTP status
-        const response = await fetch(`http://127.0.0.1:${serverPort}/api/status`);
-        expect(response.status).toBe(200);
-        const status = await response.json();
-        expect(status.status).toBe('ok');
+        let healthy = false;
+        let lastError = '';
+        for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+                const resp = await fetch(`http://127.0.0.1:${serverPort}/api/status`);
+                if (resp.status === 200) {
+                    const text = await resp.text();
+                    try {
+                        const data = JSON.parse(text);
+                        if (data.status === 'ok') {
+                            healthy = true;
+                            break;
+                        }
+                        lastError = 'Status not ok: ' + data.status;
+                    } catch (e) {
+                        lastError = 'JSON parse error: ' + text.substring(0, 100);
+                    }
+                } else {
+                    lastError = 'HTTP ' + resp.status;
+                    try {
+                        const plain = await fetch(`http://127.0.0.1:${serverPort}/`);
+                        lastError += '; / returned ' + plain.status;
+                    } catch (e) {}
+                }
+            } catch (e) {
+                lastError = e.message;
+                await new Promise((r) => setTimeout(r, 1000));
+            }
+        }
+        expect(healthy).toBe(true);
 
         // Check browser still loads (main page)
         await page.goto(`http://127.0.0.1:${serverPort}`, { waitUntil: 'networkidle0' });

@@ -1,39 +1,13 @@
 import { describe, test, expect } from 'bun:test';
-import { runOuterReview } from '../../server/outer-review.js';
-
-function buildOuterReviewPrompt(originalTask, nodeResults, round) {
-    const nodesSummary = nodeResults
-        .map((n) => {
-            const files = n.affectedFiles?.length ? `\n  Affected files: ${n.affectedFiles.join(', ')}` : '';
-            return `- Node ${n.id} (${n.status}): ${n.summary}${files}`;
-        })
-        .join('\n');
-
-    return `You are the outer reviewer for a multi-node squad execution (round ${round}).
-
-Original task:
-${originalTask}
-
-All nodes have completed. Here are the results:
-${nodesSummary}
-
-Your job:
-1. Read the affected files to verify the aggregated result satisfies the original task
-2. Check for integration issues, missing pieces, or inconsistencies across nodes
-3. Decide:
-   - approve({ comment }) if the work is complete and correct
-   - reject({ feedback }) if revisions are needed
-
-You have access to: read, search, find, lsp, bash (read-only).
-You MUST call approve() or reject() to complete this review.`;
-}
+import { runOuterReview, buildOuterReviewPrompt } from '../../server/outer-review.js';
 
 describe('buildOuterReviewPrompt', () => {
-    test('includes original task and round', () => {
+    test('includes original task and node results header', () => {
         const nodeResults = [{ id: 'n1', status: 'approved', summary: 'Done A', affectedFiles: ['a.js'] }];
         const prompt = buildOuterReviewPrompt('Build feature X', nodeResults, 2);
 
-        expect(prompt).toContain('round 2');
+        expect(prompt).toContain('原始任务:');
+        expect(prompt).toContain('节点结果:');
         expect(prompt).toContain('Build feature X');
     });
 
@@ -44,25 +18,18 @@ describe('buildOuterReviewPrompt', () => {
         ];
         const prompt = buildOuterReviewPrompt('Build feature X', nodeResults, 1);
 
-        expect(prompt).toContain('Node n1 (approved): Done A');
-        expect(prompt).toContain('Affected files: a.js');
-        expect(prompt).toContain('Node n2 (approved): Done B');
-        expect(prompt).toContain('Affected files: b.js, c.js');
+        expect(prompt).toContain('- n1 (approved): Done A');
+        expect(prompt).toContain('文件: a.js');
+        expect(prompt).toContain('- n2 (approved): Done B');
+        expect(prompt).toContain('文件: b.js, c.js');
     });
 
-    test('mentions approve and reject tools', () => {
+    test('mentions return status ok and error', () => {
         const nodeResults = [{ id: 'n1', status: 'approved', summary: 'Done', affectedFiles: [] }];
         const prompt = buildOuterReviewPrompt('Task', nodeResults, 1);
 
-        expect(prompt).toContain('approve({ comment })');
-        expect(prompt).toContain('reject({ feedback })');
-        expect(prompt).toContain('MUST call approve() or reject()');
-    });
-
-    test('lists available tools', () => {
-        const nodeResults = [{ id: 'n1', status: 'approved', summary: 'Done', affectedFiles: [] }];
-        const prompt = buildOuterReviewPrompt('Task', nodeResults, 1);
-
-        expect(prompt).toContain('read, search, find, lsp, bash');
+        expect(prompt).toContain('return({ status: "ok", reason: "..." })');
+        expect(prompt).toContain('return({ status: "error", reason: "..." })');
+        expect(prompt).toContain('聚合结果是否满足原始任务？');
     });
 });

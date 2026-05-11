@@ -13,28 +13,21 @@ describe('buildConfirmPrompt', () => {
     test('uses original task description not worker summary as basis', () => {
         const prompt = buildConfirmPrompt('Refactor auth module');
         expect(prompt).toContain('Refactor auth module');
-        expect(prompt).toContain('ORIGINAL TASK DESCRIPTION');
-        expect(prompt).not.toContain('worker submitted');
+        expect(prompt).toContain('原始任务');
+        expect(prompt).toContain('不要依赖你自己之前提交的摘要');
+        expect(prompt).toContain('避免幻觉和遗漏');
     });
 
-    test('includes all 5 review dimensions', () => {
+    test('includes all 4 review dimensions', () => {
         const prompt = buildConfirmPrompt('Implement search');
-        const dimensions = [
-            'Code Quality',
-            'Design Flaws',
-            'Security Vulnerabilities',
-            'User Experience',
-            'Goal Completeness',
-        ];
+        const dimensions = ['代码质量', '设计缺陷', '用户体验', '目标完整性'];
         for (const dim of dimensions) {
             expect(prompt).toContain(dim);
         }
     });
 
-    test('instructs to call return() with status ok or error', () => {
+    test('instructs to call return() with status ok', () => {
         const prompt = buildConfirmPrompt('Add tests');
-        expect(prompt).toContain('return(');
-        expect(prompt).toContain("status: 'ok'");
-        expect(prompt).toContain("status: 'error'");
+        expect(prompt).toContain('return({ status: "ok", reason, affected_files })');
     });
 });
