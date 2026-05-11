@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it } from 'bun:test';
 import assert from 'node:assert/strict';
 import { transition, emptyState, MAX_RETRIES } from '../../server/state-machine.js';
 import { STATUS, EVENT } from '../../server/constants.js';

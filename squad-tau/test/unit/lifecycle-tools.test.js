@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it } from 'bun:test';
 import assert from 'node:assert/strict';
 import { buildGlobalReturnTool } from '../../server/lifecycle-tools.js';
 import { register, setReturnResolver, unregister } from '../../server/session-registry.js';

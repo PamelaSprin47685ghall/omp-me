@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { test } from 'node:test';
+import { test } from 'bun:test';
 import { ModelPool } from '../../server/model-pool.js';
 
 test('signal.abort rejects pending acquire', async () => {

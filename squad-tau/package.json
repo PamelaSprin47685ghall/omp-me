@@ -31,8 +31,8 @@
     "preview": "vite preview",
     "test": "bun test test/unit/",
     "test:client": "bun test test/client/",
-    "test:integration": "bun test \"test/integration/*.skip.js\"",
-    "test:e2e": "bun test \"test/e2e/*.skip.js\"",
+    "test:integration": "bun test ./test/integration/*.skip.js",
+    "test:e2e": "bun test ./test/e2e/*.skip.js",
     "test:all": "bun test"
   },
   "test": {

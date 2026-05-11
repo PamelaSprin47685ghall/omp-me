@@ -31,9 +31,10 @@ describe('buildConfirmPrompt', () => {
         }
     });
 
-    test('instructs to call confirm() or return_work()', () => {
+    test('instructs to call return() with status ok or error', () => {
         const prompt = buildConfirmPrompt('Add tests');
-        expect(prompt).toContain('confirm(');
-        expect(prompt).toContain('return_work(');
+        expect(prompt).toContain('return(');
+        expect(prompt).toContain("status: 'ok'");
+        expect(prompt).toContain("status: 'error'");
     });
 });

@@ -1,13 +1,12 @@
-import { strict as assert } from 'node:assert';
-import { test } from 'node:test';
+import { test, expect } from 'bun:test';
 import '../../test/helpers/happy-dom.js';
 import { useModelPool } from '../../client/hooks/useModelPool.js';
 import { renderHook, act } from '@testing-library/react';
 
 test('initial state', () => {
     const { result } = renderHook(() => useModelPool());
-    assert.deepEqual(result.current.slots, []);
-    assert.equal(result.current.isOpen, false);
+    expect(result.current.slots).toEqual([]);
+    expect(result.current.isOpen).toBe(false);
 });
 
 test('model_pool:snapshot sets slots', () => {
@@ -16,7 +15,7 @@ test('model_pool:snapshot sets slots', () => {
     act(() => {
         result.current.dispatch({ type: 'model_pool:snapshot', payload: { slots } });
     });
-    assert.deepEqual(result.current.slots, slots);
+    expect(result.current.slots).toEqual(slots);
 });
 
 test('model_pool:changed updates slots', () => {
@@ -32,7 +31,7 @@ test('model_pool:changed updates slots', () => {
     act(() => {
         result.current.dispatch({ type: 'model_pool:changed', payload: { slots: updated } });
     });
-    assert.deepEqual(result.current.slots, updated);
+    expect(result.current.slots).toEqual(updated);
 });
 
 test('openDrawer sets isOpen to true', () => {
@@ -40,7 +39,7 @@ test('openDrawer sets isOpen to true', () => {
     act(() => {
         result.current.openDrawer();
     });
-    assert.equal(result.current.isOpen, true);
+    expect(result.current.isOpen).toBe(true);
 });
 
 test('closeDrawer sets isOpen to false', () => {
@@ -51,7 +50,7 @@ test('closeDrawer sets isOpen to false', () => {
     act(() => {
         result.current.closeDrawer();
     });
-    assert.equal(result.current.isOpen, false);
+    expect(result.current.isOpen).toBe(false);
 });
 
 test('updateSlot sends message via wired send callback', () => {
@@ -68,8 +67,8 @@ test('updateSlot sends message via wired send callback', () => {
         result.current.updateSlot('add', slot);
     });
 
-    assert.equal(sent.length, 1);
-    assert.deepEqual(sent[0], {
+    expect(sent.length).toBe(1);
+    expect(sent[0]).toEqual({
         type: 'model_pool:update',
         payload: { action: 'add', slot, index: undefined },
     });
@@ -89,8 +88,8 @@ test('updateSlot with index', () => {
         result.current.updateSlot('edit', slot, 1);
     });
 
-    assert.equal(sent.length, 1);
-    assert.deepEqual(sent[0], {
+    expect(sent.length).toBe(1);
+    expect(sent[0]).toEqual({
         type: 'model_pool:update',
         payload: { action: 'edit', slot, index: 1 },
     });
@@ -107,8 +106,8 @@ test('updateSlot warns when send not wired', () => {
     });
 
     console.warn = originalWarn;
-    assert.equal(warnings.length, 1);
-    assert.match(warnings[0], /WebSocket send not wired/);
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toMatch(/WebSocket send not wired/);
 });
 
 test('sendModelPoolUpdate can be called multiple times', () => {
@@ -132,8 +131,8 @@ test('sendModelPoolUpdate can be called multiple times', () => {
         result.current.updateSlot('remove', null, 0);
     });
 
-    assert.equal(sent1.length, 1);
-    assert.equal(sent2.length, 1);
-    assert.equal(sent1[0].payload.action, 'add');
-    assert.equal(sent2[0].payload.action, 'remove');
+    expect(sent1.length).toBe(1);
+    expect(sent2.length).toBe(1);
+    expect(sent1[0].payload.action).toBe('add');
+    expect(sent2[0].payload.action).toBe('remove');
 });

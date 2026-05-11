@@ -1,50 +1,46 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { test, expect } from 'bun:test';
 import { buildConfirmPrompt } from '../../server/run-worker-prompt.js';
 
 test('buildConfirmPrompt uses original task not worker summary', () => {
     const originalTask = 'Implement user authentication with JWT tokens';
     const prompt = buildConfirmPrompt(originalTask);
 
-    assert.ok(prompt.includes(originalTask), 'Prompt must include original task description');
-    assert.ok(prompt.includes('ORIGINAL TASK DESCRIPTION'), 'Prompt must emphasize using original task');
-    assert.ok(prompt.includes("not the worker's summary"), 'Prompt must warn against using worker summary');
+    expect(prompt.includes(originalTask)).toBeTruthy();
+    expect(prompt.includes('ORIGINAL TASK DESCRIPTION')).toBeTruthy();
+    expect(prompt.includes("not the worker's summary")).toBeTruthy();
 });
 
 test('buildConfirmPrompt includes all 5 review dimensions', () => {
     const originalTask = 'Add logging to API endpoints';
     const prompt = buildConfirmPrompt(originalTask);
 
-    assert.ok(prompt.includes('Code Quality'), 'Must include Code Quality dimension');
-    assert.ok(prompt.includes('Design Flaws'), 'Must include Design Flaws dimension');
-    assert.ok(prompt.includes('Security Vulnerabilities'), 'Must include Security Vulnerabilities dimension');
-    assert.ok(prompt.includes('User Experience'), 'Must include User Experience dimension');
-    assert.ok(prompt.includes('Goal Completeness'), 'Must include Goal Completeness dimension');
+    expect(prompt.includes('Code Quality')).toBeTruthy();
+    expect(prompt.includes('Design Flaws')).toBeTruthy();
+    expect(prompt.includes('Security Vulnerabilities')).toBeTruthy();
+    expect(prompt.includes('User Experience')).toBeTruthy();
+    expect(prompt.includes('Goal Completeness')).toBeTruthy();
 });
 
 test('buildConfirmPrompt mentions return tool', () => {
     const originalTask = 'Refactor database connection pool';
     const prompt = buildConfirmPrompt(originalTask);
 
-    assert.ok(prompt.includes('return('), 'Must mention return() tool');
-    assert.ok(prompt.includes("status: 'ok'"), 'Must mention ok status');
-    assert.ok(prompt.includes("status: 'error'"), 'Must mention error status');
+    expect(prompt.includes('return(')).toBeTruthy();
+    expect(prompt.includes("status: 'ok'")).toBeTruthy();
+    expect(prompt.includes("status: 'error'")).toBeTruthy();
 });
 
 test('buildConfirmPrompt emphasizes catching hallucinations and omissions', () => {
     const originalTask = 'Fix memory leak in event emitter';
     const prompt = buildConfirmPrompt(originalTask);
 
-    assert.ok(prompt.includes('hallucinations or omissions'), 'Must warn about hallucinations and omissions');
+    expect(prompt.includes('hallucinations or omissions')).toBeTruthy();
 });
 
 test('buildConfirmPrompt instructs re-submission when changes needed', () => {
     const originalTask = 'Update API documentation';
     const prompt = buildConfirmPrompt(originalTask);
 
-    assert.ok(
-        prompt.includes('If anything needs fixing') || prompt.includes("status: 'error'"),
-        'Must provide guidance for when changes are needed',
-    );
-    assert.ok(prompt.includes('re-submit'), 'Must mention re-submission process');
+    expect(prompt.includes('If anything needs fixing') || prompt.includes("status: 'error'")).toBeTruthy();
+    expect(prompt.includes('re-submit')).toBeTruthy();
 });

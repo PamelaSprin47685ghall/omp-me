@@ -1,5 +1,4 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { test, expect } from 'bun:test';
 import { buildReviewerPrompt } from '../../server/run-reviewer-prompt.js';
 
 const baseNode = {
@@ -15,46 +14,43 @@ const baseResult = {
 test('buildReviewerPrompt includes node task and review_criteria', () => {
     const prompt = buildReviewerPrompt({ node: baseNode, workerResult: baseResult });
 
-    assert.ok(prompt.includes(baseNode.task), 'Must include node task');
-    assert.ok(prompt.includes(baseNode.review_criteria), 'Must include review_criteria');
-    assert.ok(
-        prompt.indexOf(baseNode.review_criteria) < prompt.indexOf(baseNode.task),
-        'review_criteria must appear before task',
-    );
+    expect(prompt.includes(baseNode.task)).toBeTruthy();
+    expect(prompt.includes(baseNode.review_criteria)).toBeTruthy();
+    expect(prompt.indexOf(baseNode.review_criteria) < prompt.indexOf(baseNode.task)).toBeTruthy();
 });
 
 test('buildReviewerPrompt includes worker reason and affected_files', () => {
     const prompt = buildReviewerPrompt({ node: baseNode, workerResult: baseResult });
 
-    assert.ok(prompt.includes(baseResult.reason), 'Must include worker reason');
-    assert.ok(prompt.includes(`**Summary:** ${baseResult.reason}`), 'Must prefix reason with Summary label');
+    expect(prompt.includes(baseResult.reason)).toBeTruthy();
+    expect(prompt.includes(`**Summary:** ${baseResult.reason}`)).toBeTruthy();
     for (const file of baseResult.affected_files) {
-        assert.ok(prompt.includes(file), `Must include affected file: ${file}`);
+        expect(prompt.includes(file)).toBeTruthy();
     }
 });
 
 test('buildReviewerPrompt mentions return tool', () => {
     const prompt = buildReviewerPrompt({ node: baseNode, workerResult: baseResult });
 
-    assert.ok(prompt.includes('return('), 'Must mention return()');
-    assert.ok(prompt.includes("status: 'ok'"), "Must mention status: 'ok'");
-    assert.ok(prompt.includes("status: 'error'"), "Must mention status: 'error'");
+    expect(prompt.includes('return(')).toBeTruthy();
+    expect(prompt.includes("status: 'ok'")).toBeTruthy();
+    expect(prompt.includes("status: 'error'")).toBeTruthy();
 });
 
 test('buildReviewerPrompt includes all built-in review dimensions', () => {
     const prompt = buildReviewerPrompt({ node: baseNode, workerResult: baseResult });
 
-    assert.ok(prompt.includes('Code Quality'), 'Must include Code Quality');
-    assert.ok(prompt.includes('Design Flaws'), 'Must include Design Flaws');
-    assert.ok(prompt.includes('Security Vulnerabilities'), 'Must include Security Vulnerabilities');
-    assert.ok(prompt.includes('User Experience'), 'Must include User Experience');
-    assert.ok(prompt.includes('Goal Completeness'), 'Must include Goal Completeness');
+    expect(prompt.includes('Code Quality')).toBeTruthy();
+    expect(prompt.includes('Design Flaws')).toBeTruthy();
+    expect(prompt.includes('Security Vulnerabilities')).toBeTruthy();
+    expect(prompt.includes('User Experience')).toBeTruthy();
+    expect(prompt.includes('Goal Completeness')).toBeTruthy();
 });
 
 test('buildReviewerPrompt omits review criteria section when absent', () => {
     const node = { task: 'Add unit tests for utils' };
     const prompt = buildReviewerPrompt({ node, workerResult: baseResult });
 
-    assert.ok(!prompt.includes('Review Criteria'), 'Must not include review criteria heading');
-    assert.ok(prompt.includes(node.task), 'Must still include task');
+    expect(prompt.includes('Review Criteria')).toBeFalsy();
+    expect(prompt.includes(node.task)).toBeTruthy();
 });
