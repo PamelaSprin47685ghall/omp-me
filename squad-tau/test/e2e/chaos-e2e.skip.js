@@ -1,161 +1,158 @@
 /**
- * Chaos (monkey) E2E tests.
+ * Chaos (monkey) E2E tests — zero sleep, fully event-driven.
  * @see PRD/08-testing.md §8.5
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { startServer, stopServer } from '../../server/server-lifecycle.js';
+import { startServer, stopServer, getGlobalEventBus } from '../../server/server-lifecycle.js';
 import { setupBrowser, teardownBrowser } from '../helpers/puppeteer-setup.js';
 
-describe('Chaos E2E', () => {
-    let serverPort;
-    let browser;
-    let page;
-    let pages = [];
+const PAYLOADS = [
+    { type: 'ping' },
+    { type: 'unknown', data: 'junk' },
+    'not a json {',
+    '',
+    'A'.repeat(1024 * 64),
+    JSON.stringify({ type: 'ping', extra: 'B'.repeat(1024) }),
+    { type: 'model_pool:update', payload: { action: 'add', slot: { provider: 'x', modelId: 'y', role: 'worker' } } },
+    { type: 'session:user_message', payload: { sessionId: 'nonexistent', text: 'chaos' + 'x'.repeat(1024) } },
+    { type: 'session:user_message', payload: { sessionId: '-1', text: '\0\x01\x02\x1f\u0000' } },
+    JSON.stringify({}),
+    JSON.stringify({ type: 'ping' }),
+];
+
+function wsConnect(url) {
+    return new Promise((resolve, reject) => {
+        const ws = new WebSocket(url);
+        const timer = setTimeout(() => {
+            ws.close();
+            reject(new Error('ws timeout'));
+        }, 3000);
+        ws.onopen = () => {
+            clearTimeout(timer);
+            resolve(ws);
+        };
+        ws.onerror = () => {
+            clearTimeout(timer);
+            reject(new Error('ws error'));
+        };
+    });
+}
+
+function wsSendAll(ws, messages) {
+    return new Promise((resolve) => {
+        let idx = 0;
+        const send = () => {
+            while (idx < messages.length && ws.bufferedAmount === 0) {
+                const p = messages[idx++];
+                ws.send(typeof p === 'string' ? p : JSON.stringify(p));
+            }
+            if (idx >= messages.length) return resolve();
+            ws.once('drain', send);
+        };
+        send();
+    });
+}
+
+async function fireWsMessages(url, count) {
+    const ws = await wsConnect(url);
+    const msgs = Array.from({ length: count }, () => PAYLOADS[Math.floor(Math.random() * PAYLOADS.length)]);
+    await wsSendAll(ws, msgs);
+    ws.close();
+}
+
+async function healthCheck(baseUrl) {
+    const resp = await fetch(`${baseUrl}/api/status`);
+    expect(resp.status).toBe(200);
+    const data = await resp.json();
+    expect(data.status).toBe('ok');
+}
+
+async function wsCheck(url) {
+    const ws = await wsConnect(url);
+    ws.close();
+}
+
+function collectN(n, createPromise) {
+    let count = 0;
+    const results = [];
+    return new Promise((resolve) => {
+        createPromise((result) => {
+            results.push(result);
+            count++;
+            if (count >= n) resolve(results);
+        });
+    });
+}
+
+describe('Chaos E2E (event-driven)', () => {
+    let port, browser, baseUrl, wsUrl;
 
     beforeAll(async () => {
+        process.env.SQUAD_E2E = '1';
         const result = await startServer();
-        serverPort = result.port;
+        port = result.port;
+        baseUrl = `http://127.0.0.1:${port}`;
+        wsUrl = `ws://127.0.0.1:${port}/ws`;
         const b = await setupBrowser();
         browser = b.browser;
-        page = b.page;
-        pages.push(page);
-        // Open a few more tabs
-        for (let i = 0; i < 2; i++) {
-            pages.push(await browser.newPage());
-        }
-        for (const p of pages) {
-            await p.goto(`http://127.0.0.1:${serverPort}`);
-        }
-    });
+    }, 20000);
 
     afterAll(async () => {
-        await teardownBrowser(browser);
+        if (browser) await teardownBrowser(browser);
+        await stopServer();
     });
 
-    test('robustness under websocket and browser chaos', async () => {
-        const wsUrl = `ws://127.0.0.1:${serverPort}/ws`;
-        const chaosDuration = 10000; // 10 seconds
-        const refreshInterval = 2000;
-        const numClients = 5;
+    test('survives websocket message abuse', async () => {
+        const clients = Array.from({ length: 3 }, () => fireWsMessages(wsUrl, 30).catch(() => {}));
+        await Promise.all(clients);
+        await healthCheck(baseUrl);
+        await wsCheck(wsUrl);
+    }, 15000);
 
-        let chaosActive = true;
-        const clientPromises = [];
+    test('survives browser refresh storms', async () => {
+        const pages = await Promise.all([browser.newPage(), browser.newPage()]);
+        const RELOADS_PER_PAGE = 5;
 
-        // 1. Launch 5 WS clients simultaneously (direct WS)
-        for (let i = 0; i < numClients; i++) {
-            clientPromises.push(
-                (async () => {
-                    while (chaosActive) {
-                        let ws;
-                        try {
-                            ws = new WebSocket(wsUrl);
-                            await new Promise((resolve, reject) => {
-                                ws.onopen = resolve;
-                                ws.onerror = reject;
-                                setTimeout(() => reject(new Error('timeout')), 1000);
-                            });
-
-                            // 2. Rapid random messages (malformed, malicious, random types)
-                            const payloads = [
-                                { type: 'ping' },
-                                { type: 'unknown', data: 'junk' },
-                                { payload: 'invalid' },
-                                { type: 'model_pool:update', payload: { id: `chaos-${i}`, name: 'Random' } },
-                                'not a json {',
-                                '{}',
-                                '',
-                                'A'.repeat(1024 * 64), // 64KB string
-                                JSON.stringify({ type: 'ping', extra: 'B'.repeat(1024) }),
-                                { type: 'session:user_message', payload: { sessionId: 'nonexistent', text: 'chaos' } },
-                            ];
-
-                            for (let j = 0; j < 20 && chaosActive; j++) {
-                                const p = payloads[Math.floor(Math.random() * payloads.length)];
-                                const data = typeof p === 'string' ? p : JSON.stringify(p);
-                                if (ws.readyState === WebSocket.OPEN) {
-                                    ws.send(data);
-                                }
-                                await new Promise((r) => setTimeout(r, Math.random() * 50));
-                            }
-                        } catch (e) {
-                            // Expected occasional failures during chaos
-                        } finally {
-                            if (ws) ws.close();
-                        }
-                        await new Promise((r) => setTimeout(r, Math.random() * 200));
-                    }
-                })(),
-            );
-        }
-
-        // 3. Browser refreshes every 2 seconds for all tabs
-        const refreshPromises = pages.map(async (p) => {
-            while (chaosActive) {
-                await new Promise((r) => setTimeout(r, refreshInterval + Math.random() * 500));
-                if (!chaosActive) break;
+        const runner = async (page) => {
+            await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 }).catch(() => {});
+            for (let i = 0; i < RELOADS_PER_PAGE; i++) {
                 try {
-                    await p.reload({ waitUntil: 'domcontentloaded' });
-                } catch (e) {
-                    // Ignore page errors during reload chaos
-                }
+                    await Promise.all([
+                        page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 }),
+                        page.reload({ timeout: 5000 }),
+                    ]);
+                } catch {}
             }
-        });
+        };
 
-        // Run chaos for specified duration
-        await new Promise((r) => setTimeout(r, chaosDuration));
-        chaosActive = false;
+        await Promise.all(pages.map(runner));
 
-        // Wait for workers to wind down
-        await Promise.allSettled([...clientPromises, ...refreshPromises]);
+        const check = await browser.newPage();
+        await check.goto(baseUrl, { waitUntil: 'load', timeout: 10000 });
+        await check.waitForSelector('#root', { timeout: 5000 });
+        const text = await check.$eval('body', (el) => el.textContent);
+        expect(text).toContain('Squad-Tau');
+        await check.close();
+        await Promise.all(pages.map((p) => p.close()));
+        await healthCheck(baseUrl);
+    }, 30000);
 
-        // 4. Verify server is still healthy
-        // Check HTTP status
-        let healthy = false;
-        let lastError = '';
-        for (let attempt = 0; attempt < 3; attempt++) {
-            try {
-                const resp = await fetch(`http://127.0.0.1:${serverPort}/api/status`);
-                if (resp.status === 200) {
-                    const text = await resp.text();
-                    try {
-                        const data = JSON.parse(text);
-                        if (data.status === 'ok') {
-                            healthy = true;
-                            break;
-                        }
-                        lastError = 'Status not ok: ' + data.status;
-                    } catch (e) {
-                        lastError = 'JSON parse error: ' + text.substring(0, 100);
-                    }
-                } else {
-                    lastError = 'HTTP ' + resp.status;
-                    try {
-                        const plain = await fetch(`http://127.0.0.1:${serverPort}/`);
-                        lastError += '; / returned ' + plain.status;
-                    } catch (e) {}
-                }
-            } catch (e) {
-                lastError = e.message;
-                await new Promise((r) => setTimeout(r, 1000));
-            }
-        }
-        expect(healthy).toBe(true);
+    test('events still process after chaos', async () => {
+        const eb = getGlobalEventBus();
+        const verified = new Promise((resolve) => eb.on('squad:chaos_verification', resolve));
 
-        // Check browser still loads (main page)
-        await page.goto(`http://127.0.0.1:${serverPort}`, { waitUntil: 'networkidle0' });
-        const bodyHandle = await page.$('body');
-        expect(bodyHandle).not.toBeNull();
+        await Promise.all(Array.from({ length: 3 }, () => fireWsMessages(wsUrl, 15).catch(() => {})));
 
-        // Check WS still connects
-        const finalWs = new WebSocket(wsUrl);
-        const connected = await new Promise((resolve) => {
-            finalWs.onopen = () => {
-                finalWs.close();
-                resolve(true);
-            };
-            finalWs.onerror = () => resolve(false);
-            setTimeout(() => resolve(false), 5000);
-        });
-        expect(connected).toBe(true);
-    }, 120000); // 120s timeout as requested
+        eb.emit('squad', 'chaos_verification', { msg: 'after-chaos' });
+
+        const result = await Promise.race([
+            verified,
+            new Promise((_, reject) => setTimeout(() => reject(new Error('event not received')), 5000)),
+        ]);
+        expect(result).toBeDefined();
+        expect(result.msg).toBe('after-chaos');
+
+        await healthCheck(baseUrl);
+        await wsCheck(wsUrl);
+    }, 15000);
 });

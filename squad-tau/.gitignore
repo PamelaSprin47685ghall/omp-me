@@ -10,3 +10,4 @@ bun.lock
 .idea/
 coverage/
 *.tgz
+.omp/

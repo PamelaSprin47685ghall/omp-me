@@ -4,10 +4,6 @@ import { DEFAULTS } from './constants.js';
 export async function createHttpServer({ viteMiddlewares }) {
     const app = createBasicApp();
 
-    if (viteMiddlewares) {
-        app.use(viteMiddlewares);
-    }
-
     app.get('/api/status', (req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(
@@ -18,6 +14,10 @@ export async function createHttpServer({ viteMiddlewares }) {
             }),
         );
     });
+
+    if (viteMiddlewares) {
+        app.use(viteMiddlewares);
+    }
 
     const server = createServer(app);
     const port = await allocatePort(server);

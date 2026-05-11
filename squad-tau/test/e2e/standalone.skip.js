@@ -1,9 +1,9 @@
 /**
- * Standalone Puppeteer E2E tests (without OMP).
- * @see PRD/08-testing.md §8.4.2
+ * Standalone Puppeteer E2E tests (merged).
+ * @see PRD/08-testing.md §8.4.1, §8.4.2
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { startServer, stopServer } from '../../server/server-lifecycle.js';
+import { startServer, getGlobalEventBus } from '../../server/server-lifecycle.js';
 import { setupBrowser, teardownBrowser } from '../helpers/puppeteer-setup.js';
 
 describe('Standalone E2E', () => {
@@ -20,36 +20,56 @@ describe('Standalone E2E', () => {
 
     afterAll(async () => {
         await teardownBrowser(browser);
-        // We don't stop the server here to allow the next test file to reuse it
-        // since bun test runs them in the same process and server is a singleton.
+        // afterAll MUST NOT stopServer (other e2e tests reuse the singleton server)
     });
 
-    test('Page loads and React mounts', async () => {
-        await page.goto(`http://127.0.0.1:${port}`, { waitUntil: 'networkidle0' });
-
-        // Check for root element
-        const root = await page.$('#root');
-        expect(root).not.toBeNull();
-
-        // Check for brand text
-        const brandText = await page.waitForSelector('.brand-text');
-        const text = await brandText.evaluate((el) => el.textContent);
+    test('page loads and React mounts', async () => {
+        await page.goto(`http://127.0.0.1:${port}`, { waitUntil: 'networkidle0', timeout: 10000 });
+        await page.waitForSelector('#root', { timeout: 5000 });
+        const text = await page.$eval('.brand-text', (el) => el.textContent);
         expect(text).toBe('Squad-Tau');
-    }, 15000);
+    }, 10000);
 
     test('WebSocket connects and snapshot arrives', async () => {
-        await page.goto(`http://127.0.0.1:${port}`, { waitUntil: 'networkidle0' });
-
-        // Wait for the connected indicator (port text appearing in Header)
-        await page.waitForFunction(
-            (p) => {
-                return document.body.innerText.includes(p);
-            },
-            { timeout: 10000 },
-            port.toString(),
-        );
-
-        // Verify WelcomeView is visible (default when no squad active)
+        await page.goto(`http://127.0.0.1:${port}`, { waitUntil: 'networkidle0', timeout: 10000 });
+        // Wait for connection (port text in header)
+        await page.waitForFunction((p) => document.body.innerText.includes(p), { timeout: 10000 }, port.toString());
+        // Verify WelcomeView
         await page.waitForFunction(() => document.body.innerText.includes('Welcome to Squad-Tau'), { timeout: 10000 });
+    }, 15000);
+
+    test('squad init event triggers DAG appearance', async () => {
+        await page.goto(`http://127.0.0.1:${port}`, { waitUntil: 'networkidle0', timeout: 10000 });
+        await page.waitForFunction((p) => document.body.innerText.includes(p), { timeout: 10000 }, port.toString());
+
+        const eventBus = getGlobalEventBus();
+        eventBus.emit('squad', 'init', {
+            mode: 'M',
+            nodes: [{ id: 'Task1', task: 'Do work', review_criteria: 'Check quality' }],
+            originalTask: 'Test task',
+        });
+
+        // Wait for SVG (Mermaid renders DAG)
+        await page.waitForSelector('svg', { timeout: 10000 });
+
+        eventBus.emit('session', 'start', { sessionId: '101', nodeId: 'Task1', phase: 'worker' });
+        eventBus.emit('session', 'message', {
+            sessionId: '101',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'Working on it' }],
+            messageId: 'm1',
+        });
+
+        await page.waitForFunction(() => document.body.innerText.includes('Working on it'), { timeout: 10000 });
+    }, 20000);
+
+    test('dark mode class toggles with media query', async () => {
+        await page.goto(`http://127.0.0.1:${port}`, { waitUntil: 'networkidle0', timeout: 10000 });
+
+        await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
+        await page.waitForFunction(() => document.documentElement.className.includes('-dark'), { timeout: 5000 });
+
+        await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
+        await page.waitForFunction(() => !document.documentElement.className.includes('-dark'), { timeout: 5000 });
     }, 15000);
 });
