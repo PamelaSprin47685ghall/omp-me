@@ -26,13 +26,13 @@ class ModelPool {
         const slots = role === 'worker' ? this.workerSlots : this.reviewerSlots;
         const queue = role === 'worker' ? this.workerQueue : this.reviewerQueue;
 
-        // Pool completely empty (no slots of any role) → fallback to current session model
-        if (this.workerSlots.length === 0 && this.reviewerSlots.length === 0) {
+        // Pool completely empty (no slots for this role) → fallback to current session model
+        if (slots.length === 0) {
             return null;
         }
 
-        // This role has slots, but all are pending_delete → no slot can ever free up
-        if (slots.length > 0 && slots.every((s) => s.pendingDelete)) {
+        // All slots for this role are pending_delete → no slot can ever free up
+        if (slots.every((s) => s.pendingDelete)) {
             return null;
         }
 

@@ -21,31 +21,7 @@
 
 ## 4.3 UI 布局
 
-```
-┌──────────────────────────────────────────────────────────────────┐
-│  Squad-Tau     [icon:panel]  [icon:cog]  [icon:dot]:9527  [icon:stop]│
-├──────────────┬───────────────────────────────────────────────────┤
-│              │  [icon:panel-collapse] DAG View (collapsible)    │
-│  SIDEBAR     │  ┌─── [A] --> [B] --> [C] -------┐         │
-│  (Sessions)  │  │          \-> [D]                  │         │
-│              │  └────────────────────────────────────┘         │
-│  [icon:run] feature-x  │  ┌─ Active Session ──────────────────┐ │
-│  │  ├─R1-Wkr[icon:tick]│  │  Node: feature-x · R2 Worker      │ │
-│  │  └─R1-Rvr[icon:tick]│  │  ┌──────────────────────────────┐ │ │
-│  [icon:tick] feature-y │  │  │ User: 请实现...              │ │ │
-│  [icon:time] feature-z │  │  │ ┌─ Thinking ──────────────┐ │ │ │
-│              │  │  │ │ (live streaming here)          │ │ │ │
-│              │  │  │ └────────────────────────────────┘ │ │ │
-│              │  │  │ ┌─ Tool: executeBash ───────────┐ │ │ │
-│              │  │  │ │  $ npm test                   │ │ │ │
-│              │  │  │ │  Result: {...}                │ │ │ │
-│              │  │  │ └────────────────────────────────┘ │ │ │
-│              │  │  │ Assistant: 已完成。               │ │ │ │
-│              │  │  └─────────────────────────────────────┘ │ │
-│              │  │                            [Scroll to bottom]
-│              │  └──────────────────────────────────────────┘ │
-└──────────────┴──────────────────────────────────────────────────┘
-```
+布局：上 Header（品牌标识 + 连接状态 + 操作按钮），下分 Sidebar（Session Tree 双层树）和 Main Content（顶部 DAG View 可折叠 + 消息列表 + 底部输入框）。
 
 ## 4.4 侧边栏（Sidebar）
 
@@ -55,18 +31,7 @@
 - **排序规则**：两层均按 session 创建时间升序排列（自然数 session ID 递增即创建时间升序）
   - 第一层（Node）：节点按其第一个 session 的创建时间升序排列
   - 第二层（Phase）：子节点按每个 phase session 的创建时间升序排列
-- 结构：
-  ```
-  ├─ Node: feature-x  [icon:running]
-  │  ├─ R1-Worker [icon:tick]
-  │  ├─ R1-Reviewer [icon:tick]
-  │  └─ R2-Worker [icon:running]
-  ├─ Node: feature-y  [icon:tick]
-  │  ├─ R1-Worker [icon:tick]
-  │  └─ R1-Reviewer [icon:tick]
-  ├─ Node: feature-z  [icon:time]
-  │  └─ (pending)
-  ```
+- 结构：双层树，第一层 Node（状态图标 + 节点 ID），第二层 Phase（`R<retry>-<role>` + 状态图标）。示例：feature-x 节点下有 R1-Worker、R1-Reviewer、R2-Worker 三个 phase。
 - 第一层（Node）：显示节点 ID + 状态图标（与之前一致）
 - 第二层（Phase）：`R<retry>-<role>` + 阶段状态图标
   - 角色缩写：Worker, Reviewer, OuterReview
@@ -178,7 +143,7 @@
 - **添加**：`Select` 选择 provider，`InputGroup` 输入 modelId，`Select` 选 role，`Select` 选 thinkingLevel → 添加按钮
 - **编辑**：点击编辑图标 → 行内编辑 `thinkingLevel` → 保存/取消
 - **删除**：点击删除图标 → Blueprint `Alert` 确认对话框
-- 实时生效：每次操作发送 `model_pool:update` → 服务端更新 `models.json` 文件 → 广播 `model_pool:changed` → 所有已连接浏览器同步
+- 实时生效：每次操作发送 `model_pool:update` → 服务端更新 `.omp/models.toml` 文件 → 广播 `model_pool:changed` → 所有已连接浏览器同步
 
 ## 4.8 深色模式
 

@@ -1,209 +1,83 @@
 # Squad-Tau PRD — 07 技术架构
 
-## 7.1 目录结构（因单文件 ≤200 行约束而强制拆分）
+## 7.1 结构与拆分原则
 
-> **拆分原则**：每个文件职责单一，控制在 200 行以内。大型模块按功能拆分为多个文件（如 `node-runner` → 7 个文件，`dag-executor` → 4 个文件，`model-pool` → 3 个文件）。
-
+### 顶层布局
 ```
 squad-tau/
-├── index.js                  # 插件入口：加载并启动所有模块
-├── shim.mjs                  # Shim 导出
-├── server/
-│   ├── constants.js          # 事件类型、状态枚举、默认值
-│   ├── state-machine.js      # 节点状态机（纯函数 transition/emptyState）
-│   ├── event-bus.js          # EventEmitter 事件总线（命名空间+通配符）
-│   ├── session-registry.js   # sessionId → {sendUserMessage} 映射
-│   ├── squad-fsm.js          # Squad FSM（idle/active/revising）
-│   ├── model-pool.js         # ModelPool 类（acquire/release/排队）
-│   ├── model-pool-config.js  # models.json 读写 + fs.watchFile
-│   ├── model-pool-events.js  # WebSocket model_pool 事件分派
-│   ├── dag-validate.js       # validateNodes（ID 唯一性、依赖引用检查）
-│   ├── dag-sort.js           # topologicalSort（Kahn 算法+环检测）
-│   ├── dag-execute.js        # executeDAG（完整 DAG 编排）
-│   ├── dag-concurrency.js    # executeLayer（分层并发控制）
-│   ├── run-worker.js         # runWorker（创建 session、注入工具、prompt）
-│   ├── run-worker-prompt.js  # buildWorkerPrompt（含上游结果/审阅反馈）
-│   ├── run-confirm.js        # runConfirmSession（自审生命周期）
-│   ├── run-confirm-prompt.js # buildConfirmPrompt（用原始任务构建）
-│   ├── run-reviewer.js       # runReviewer（审阅会话生命周期）
-│   ├── run-reviewer-prompt.js# buildReviewerPrompt（含 review_criteria）
-│   ├── run-node.js           # runNode 完整节点生命周期编排
-│   ├── tamper-detection.js   # captureFileSnapshots / filesChanged
-│   ├── empty-turns.js        # MAX_EMPTY_TURNS / CONFIRM_MAX_EMPTY 常量
-│   ├── outer-review.js       # runOuterReview / buildOuterReviewPrompt
-│   ├── retry-logic.js        # 重试状态管理
-│   ├── submit-plan.js        # submit_plan 工具处理器
-│   ├── validate-plan.js      # validatePlan 校验
-│   ├── squad-complete.js     # onComplete 外层 review 结果处理
-│   ├── squad-engine.js       # 命令注册、FSM 编排、/squad /squad-models
-│   ├── http-server.js        # HTTP 服务器创建+端口分配
-│   ├── ws-server.js          # WebSocket 服务器（绑定 HTTP）
-│   ├── ws-handler.js         # WS 消息分派（按 type 路由到各模块）
-│   ├── ws-heartbeat.js       # Ping/pong 心跳+断连清理
-│   ├── ws-events.js          # 事件总线→WS 消息转发
-│   ├── session-options.js    # 会话选项工厂
-│   ├── session-events.js     # session 事件订阅转发
-│   ├── lifecycle-tools.js    # lifecycle 工具构建
-│   ├── reviewer-tools.js     # approve/reject 工具构建
-│   └── vite-setup.js         # Vite createServer Node API 集成
-├── client/
-│   ├── index.html            # SPA 入口
-│   ├── vite.config.js        # Vite 配置
-│   ├── main.jsx              # React DOM 入口
-│   ├── App.jsx               # 根组件
-│   ├── App.css               # 自定义样式
-│   ├── types.js              # JSDoc 类型定义
-│   ├── session-reducer.js    # 纯函数 session 状态 reducer（无 React 依赖）
-│   ├── styles/
-│   │   └── messageStyles.js  # 消息角色边框色定义
-│   ├── utils/
-│   │   └── messageUtils.js   # extractText 辅助函数
-│   ├── hooks/
-│   │   ├── useWebSocket.js       # WebSocket 连接+指数退避重连
-│   │   ├── useSquadState.js      # Squad 状态 reducer
-│   │   ├── useSessionState.js    # 会话状态 reducer
-│   │   ├── useModelPool.js       # 模型池状态
-│   │   ├── useAutoScroll.js      # 自动滚动逻辑
-│   │   └── useDarkMode.js        # 系统深色模式检测
-│   └── components/
-│       ├── Header.jsx
-│       ├── Sidebar.jsx
-│       ├── SessionTree.jsx
-│       ├── MainContent.jsx
-│       ├── DAGView.jsx
-│       ├── MessageList.jsx
-│       ├── MessageItem.jsx
-│       ├── MessageInput.jsx
-│       ├── ThinkingBlock.jsx
-│       ├── ToolCall.jsx
-│       ├── WelcomeView.jsx
-│       ├── ErrorBanner.jsx
-│       ├── ModelPoolDrawer.jsx
-│       └── StatusBar.jsx
-├── test/
-│   ├── helpers/
-│   │   ├── mock-pi.js            # Stub pi 工厂
-│   │   ├── assertions.js         # 共享断言
-│   │   ├── happy-dom.js          # happy-dom DOM 环境（客户端测试）
-│   │   ├── puppeteer-setup.js    # Puppeteer 启动/清理
-│   │   └── rpc-tmux.js           # RPC tmux 客户端
-│   ├── unit/                     # 纯单元测试（无 React/外部依赖）
-│   │   ├── state-machine.test.js
-│   │   ├── event-bus.test.js
-│   │   ├── dag-sort.test.js
-│   │   ├── dag-validate.test.js
-│   │   ├── tamper-detection.test.js
-│   │   ├── empty-turns.test.js
-│   │   ├── squad-fsm.test.js
-│   │   ├── run-worker.test.js
-│   │   ├── run-reviewer.test.js
-│   │   ├── run-confirm-prompt.test.js
-│   │   ├── outer-review.test.js
-│   │   ├── retry-logic.test.js
-│   │   ├── validate-plan.test.js
-│   │   ├── session-registry.test.js
-│   │   ├── model-pool-basic.test.js
-│   │   ├── model-pool-dynamic.test.js
-│   │   ├── model-pool-config.test.js
-│   │   ├── http-server.test.js
-│   │   └── more (let count = 18 files, 195 tests)
-│   ├── client/                   # React 组件测试（需 JSX 转译）
-│   │   ├── error-banner.test.js
-│   │   ├── message-input.test.js
-│   │   └── use-model-pool.test.js
-│   ├── integration/              # 集成测试（mock pi，不含真实 OMP）
-│   │   ├── squad-flow-setup.js   # 共享 setup
-│   │   ├── squad-flow.test.js
-│   │   ├── websocket.test.js
-│   │   └── run-confirm.test.js
-│   └── e2e/                      # 端到端测试（真实 OMP/Puppeteer）
-│       ├── standalone.test.js    # 独立 Puppeteer 测试
-│       ├── browser.test.js       # OMP 内嵌 Puppeteer
-│       ├── rpc-e2e.test.js       # OMP RPC 模式驱动
-│       └── chaos-e2e.test.js     # 混沌测试
+├── index.js          # 插件入口
+├── shim.mjs          # ESM shim
+├── server/           # 服务端（Node.js）
+├── client/           # 前端（React SPA）
+├── test/             # 测试
 ├── package.json
 ├── README.md
 └── SPEC.md
 ```
 
+### 拆分原则
+- 单函数 ≤40 行，超限必须拆解
+- 单文件 ≤200 行，超限必须拆解
+- 按功能模块拆分：一个逻辑单元（如 DAG 执行器、模型池）拆为多个文件
+- 文件名 kebab-case（服务端），PascalCase（组件），camelCase（hooks）
+- 测试文件与被测文件同名，`.test.js` 后缀
+
+### 模块分组（不约束文件名，只约束职责）
+
+| 组 | 职责 | 文件模式 |
+|----|------|--------|
+| 引擎 | 命令注册、FSM 编排、工具注册 | `squad-engine`, `submit-plan`, `validate-plan` |
+| DAG | 验证、拓扑排序、分层并发执行 | `dag-*` |
+| 节点执行 | Worker/Reviewer 生命周期 + prompt 构建 | `run-*`, `*-prompt` |
+| 模型池 | 配置文件读写 + acquire/release + WS 事件 | `model-pool*` |
+| 网络 | HTTP 服务器、WebSocket、心跳、事件桥接 | `http-*`, `ws-*`, `vite-*` |
+| 基础设施 | 常量、状态机、事件总线、session 注册表 | `constants`, `state-machine`, `event-bus`, `session-*` |
+| 前端组件 | React 组件、hooks、reducer、样式 | `*.jsx`, `use*.js` |
+| 测试 | 单元/集成/e2e + helpers | `*.test.js`, `*.skip.js` |
+
 ## 7.2 服务端组件
 
-### 7.2.1 HTTP + WebSocket 服务器 (`http-server.js`)
-- 默认端口：9527（冲突则递增，最多 10 次尝试）
-- 绑定 `127.0.0.1`（仅本地可访问）
-- 使用 Vite `createServer` Node API 创建开发服务器：
-  ```js
-  const { createServer } = await import('vite');
-  const server = await createServer({ root: join(__dirname, 'client') });
-  ```
-- Vite 自动处理 JSX 转换、静态资源、热更新
-- HTTP 路由（在 Vite 中间件之后）：
-  - `GET /api/status` → 服务运行状态 JSON
-- WebSocket：
-  - `ws://127.0.0.1:<port>/ws` → 双向 JSON 消息
-  - 订阅 `event-bus` 的所有 `ws:*` 事件并广播
-  - 接收浏览器消息，按 `type` 分发到对应模块：
-    - `model_pool:update` → 转发到 model-pool 模块
-    - `session:user_message` → 转发到 session-router 模块，按 sessionId 找到对应 session 并调用 `pi.sendUserMessage()`
-    - `abort` → 转发到 squad-engine
-  - 维护 `sessionRegistry: Map<string, { sendUserMessage, session }>`，由 node-runner 在创建 session 时注册，结束时移除
-  - 心跳：每 30s ping，60s 无 pong 则断开
-  - 断开自动清理订阅
+### 7.2.1 HTTP + WebSocket
+- **插件加载时即启动**，不依赖 `/squad` 命令
+- 默认端口 9527（冲突 +1 递增），绑定 `127.0.0.1`
+- Vite `createServer` Node API 处理 JSX/HMR/静态资源
+- WS `ws://127.0.0.1:<port>/ws`：双向 JSON，心跳 30s ping / 60s 超时
+- `session:user_message` → `session.prompt(text)` 路由
 
-### 7.2.2 事件总线 (`event-bus.js`)
-- 基于 `EventEmitter` 的命名空间事件总线
-- 支持通配符订阅 `squad:*`
-- 事件 → WebSocket 映射：
-  - `squad:*` → 直接转发为 `squad:*` WS 消息
-  - `session:*` → 直接转发为 `session:*` WS 消息
-  - `model_pool:*` → 直接转发为 `model_pool:*` WS 消息
-- WebSocket 服务器不再读 session 文件，只从事件总线获取数据
+### 7.2.2 事件总线
+- `EventEmitter` + 命名空间通配符 `squad:*` / `session:*` / `model_pool:*`
+- 所有 `*` 事件自动桥接到 WebSocket
 
-### 7.2.3 Squad 引擎 (`squad-engine.js`、`submit-plan.js`、`validate-plan.js`)
-- `squad-engine.js`：注册 `/squad`、`/squad-models` 命令，管理 `SquadFSM`，在 active 时激活 `submit_plan` 工具
-- `submit-plan.js`：`submit_plan` 工具处理器（校验、触发 executeDAG）
-- `validate-plan.js`：`validatePlan` 校验函数
+### 7.2.3 Squad 引擎
+- 注册 `/squad`、`/squad-models` 命令，管理 SquadFSM（idle/active 两态）
+- `delegate` 工具定义（全局注册），LLM 在 idle 启动，rejected 后进入 active
+- 执行期间 LLM 等待工具返回，不拥有控制权
 
-### 7.2.4 DAG 执行器 (`dag-validate.js`、`dag-sort.js`、`dag-execute.js`、`dag-concurrency.js`)
-- `dag-validate.js`：`validateNodes(nodes)` — 验证节点定义
-- `dag-sort.js`：`topologicalSort(nodes)` — 拓扑排序（Kahn 算法+环检测）
-- `dag-execute.js`：`executeDAG({ nodes, ctx, pi, signal, eventBus, modelPool })` — 完整 DAG 编排
-- `dag-concurrency.js`：`executeLayer(nodes, ctx, pi, signal, eventBus, modelPool)` — 分层并发执行
+### 7.2.4 DAG 执行器
+- 拓扑排序（Kahn 算法 + 环检测）
+- 分层并发控制，默认并发 5
 
-### 7.2.5 节点执行器（7 个文件：`run-node.js` 编排 + `run-worker.js`/`run-confirm.js`/`run-reviewer.js` 执行 + `*-prompt.js` prompt 构建）
-- `run-node.js`：`runNode({ node, upstreamResults, ctx, pi, signal, eventBus, modelPool })` — 完整节点生命周期编排
-- `run-worker.js`：`runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, signal, eventBus, modelSlot })` — Worker 执行
-- `run-worker-prompt.js`：`buildWorkerPrompt(node, upstreamResults, reviewerFeedback)` — 构建 Worker 提示词
-- `run-confirm-tools.js`：`buildConfirmTools()` / `emitSessionEnd()` — 自审工具定义
-- `run-confirm.js`：`runConfirmSession({ ctx, pi, sessionId, workerOptions, originalTask, signal, eventBus })` — 自审（通过 `SessionManager.open()` 复用 worker 会话文件）
-- `run-confirm-prompt.js`：`buildConfirmPrompt(originalTask)` — 构建自审提示词（用原始任务，不用 summary）
-- `run-reviewer.js`：`runReviewer({ node, workerResult, ctx, pi, signal, eventBus, modelSlot })` — 审阅
-- `run-reviewer-prompt.js`：`buildReviewerPrompt({ node, workerResult })` — 构建审阅提示词
+### 7.2.5 节点执行器
+- `runNode`：完整节点生命周期编排（acquire worker → 执行 → confirm → acquire reviewer → review）
+- `runWorker`：Worker 执行 + Self-Confirm 一体化（同一 session，两次 `return`）
+- `runReviewer`：审阅（每次新 session）
+- prompt 构建：Worker prompt / Confirm prompt / Reviewer prompt
+- v1.1.0：self-confirm 合并入 run-worker，不再有独立 confirm 模块
 
-### 7.2.6 模型池（`model-pool.js`、`model-pool-config.js`、`model-pool-events.js`）
-- `model-pool.js`：`ModelPool` 类 — acquire/release 队列 + addSlot/removeSlot/updateSlotThinkingLevel
-- `model-pool-config.js`：`loadModelsConfig()` / `saveModelsConfig(config)` — 读写 JSON + `fs.watchFile` 监听
-- `model-pool-events.js`：WebSocket `model_pool:*` 事件处理（add/remove/edit 转发）
+### 7.2.6 模型池
+- acquire/release 队列 + 动态增删槽位
+- `.omp/models.toml` 读写 + `fs.watchFile` 监听
+- WS `model_pool:*` 事件分派
 
-### 7.2.7 常量与状态机（`constants.js`、`state-machine.js`）
-- `constants.js`：事件类型常量（`SQUAD_INIT`/`NODE_STATE` 等）、状态枚举（`STATUS`/`EVENT`）、默认值（`DEFAULT_PORT`/`FALLBACK_CONCURRENCY`）
-- `state-machine.js`：纯函数 `transition(state, event)` + `emptyState(nodeId, hasDeps)`，无副作用
-
-### 7.2.8 外层 Review 与重试（`outer-review.js`、`retry-logic.js`）
-- `outer-review.js`：`runOuterReview(nodeResults, originalTask, round, ctx, pi, signal, eventBus, modelPool, startTime)` + `buildOuterReviewPrompt(originalTask, nodeResults, round)`
-- `retry-logic.js`：重试状态管理、retryCount 增量、Revise 循环
-
-### 7.2.9 其他服务端文件
-- `session-registry.js`：`Map<sessionId, { sendUserMessage, session }>` 注册表，由 node-runner 注册/注销
-- `empty-turns.js`：`MAX_EMPTY_TURNS`(20) / `CONFIRM_MAX_EMPTY`(5) 常量和空轮次检测
-- `tamper-detection.js`：`captureFileSnapshots()` / `filesChanged()` — mtime 快照对比
-- `squad-fsm.js`：Squad FSM (idle/active/revising)
-- `http-server.js`：Express-like HTTP 服务器 + Vite middleware 集成
-- `ws-server.js`：`ws.Server` 实例创建、`connection:established` 事件发送
-- `ws-handler.js`：消息路由（`model_pool:update`→model-pool, `session:user_message`→session-router, `abort`→squad-engine）
-- `ws-heartbeat.js`：30s ping / 60s 超时断连
-- `ws-events.js`：event-bus `*` 事件 → WebSocket 广播
-- `vite-setup.js`：调用 Vite `createServer` Node API，返回 `server.middlewares`（Connect 中间件实例）
+### 7.2.7 其他
+- 常量/状态枚举、纯函数状态机、Squad FSM（idle/active）
+- session 注册表（sessionId → session 映射，供 steer 路由）
+- `return` 工具定义（全局注册）
+- `MAX_EMPTY_TURNS = 20`
+- outer review + retry 管理
+- session 选项工厂 + 事件订阅转发
+- WebSocket 服务器/消息路由/心跳/事件桥接
+- Vite dev server 中间件
 
 ## 7.3 构建与开发模式
 
@@ -250,7 +124,7 @@ Dev deps:
 
 | 区域 | 文件数 | 最大行数 | 说明 |
 |------|--------|----------|------|
-| server/ | 38 个 JS | ≤200 | 按功能拆分为独立职责模块 |
+| server/ | ~36 个 JS | ≤200 | 引擎、DAG、节点执行、网络层 |
 | client/ | 21 个 JSX/JS/CSS | ≤200 | 组件、hooks、入口 |
 | test/ | 24 个 JS | ≤200 | unit/integration/e2e + helpers |
 | 根目录 | 4 个 | ≤200 | index.js, shim.mjs, package.json |

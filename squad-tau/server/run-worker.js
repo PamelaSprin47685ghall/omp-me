@@ -7,9 +7,9 @@ import { buildWorkerSessionOptions } from './session-options.js';
 import { register, unregister } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
 
-function emitSessionEnd(eventBus, sessionId, phase, reason, errorMessage) {
+function emitEnd(eventBus, sessionId, reason, errorMessage) {
     if (!eventBus || !sessionId) return;
-    eventBus.emit('session', 'state', { sessionId, phase });
+    eventBus.emit('session', 'state', { sessionId, phase: reason === 'completed' ? 'completed' : reason });
     eventBus.emit('session', 'end', { sessionId, reason, errorMessage });
 }
 
@@ -24,24 +24,22 @@ async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, sig
     const options = buildWorkerSessionOptions(ctx, pi, modelSlot);
     const promptText = buildWorkerPrompt(node, upstreamResults, reviewerFeedback);
 
-    const { promise: workPromise, resolve: workResolve } = Promise.withResolvers();
+    const { promise: firstPromise, resolve: firstResolve } = Promise.withResolvers();
+    const { promise: finalPromise, resolve: finalResolve } = Promise.withResolvers();
 
-    const childAbort = new AbortController();
-    let settled = false;
-
-    const returnWorkTool = buildReturnWorkTool((result) => {
-        settled = true;
-        workResolve(result);
+    let callPhase = 0;
+    const returnWorkTool = buildReturnWorkTool((params) => {
+        if (callPhase === 0) {
+            callPhase = 1;
+            firstResolve({ summary: params.summary, affected_files: params.affected_files || [] });
+        } else {
+            finalResolve({ summary: params.summary, affected_files: params.affected_files || [] });
+        }
     });
 
+    const childAbort = new AbortController();
     if (signal) {
-        signal.addEventListener(
-            'abort',
-            () => {
-                childAbort.abort();
-            },
-            { once: true },
-        );
+        signal.addEventListener('abort', () => childAbort.abort(), { once: true });
     }
 
     let session = null;
@@ -72,70 +70,83 @@ async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, sig
                 phase: 'worker',
                 model: options.model ? { provider: options.model.provider, id: options.model.id } : undefined,
             });
-            eventBus.emit('session', 'state', {
-                sessionId,
-                phase: 'authoring',
-            });
-
+            eventBus.emit('session', 'state', { sessionId, phase: 'authoring' });
             unsub = subscribeToSessionEvents(session, eventBus, sessionId);
         }
 
+        // Phase 1: Worker does the work, calls return_work once
         await session.prompt(promptText);
 
         const emptyCounter = createCounter(MAX_EMPTY_TURNS);
-
-        while (!settled) {
+        while (callPhase === 0) {
             if (childAbort.signal.aborted) break;
-
             while (session.isStreaming) {
                 await new Promise((r) => setTimeout(r, 200));
-                if (settled || childAbort.signal.aborted) break;
+                if (callPhase !== 0 || childAbort.signal.aborted) break;
             }
-
-            if (settled || childAbort.signal.aborted) break;
-
+            if (callPhase !== 0 || childAbort.signal.aborted) break;
             emptyCounter.increment();
             if (emptyCounter.exceeded()) {
                 throw new Error(`Worker ended without calling return_work after ${MAX_EMPTY_TURNS} empty turns`);
             }
+            await session.prompt('ERROR: You must call return_work to submit your work.');
+        }
 
+        if (childAbort.signal.aborted && signal?.aborted) {
+            emitEnd(eventBus, sessionId, 'aborted');
+            return null;
+        }
+
+        const firstResult = await firstPromise;
+        const fileSnapshots = await captureFileSnapshots(firstResult.affected_files, options.cwd);
+
+        // Phase 2: Self-confirm — agent reviews and calls return_work again
+        if (eventBus) {
+            eventBus.emit('session', 'state', { sessionId, phase: 'confirming' });
+        }
+
+        const { buildConfirmPrompt } = await import('./run-confirm-prompt.js');
+        await session.prompt(buildConfirmPrompt(node.task));
+
+        const confirmCounter = createCounter(MAX_EMPTY_TURNS);
+        while (callPhase === 1) {
+            if (childAbort.signal.aborted) break;
+            while (session.isStreaming) {
+                await new Promise((r) => setTimeout(r, 200));
+                if (callPhase !== 1 || childAbort.signal.aborted) break;
+            }
+            if (callPhase !== 1 || childAbort.signal.aborted) break;
+            confirmCounter.increment();
+            if (confirmCounter.exceeded()) {
+                throw new Error(`Self-confirm ended without calling return_work after ${MAX_EMPTY_TURNS} empty turns`);
+            }
             await session.prompt(
-                'ERROR: You must call the required tool to finish this session. Do not output prose — call the tool.',
+                'ERROR: You must call return_work to confirm your submission. If changes are needed, make them and call return_work again.',
             );
         }
 
-        if (!settled) {
+        if (childAbort.signal.aborted && signal?.aborted) {
+            emitEnd(eventBus, sessionId, 'aborted');
             return null;
         }
 
-        const workerResult = await workPromise;
+        const finalResult = await finalPromise;
+        const snapshots = await captureFileSnapshots(finalResult.affected_files, options.cwd);
 
-        const snapshots = await captureFileSnapshots(workerResult.affected_files || [], options.cwd);
-
-        emitSessionEnd(eventBus, sessionId, 'completed', 'completed');
-
-        return {
-            ...workerResult,
-            sessionFile: session.sessionFile,
-            session,
-            fileSnapshots: snapshots,
-        };
+        emitEnd(eventBus, sessionId, 'completed');
+        return { ...finalResult, session, sessionFile: session.sessionFile, fileSnapshots: snapshots };
     } catch (err) {
         if (childAbort.signal.aborted && signal?.aborted) {
-            emitSessionEnd(eventBus, sessionId, 'aborted', 'aborted');
+            emitEnd(eventBus, sessionId, 'aborted');
             return null;
         }
-
-        emitSessionEnd(eventBus, sessionId, 'error', 'error', err.message);
-
+        emitEnd(eventBus, sessionId, 'error', err.message);
         throw err;
     } finally {
         childAbort.abort();
         session?.abort?.();
         unsub?.();
-        if (sessionId) {
-            unregister(sessionId);
-        }
+        if (sessionId) unregister(sessionId);
     }
 }
 

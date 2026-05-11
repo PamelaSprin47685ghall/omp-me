@@ -3,63 +3,21 @@
 ## 9.1 交付物清单
 
 - [x] PRD 文档（本文件集）
-- [x] `squad-tau/` 完整源码（所有文件 ≤200 行，强制拆分）
-  - [x] 插件入口 `index.js` + `shim.mjs`
-  - [x] 服务端基础：`server/constants.js`, `server/state-machine.js`, `server/event-bus.js`, `server/session-registry.js`, `server/squad-fsm.js`, `server/empty-turns.js`, `server/tamper-detection.js`
-  - [x] 模型池：`server/model-pool.js`, `server/model-pool-config.js`, `server/model-pool-events.js`
-  - [x] DAG 引擎：`server/dag-validate.js`, `server/dag-sort.js`, `server/dag-execute.js`, `server/dag-concurrency.js`
-  - [x] 节点执行器：`server/run-node.js`, `server/run-worker.js`, `server/run-worker-prompt.js`, `server/run-confirm.js`, `server/run-confirm-tools.js`, `server/run-confirm-prompt.js`, `server/run-reviewer.js`, `server/run-reviewer-prompt.js`
-  - [x] 外层控制：`server/outer-review.js`, `server/retry-logic.js`, `server/submit-plan.js`, `server/validate-plan.js`
-  - [x] 引擎：`server/squad-engine.js`
-  - [x] 网络层：`server/http-server.js`, `server/ws-server.js`, `server/ws-handler.js`, `server/ws-heartbeat.js`, `server/ws-events.js`, `server/vite-setup.js`
-  - [x] 前端入口：`client/index.html`, `client/vite.config.js`, `client/main.jsx`, `client/App.jsx`, `client/App.css`, `client/types.js`
-  - [x] 前端 hooks：`client/hooks/useWebSocket.js`, `client/hooks/useSquadState.js`, `client/hooks/useSessionState.js`, `client/hooks/useModelPool.js`, `client/hooks/useAutoScroll.js`, `client/hooks/useDarkMode.js`
-  - [x] 额外模块：`client/session-reducer.js`（纯 reducer，无 React 依赖）
-  - [x] 前端组件：`client/components/Header.jsx`, `client/components/Sidebar.jsx`, `client/components/SessionTree.jsx`, `client/components/MainContent.jsx`, `client/components/DAGView.jsx`, `client/components/MessageList.jsx`, `client/components/MessageItem.jsx`, `client/components/MessageInput.jsx`, `client/components/ThinkingBlock.jsx`, `client/components/ToolCall.jsx`, `client/components/WelcomeView.jsx`, `client/components/ErrorBanner.jsx`, `client/components/ModelPoolDrawer.jsx`, `client/components/StatusBar.jsx`
-  - [x] 配置：`package.json`
-- [x] 单元测试覆盖（30 个测试文件，260+ 个用例，全部通过）
-  - [x] `state-machine.test.js` (70 tests)
-  - [x] `event-bus.test.js` (12)
-  - [x] `dag-sort.test.js` (12)
-  - [x] `dag-validate.test.js` (21)
-  - [x] `deps.test.js` (3)
-  - [x] `duplicate-code.test.js` (2)
-  - [x] `final-bugs.test.js` (4)
-  - [x] `vite-middleware.test.js` (3)
-  - [x] `null-safety.test.js` (3)
-  - [x] `dead-code.test.js` (2)
-  - [x] `round4-gaps.test.js` (6)
-  - [x] `round3-audit.test.js` (10)
-  - [x] `round2-audit.test.js` (10)
-  - [x] `bugs-4-7.test.js` (8)
-  - [x] `event-bus-integration.test.js` (6)
-  - [x] `tamper-detection.test.js` (4)
-  - [x] `empty-turns.test.js` (3)
-  - [x] `squad-fsm.test.js` (10)
-  - [x] `run-worker.test.js` (4)
-  - [x] `run-reviewer.test.js` (5)
-  - [x] `run-confirm-prompt.test.js` (5)
-  - [x] `outer-review.test.js` (4)
-  - [x] `retry-logic.test.js` (4)
-  - [x] `validate-plan.test.js` (10)
-  - [x] `session-registry.test.js` (5)
-  - [x] `model-pool-basic.test.js` (7)
-  - [x] `model-pool-dynamic.test.js` (10)
-  - [x] `model-pool-config.test.js` (5)
-  - [x] `http-server.test.js` (4)
-- [x] 集成测试（需 mock OMP 运行时，已重命名为 `.skip.js` 避免自动发现）
-  - [x] `squad-flow.skip.js`（3 用例通过）
-  - [x] `websocket.skip.js`（3 用例通过）
-  - [x] `run-confirm.skip.js`（7 用例：buildConfirmPrompt + tamper detection，已通过）
-- [ ] 端到端测试（需真实 OMP 或 Puppeteer，已重命名为 `.skip.js`）
-  - [ ] `browser.skip.js`
-  - [ ] `standalone.skip.js`
-  - [ ] `rpc-e2e.skip.js`
-  - [ ] `chaos-e2e.skip.js`
-  - [x] `helpers/puppeteer-setup.js`
-  - [x] `helpers/mock-pi.js`
-  - [x] `helpers/rpc-tmux.js`
-  - [x] `helpers/assertions.js`
+- [x] `squad-tau/` 完整源码（server + client + test）
+  - [x] 服务端：引擎、DAG 执行器、节点执行、网络层、模型池、基础设施
+  - [x] 前端：React SPA、Blueprint.js 组件、hooks
+  - [x] 配置：`package.json`, `shim.mjs`, `README.md`, `SPEC.md`
+- [x] 单元测试（28 个文件，260+ 用例，Bun Test）
+  - [x] 状态机 70 / 事件总线 12 / DAG 排序 12 / DAG 验证 21
+  - [x] 模型池基础 7 / 动态 10 / 配置 5
+  - [x] squad-fsm 10 / run-worker 4 / run-reviewer 5
+  - [x] outer-review 4 / retry-logic 4 / validate-plan 10 / session-registry 5
+  - [x] 审计轮次：round2 10 / round3 10 / round4 6 / bugs-4-7 8 / final-bugs 4
+  - [x] 杂项：deps 3 / dead-code 2 / duplicate-code 2 / null-safety 3 / http-server 4 / vite-middleware 3 / event-bus-integration 6
+- [x] 集成测试（mock pi，`.skip.js`）
+  - [x] `squad-flow.skip.js` / `websocket.skip.js` / `run-confirm.skip.js`
+- [ ] 端到端测试（需真实 OMP/Puppeteer，`.skip.js`）
+  - [ ] `browser.skip.js` / `standalone.skip.js` / `rpc-e2e.skip.js` / `chaos-e2e.skip.js`
 
 ## 9.2 非功能需求
 
@@ -88,42 +46,22 @@
 
 ## 9.3 里程碑
 
-### Phase 1: 核心引擎（33 个服务端文件）
-- [x] Constants & 状态机：`constants.js`, `state-machine.js`（含测试）
-- [x] 事件总线：`event-bus.js`（含测试）
-- [x] 模型池：`model-pool.js`, `model-pool-config.js`, `model-pool-events.js`（含测试）
-- [x] DAG 引擎：`dag-validate.js`, `dag-sort.js`, `dag-execute.js`, `dag-concurrency.js`（含测试）
-- [x] 节点执行器：`run-node.js`, `run-worker.js`, `run-worker-prompt.js`, `run-confirm.js`, `run-confirm-prompt.js`, `run-reviewer.js`, `run-reviewer-prompt.js`（含测试）
-- [x] 辅助模块：`session-registry.js`, `session-options.js`, `session-events.js`, `squad-fsm.js`, `empty-turns.js`, `tamper-detection.js`, `lifecycle-tools.js`, `reviewer-tools.js`（含测试）
-- [x] 外层控制：`outer-review.js`, `retry-logic.js`, `submit-plan.js`, `validate-plan.js`
-- [x] Squad 引擎：`squad-engine.js`（命令注册 + FSM 编排）
-- [x] 网络层：`http-server.js`, `ws-server.js`, `ws-handler.js`, `ws-heartbeat.js`, `ws-events.js`, `vite-setup.js`
+### Phase 1: 核心引擎
+- [x] 全部 server/：引擎、DAG、节点执行、网络层、模型池、基础设施
 
-### Phase 2: Web UI（21 个前端文件）
-- [x] HTTP + WebSocket 服务器（network layer from Phase 1）
-- [x] 前端脚手架：`index.html`, `vite.config.js`, `main.jsx`, `App.jsx`, `App.css`, `types.js`
-- [x] Hooks：`useWebSocket.js`, `useSquadState.js`, `useSessionState.js`, `useModelPool.js`, `useAutoScroll.js`, `useDarkMode.js`
-  - [x] `useWebSocket-events.js` 已移除（死代码，功能由 useWebSocket 直接覆盖）
-- [x] 基础布局：`Header.jsx`, `Sidebar.jsx`, `StatusBar.jsx`
-- [x] 侧边栏：`SessionTree.jsx`
-- [x] 主内容：`MainContent.jsx`, `MessageList.jsx`, `MessageItem.jsx`, `MessageInput.jsx`
-- [x] 消息组件：`ThinkingBlock.jsx`, `ToolCall.jsx`
-- [x] DAG View：`DAGView.jsx`（Mermaid）
-- [x] 状态/错误：`WelcomeView.jsx`, `ErrorBanner.jsx`
-- [x] 模型池：`ModelPoolDrawer.jsx`
+### Phase 2: Web UI
+- [x] 全部 client/：React 组件、hooks、reducer、样式
 
 ### Phase 3: 测试
-- [x] 单元测试全部通过（30 文件，259 用例）
-- [x] 集成测试全部通过（13 用例：squad-flow + websocket + run-confirm）
-  - [x] Confirm 改用 `SessionManager.open()` 复用 worker 会话（参考 squad 原版做法）
+- [x] 单元测试 260+ 用例通过
+- [x] 集成测试 3 文件通过
 - [ ] 端到端测试（需真实 OMP/Puppeteer）
 
 ### Phase 4: 文档与优化
-- [x] README.md
-- [x] SPEC.md
-- [x] 虚拟滚动优化（CSS `content-visibility: auto` + `contain-intrinsic-size`，浏览器原生跳过屏外渲染）
-- [x] 断线重连完善（指数退避 1s→30s + 心跳 30s/60s 超时，已在 useWebSocket.js 和 ws-heartbeat.js 中实现）
-- [x] 性能基准测试（EventBus 3M/s, ModelPool 2.6M/s, 状态机 12M/s, DAG 排序 101k/s，详见 test/unit/benchmark.test.js）
+- [x] README.md + SPEC.md
+- [x] 虚拟滚动：CSS `content-visibility: auto`
+- [x] 断线重连：指数退避 1s→30s
+- [x] 性能基准：EventBus 3M/s / ModelPool 2.6M/s / 状态机 12M/s
 
 ## 9.4 风险与缓解
 
@@ -133,7 +71,7 @@
 | 浏览器性能瓶颈（大量消息） | 中 | delta 渲染 + 消息列表虚拟滚动 |
 | 模型池配置并发冲突 | 低 | 服务端单线程 EventLoop 处理所有 update |
 | 外层 review 无限循环 | 低 | 用户可随时 abort (Esc/Ctrl+C) |
-| 文件篡改误报 | 低 | 使用 mtime 检测 |
+| 文件篡改 | 低 | 已移除（v1.1.0 设计变更） |
 | 用户消息发给已结束 session | 低 | 服务端校验 session 状态，错误事件通知浏览器 |
 
 ## 9.5 已决策事项（源自讨论点）
@@ -182,3 +120,32 @@
 ## 9.7 待决策事项
 
 无。所有问题已决策。
+
+## 9.8 设计变更记录
+
+### v1.1.0 — 2026-05-10 设计变更
+
+| # | 变更 | 旧设计 | 新设计 | 影响文件 |
+|---|------|--------|--------|---------|
+| 34 | 工具集固定 | session 可通过 reopen file 换工具集 | 创建时固定，永不改变 | 删除 `run-confirm.js`，`run-confirm-tools.js`，`run-confirm-prompt.js` 合并入 `run-worker.js` |
+| 35 | Self-confirm 机制 | 独立的 confirm 工具 + return_work 重提交 | `return_work` 首次调用进入 self-confirm，第二次调用真正返回。无 `confirm` 工具 | 删除 `run-confirm.js`, `run-confirm-tools.js`；`lifecycle-tools.js` 只保留 `return_work` |
+| 36 | 主会话工具集 | 通过 toolBuilders 注入 submit_plan | 同左，但确认工具集固定 | `squad-engine.js` 使用 `customTools` 而非 `toolBuilders` |
+| 37 | SessionManager.open | `runConfirmSession` 使用 `SessionManager.open()` 复用 session 文件 | 不再 reopen 任何 session 文件。confirm 直接 `session.prompt()` 在已有 session 上 | 删除所有 `SessionManager.open()` 调用 |
+| 38 | 模型匹配 | `modelSlot.id` vs `modelSlot.modelId` 不匹配 | 修复为 `modelSlot.modelId` | `session-options.js` |
+| 39 | 模型池空角色 | acquire 在角色槽位为空时阻塞 | 返回 null → 回落到当前会话模型 | `model-pool.js` |
+| 40 | 外层 review 反馈 | 通过 `ctx.sendMessage()` 丢失给 agent | 通过 submit_plan tool 返回值传递给 agent | `submit-plan.js` 内联外层 review |
+| 41 | agent_end 守卫 | `session.on('agent_end')` 无效 | 改用 `session.isStreaming` + 轮询模式 | `squad-engine.js` |
+| 42 | 文件篡改检测 | mtime 快照对比 | 完全移除。不再需要防篡改 | 删除 `tamper-detection.js` |
+| 43 | Reviewer session | 无特殊要求 | 每次 retry 都创建新 session（`SessionManager.create()`） | `run-reviewer.js` |
+| 44 | Worker session 复用 | 同一 session 多次 prompt | 同一 session 两次 `return` 调用，不创建新 session | `run-worker.js` |
+| 45 | 工具名统一 — submit | `submit_plan` | `delegate` | `submit-plan.js` → 改名为 delegate 工具 |
+| 46 | 工具名统一 — lifecycle | `return_work` / `approve` / `reject` 三个工具 | 统一为 `return({ status, reason, affected_files? })` | 删除 `reviewer-tools.js`，合并入 `lifecycle-tools.js` |
+| 47 | return 参数 | worker 有 `summary` 字段 | worker 无 summary，摘要写入 `reason`。`status: 'ok'`+reason = 成功，`status: 'error'`+reason = 失败/驳回 | `lifecycle-tools.js` |
+| 48 | 全局工具注册 | per-session customTools / toolBuilders 注入 | `pi.registerTool()` 全局注册，所有 session 共享 `delegate` + `return` | 删除 `reviewer-tools.js`，`squad-engine.js` 不再注入 customTools |
+| 49 | main session 可用工具 | 有限工具集 | 也可调用 `return`（`status: 'error'` = redo） | `lifecycle-tools.js` |
+| 50 | subsession 可用工具 | 只含 lifecycle 工具 | 也可调用 `delegate` | 全局注册后自动可用 |
+| 51 | 模型池路径 | `~/.omp/squad/models.json` | `{cwd}/.omp/models.toml` | `model-pool-config.js` |
+| 52 | delegate 参数 | `({ mode, reasoning, nodes })` inline JSON | `({ plan_dir })` 指向节点 `.toml` 文件目录；单文件=M，多文件=L | `submit-plan.js` |
+| 53 | HTTP/WS 启动时机 | 随 `/squad` 启动 | 插件加载时即启动，始终可用 | `squad-engine.js` |
+| 54 | delegate 可用性 | 仅在 squad 任务中 | 始终全局注册，LLM 可随时自主调用 | `lifecycle-tools.js` |
+| 55 | /squad 语义 | 启动服务 + 激活工具 | 仅修改提示词 + 强制 LLM 调 delegate | `squad-engine.js` |

@@ -1,6 +1,18 @@
 import { validatePlan } from './validate-plan.js';
+import { runOuterReview } from './outer-review.js';
 
-function createSubmitPlanHandler({ fsm, executeDAG, ctx, pi, signal, eventBus, modelPool, onComplete, originalTask }) {
+function createSubmitPlanHandler({
+    fsm,
+    executeDAG,
+    ctx,
+    pi,
+    signal,
+    eventBus,
+    modelPool,
+    onComplete,
+    originalTask,
+    startTime,
+}) {
     return {
         name: 'submit_plan',
         description: 'Submit execution plan with nodes for DAG execution',
@@ -73,14 +85,69 @@ function createSubmitPlanHandler({ fsm, executeDAG, ctx, pi, signal, eventBus, m
                     modelPool,
                 });
 
+                const nodeResults = results.map((r) => ({
+                    id: r.nodeId,
+                    status: r.status,
+                    summary: r.summary || '',
+                    affectedFiles: r.affectedFiles || [],
+                }));
+
+                if (mode === 'L') {
+                    let outerRound = 1;
+                    while (true) {
+                        const outerReviewResult = await runOuterReview(
+                            nodeResults,
+                            originalTask,
+                            outerRound,
+                            ctx,
+                            pi,
+                            signal,
+                            eventBus,
+                            modelPool,
+                            startTime,
+                        );
+
+                        if (!outerReviewResult) {
+                            eventBus.emit('squad', 'abort', { reason: 'Outer review aborted' });
+                            return {
+                                success: false,
+                                message: 'Outer review was aborted.',
+                            };
+                        }
+
+                        if (outerReviewResult.approved) break;
+
+                        fsm.revise();
+                        const feedback = outerReviewResult.feedback || 'Revise and resubmit.';
+
+                        eventBus.emit('squad', 'outer_review_result', {
+                            round: outerRound,
+                            verdict: 'rejected',
+                            feedback,
+                        });
+
+                        return {
+                            success: true,
+                            outerReviewRejected: true,
+                            outerRound,
+                            feedback,
+                            message: `Outer review rejected (round ${outerRound}). Feedback: ${feedback}`,
+                        };
+                    }
+                }
+
+                fsm.deactivate();
+                const duration = Date.now() - startTime;
+                eventBus.emit('squad', 'complete', { results: nodeResults, durationMs: duration });
+
                 if (onComplete) {
-                    await onComplete({ results, mode, nodes });
+                    onComplete({ results: nodeResults, mode, nodes, durationMs: duration });
                 }
 
                 return {
                     success: true,
-                    results,
-                    message: `Executed ${results.length} node(s)`,
+                    results: nodeResults,
+                    message: `Squad completed successfully in ${(duration / 1000).toFixed(1)}s`,
                 };
             } catch (error) {
                 throw new Error(`DAG execution failed: ${error.message}`);

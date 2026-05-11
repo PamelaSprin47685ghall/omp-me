@@ -19,6 +19,8 @@ import { createSubmitPlanHandler } from './submit-plan.js';
 import { executeDAG } from './dag-execute.js';
 import { buildSnapshot } from './model-pool-events.js';
 import { createOnCompleteHandler } from './squad-complete.js';
+import { subscribeToSessionEvents } from './session-events.js';
+import { register, unregister } from './session-registry.js';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
@@ -97,7 +99,10 @@ export default function squadPlugin(pi) {
                 ctx.sendMessage(`Squad UI: http://127.0.0.1:${port}`);
 
                 const { SessionManager } = await getCodingAgentModule();
-                const sessionManager = new SessionManager(pi);
+                const createAgentSession = pi?.pi?.createAgentSession;
+                if (!createAgentSession) {
+                    throw new Error('squad: createAgentSession unavailable');
+                }
 
                 const startTime = Date.now();
 
@@ -112,33 +117,67 @@ export default function squadPlugin(pi) {
                     eventBus,
                     modelPool,
                     originalTask: task,
-                    onComplete: createOnCompleteHandler({ task, ctx, pi, signal, eventBus, modelPool, fsm, startTime }),
-                });
-
-                const session = sessionManager.createAgentSession({
-                    model: ctx.model,
-                    cwd: ctx.cwd,
-                    toolNames: ['read', 'write', 'edit', 'search', 'find', 'bash', 'lsp', 'eval'],
-                    toolBuilders: {
-                        submit_plan: () => submitPlanHandler,
-                    },
+                    startTime,
+                    onComplete: createOnCompleteHandler({ ctx, fsm }),
                 });
 
                 fsm.activate();
 
-                session.on('agent_end', () => {
-                    if (fsm.state === 'revising') {
-                        session.sendUserMessage(
-                            'ERROR: You are in revising state. You must call submit_plan with the revised plan before ending.',
-                        );
-                    }
+                const sessionOpts = {
+                    model: ctx.model,
+                    cwd: ctx.cwd,
+                    hasUI: false,
+                    toolNames: ['read', 'write', 'edit', 'search', 'find', 'bash', 'lsp', 'eval'],
+                    customTools: [submitPlanHandler],
+                    sessionManager: SessionManager.create(ctx.cwd),
+                };
+
+                const { session } = await createAgentSession(sessionOpts);
+                const sessionId = session.sessionFile;
+
+                register(sessionId, {
+                    sendUserMessage: (text) => session.prompt(text),
+                    session,
+                    status: 'authoring',
                 });
 
-                await session.prompt(
-                    `Execute this task using the squad system. Analyze the task and call submit_plan with an appropriate plan (M mode for single cohesive work, L mode for parallelizable DAG):\n\n${task}`,
-                );
+                let unsubSessionEvents = null;
+                if (eventBus) {
+                    eventBus.emit('session', 'start', {
+                        sessionId,
+                        phase: 'main',
+                    });
+                    eventBus.emit('session', 'state', { sessionId, phase: 'authoring' });
+                    unsubSessionEvents = subscribeToSessionEvents(session, eventBus, sessionId);
+                }
 
-                await session.settled;
+                try {
+                    await session.prompt(
+                        `Execute this task using the squad system. Analyze the task and call submit_plan with an appropriate plan (M mode for single cohesive work, L mode for parallelizable DAG):\n\n${task}`,
+                    );
+
+                    // Agent turn loop — handles outer review rejection feedback
+                    while (fsm.isActive() || fsm.isRevising()) {
+                        while (session.isStreaming) {
+                            await new Promise((r) => setTimeout(r, 200));
+                        }
+
+                        if (session.settled) break;
+
+                        if (fsm.isRevising()) {
+                            await session.prompt(
+                                'ERROR: Outer review rejected your submission. You MUST call submit_plan with a revised plan before ending. Do not output prose — call the tool.',
+                            );
+                        } else if (fsm.isIdle()) {
+                            break;
+                        }
+                    }
+
+                    await session.settled;
+                } finally {
+                    if (unsubSessionEvents) unsubSessionEvents();
+                    if (sessionId) unregister(sessionId);
+                }
             } catch (err) {
                 if (err.name === 'AbortError') {
                     ctx.sendMessage('Squad aborted by user');
@@ -147,6 +186,7 @@ export default function squadPlugin(pi) {
                     throw err;
                 }
             } finally {
+                fsm.deactivate();
                 unwatchConfig();
                 if (wsServer) {
                     wsServer.close();

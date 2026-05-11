@@ -2,26 +2,31 @@
 
 ## 6.1 配置文件
 
-- 路径：`~/.omp/squad/models.json`
+- 路径：`{cwd}/.omp/models.toml`（当前工作目录下的 `.omp/models.toml`）
 - 格式示例：
-```json
-[
-  { "provider": "anthropic", "modelId": "claude-3-5-sonnet-20241022", "role": "worker", "thinkingLevel": "medium" },
-  { "provider": "anthropic", "modelId": "claude-3-5-haiku-20241022", "role": "reviewer" }
-]
+```toml
+[[slot]]
+provider = "anthropic"
+model_id = "claude-3-5-sonnet-20241022"
+role = "worker"
+thinking_level = "medium"
+
+[[slot]]
+provider = "anthropic"
+model_id = "claude-3-5-haiku-20241022"
+role = "reviewer"
 ```
 
 ## 6.2 并发模型
 
-```
-ModelPool
-├── workerSlots:  [slot, slot, ...]  (可用 worker 模型)
-│   └── acquire('worker') → 返回 slot  或  等待队列
-│   └── release() → 唤醒等待队列
-│
-└── reviewerSlots: [slot, slot, ...]  (可用 reviewer 模型)
-    └── acquire('reviewer') → 返回 slot  或  等待队列
-    └── release() → 唤醒等待队列
+```mermaid
+graph TD
+    MP[ModelPool] --> WS[workerSlots]
+    MP --> RS[reviewerSlots]
+    WS --> WQ[acquire worker → slot / 等待队列]
+    RS --> RQ[acquire reviewer → slot / 等待队列]
+    WQ --> WREL[release → 唤醒等待者]
+    RQ --> RREL[release → 唤醒等待者]
 ```
 
 - Worker 和 Reviewer 使用独立的槽位队列
@@ -37,7 +42,7 @@ ModelPool
 ### 工作机制
 1. 浏览器发送 `model_pool:update` WebSocket 消息
 2. 服务端收到后：
-   - 更新 `models.json` 文件
+   - 更新 `.omp/models.toml` 文件
    - 更新内存中的 ModelPool 实例（增/删/改槽位）
    - 广播 `model_pool:changed` 到所有连接
 3. 所有浏览器收到变更后更新 UI
@@ -63,15 +68,13 @@ ModelPool
 3. **当前会话模型无上限**：使用当前会话模型时不做并发限制，多个 worker 可同时使用
 
 ### 工作流程
-```
-runWorker(node, ...):
-  slot = modelPool.acquire('worker')
-  if slot:
-    model = slot.model
-  else:
-    model = ctx.model  // 回落到当前会话模型
-  ...
-  slot?.release()
+```mermaid
+graph LR
+    ACQ[modelPool.acquire worker] -->|有槽位| SLOT[使用模型池模型]
+    ACQ -->|null| FALLBACK[使用当前会话模型]
+    SLOT --> WORK[执行任务]
+    FALLBACK --> WORK
+    WORK --> REL[slot.release]
 ```
 
 ### 其他
@@ -81,7 +84,7 @@ runWorker(node, ...):
 
 ## 6.5 文件变更同步
 
-- 除了浏览器端修改，用户可能直接编辑 `~/.omp/squad/models.json`
+- 除了浏览器端修改，用户可能直接编辑 `.omp/models.toml`
 - 使用 `fs.watchFile` 监听配置文件变更
 - 检测到文件变更后：
   1. 重新读取配置文件

@@ -240,7 +240,7 @@
 1. 收到 `session:user_message` → 按 `sessionId` 查找会话实例
 2. 若 session 已结束（completed / aborted / failed）→ 回复错误事件 `{ type: 'error', payload: { message: 'Session not active' } }`
 3. 若 session 活跃 → 广播 `session:message`（role=user, content=[{ type: 'text', text }]）到所有浏览器客户端，保持多 Tab 同步
-4. 调用 `pi.sendUserMessage(sessionId, text)` 将消息注入 agent 会话
+4. 调用 `session.prompt(text)` 将消息注入 agent 会话（通过 session-registry 找到对应 session）
 5. agent 处理消息后，正常的事件流（`session:message_delta`、`session:message`、`session:tool_call` 等）通过 event-bus → WebSocket 广播，浏览器收到后更新 UI
 
 ### 消息确认

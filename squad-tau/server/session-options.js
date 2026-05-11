@@ -12,7 +12,7 @@ function buildBaseSessionOptions(ctx, pi, modelSlot) {
 
     if (modelSlot) {
         const available = ctx?.modelRegistry?.getAvailable?.() ?? [];
-        const matched = available.find((m) => m.provider === modelSlot.provider && m.id === modelSlot.id);
+        const matched = available.find((m) => m.provider === modelSlot.provider && m.id === modelSlot.modelId);
         if (matched) {
             options.model = matched;
             if (modelSlot.thinkingLevel) options.thinkingLevel = modelSlot.thinkingLevel;

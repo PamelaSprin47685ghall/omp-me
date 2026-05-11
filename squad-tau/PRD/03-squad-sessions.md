@@ -1,139 +1,96 @@
 # Squad-Tau PRD — 03 会话体系
 
-## 3.1 Worker 会话
+## 3.1 工具注册策略
 
-### 可用工具
-`executeBash`, `read`, `write`, `edit`, `search`, `find`, `lsp`, `eval`
+所有 lifecycle 工具通过 `pi.registerTool()` **全局注册**，所有 session 共享。
 
-### Lifecycle 工具
-```typescript
-return_work({ summary: string, affected_files: string[] })
-```
+| 工具 | 签名 |
+|------|------|
+| `delegate` | `({ plan_dir: string })` — 提交 DAG 计划目录，每节点一个 `.toml`（文件名=节点ID）；单文件=M，多文件=L；`[[review_criteria]]` 含 `name` + `description` |
+| `return` | `({ status: 'ok'\|'error', reason, affected_files? })` — 返回结果。语义因调用者而异（见 §3.2） |
 
-### 提示词结构
+## 3.2 Worker 生命周期（含 Self-Confirm）
+
+Worker 和 Self-Confirm 共用**同一个 session 对象**。工具集在 `createAgentSession` 时固定，运行中不变更。
+
+### return 调用契约
+
+| 场景 | 调用 | 含义 |
+|------|------|------|
+| Worker 提交 | 第 1 次 `return({ status:'ok', ... })` | → 进入 self-confirm |
+| 自审通过 | 第 2 次 `return({ status:'ok', ... })` | → 完成，进入 reviewer |
+| Worker 重做 | `return({ status:'error', reason })` | → 退回 worker 阶段重做 |
+| Reviewer 驳回 | `return({ status:'error', reason })` | → 节点 rejected，retryCount++，退回 worker |
+| 主会话 redo | `return({ status:'error', reason })` | → 整个 squad 任务标识需重新 `delegate` |
+| 外层 review 驳回 | approve=false 通过 delegate 返回值传递 | → FSM 进入 active |
+
+`return({ status:'ok' })` 的语义在所有场景一致：当前阶段完成，推进到下一阶段。
+
+### Worker 提示词结构
 1. 节点任务描述
-2. 上游节点结果（`summary` + `affected_files`，附带 `read` 指令）
+2. 上游节点结果（summary + affected_files）
 3. Reviewer 反馈（重试时）
-4. 必须调用 `return_work` 的约束
+4. `review_criteria` 逐条展开：`name: description`（description 原样嵌入）
+5. 必须调用 `return` 的约束
+
+### Self-Confirm 提示词结构（关键变化）
+- **发回原始任务描述**，不是 worker 提交的 reason
+- `review_criteria` 逐条展开：`name: description`
+- 内置 review 维度：Code Quality / Design Flaws / Security / UX / Goal Completeness
+- 如需修改，改完后再次调用 `return({ status: 'ok', ... })`
 
 ### 空轮次保护
-- `MAX_EMPTY_TURNS = 20`
-- 连续 20 轮无工具调用 → 强制提醒 `ERROR: You must call the required tool`
-
-### 事件订阅
-- Worker 会话的所有内部事件（message, tool_call, tool_result, thinking_delta）通过 `session.subscribe` 捕获
-- 转发到 WebSocket → 浏览器实时显示
-
-## 3.2 Self-Confirm 会话
-
-### 复用策略
-- **复用 Worker 的同一个 session**（不是创建新 session）
-- 保持相同的 `sessionFile`
-
-### Lifecycle 工具
-```typescript
-confirm({ comment?: string })
-return_work({ summary: string, affected_files: string[] })  // 重新提交
-```
-
-### 提示词结构（关键变化）
-- ⚠ **发回原始任务描述**，不是 worker 提交的 summary
-- 内置 review 维度：
-  1. Code Quality — 是否正确、清晰、符合惯例？
-  2. Design Flaws — 是否有架构问题、紧耦合？
-  3. Security Vulnerabilities — 注入、权限绕过、数据泄露？
-  4. User Experience — 调用方是否能正确使用？
-  5. Goal Completeness — 是否完整满足需求？
-- 如果做了任何变更，必须调用 `return_work` 重新提交
-
-### 文件篡改检测
-```
-Worker return_work → 捕获 affected_files 的 mtime 快照
-         ↓
-Confirm 阶段监听从 confirm prompt 发送后 有没有文件被修改
-         ↓
-  如果 mtime 变化 → 抛出 SQUAD_TAMPERED 错误 → 自动重试
-  如果 agent 调用 return_work → 更新快照，继续 confirm 循环
-```
-
-### 空轮次保护
-- `CONFIRM_MAX_EMPTY = 5`
+两阶段共享 `MAX_EMPTY_TURNS = 20`。
 
 ## 3.3 Reviewer 会话
 
-### 可用工具
-- `read`, `search`, `find`, `lsp`, `bash`（只读，不可写文件）
-- 审查者不得修改任何代码
+### Session 策略
+- **每次新 session**：每次 review 都创建全新的 session（`SessionManager.create()`），不复用之前任何 session
+- 每个 retry 轮次都是全新的 reviewer session
 
-### Lifecycle 工具
+### 可用工具
+同全部 session，工具集完全一致（`delegate` + `return` + host tools），不限制
+
+### 生命周期
 ```typescript
-approve({ comment?: string })
-reject({ feedback: string })
+return({ status: 'ok' | 'error', reason: string })
 ```
+- `status: 'ok'` + `reason` → approve
+- `status: 'error'` + `reason` → reject，附带反馈
 
 ### 提示词结构
 1. 节点任务描述
-2. Worker 提交的 `summary` + `affected_files`
-3. 用户指定的 `review_criteria`
+2. Worker 提交的 `reason` + `affected_files`
+3. `review_criteria` 逐条展开：`name: description`（description 原样嵌入，作为评审依据）
 4. 内置 review 维度
 
 ## 3.4 节点完整执行流程
 
-```
-                    ┌─────────────────────────────┐
-                    │      modelPool.acquire       │
-                    │       ('worker', signal)      │
-                    └──────────┬──────────────────┘
-                               ↓
-                    ┌─────────────────────────────┐
-                    │        runWorker             │
-                    │  → createAgentSession        │
-                    │  → inject return_work tool   │
-                    │  → session.prompt(task)      │
-                    │  → wait for settled          │
-                    └──────────┬──────────────────┘
-                               ↓ (workerResult)
-                    ┌─────────────────────────────┐
-                    │      captureFileSnapshots    │
-                    └──────────┬──────────────────┘
-                               ↓
-                    ┌─────────────────────────────┐
-                    │      runConfirmSession       │
-                    │  → reuse session             │
-                    │  → inject confirm/return_work│
-                    │  → session.prompt(confirm)   │
-                    │  → wait for settled          │
-                    └──────────┬──────────────────┘
-                    ┌──────────┴──────────────────┐
-                    │  confirm  │  return_work     │
-                    │  (approve)│  (resubmit)      │
-                    └────┬─────┴──────┬───────────┘
-                         ↓            ↓
-                   check tamper   update snapshot
-                         ↓            ↓
-                    ┌──────────┐     ┌───────────┐
-                    │  proceed │     │  re-run    │
-                    │ to review│     │  confirm   │
-                    └────┬─────┘     └───────────┘
-                         ↓
-                    ┌─────────────────────────────┐
-                    │     modelPool.acquire        │
-                    │     ('reviewer', signal)      │
-                    └──────────┬──────────────────┘
-                               ↓
-                    ┌─────────────────────────────┐
-                    │       runReviewer            │
-                    │  → createAgentSession        │
-                    │  → inject approve/reject     │
-                    │  → session.prompt(review)    │
-                    │  → wait for settled          │
-                    └──────────┬──────────────────┘
-                    ┌──────────┴──────────────────┐
-                    │  approve   │  reject         │
-                    │  → done    │  → retry        │
-                    └───────────┘  (increment      │
-                                   retryCount)     │
-                                   └───────────────┘
+```mermaid
+graph TD
+    subgraph runWorker[同一 session]
+        direction TB
+        W1["1. session.prompt(workerTask)"]
+        W2["2. agent return(1st, status:'ok')"]
+        W3["3. session.prompt(confirmPrompt)"]
+        W4["4. agent 审查 / 修改文件"]
+        W5["5. agent return(2nd, status:'ok')"]
+        W1 --> W2 --> W3 --> W4 --> W5
+    end
+
+    MP1[modelPool.acquire worker] --> runWorker
+    runWorker --> MP2[modelPool.acquire reviewer]
+
+    subgraph runReviewer[每次新 session]
+        direction TB
+        R1["session.prompt(review)"]
+        R2{"return(status)"}
+        R1 --> R2
+        R2 -->|status='ok'| DONE[done]
+        R2 -->|status='error'| RETRY[retry + retryCount++]
+    end
+
+    MP2 --> runReviewer
 ```
 
 ## 3.5 用户 Steer 消息
@@ -147,92 +104,31 @@ reject({ feedback: string })
 | 主会话 | 是 | 常规对话，与终端中直接输入一致 |
 | Worker | 是 | 在 authoring 阶段，用户可介入调整方向、补充上下文 |
 | Reviewer | 是 | 在 reviewing 阶段，用户可补充审阅标准或提前给出反馈 |
-| Self-Confirm | 否 | 复用 worker session，用户消息进入 worker 上下文 |
+| Self-Confirm | 是（但已合并进 worker phase） | agent 两次调用 return 之间，用户消息进入 worker 上下文 |
 | OuterReview | 是 | 用户可向外层 reviewer 补充整体意见 |
 
 ### 路由机制
 
-```
-浏览器 WebSocket                          pi.sendUserMessage(sessionId, text)
-  session:user_message  ─────────→  ┌─────────────────────┐
-  { sessionId, text }               │  ws-server: 按 sessionId  │
-                                    │  查找对应 session，调用 │
-                                    │  pi.sendUserMessage()    │
-                                    └─────────────────────┘
-                                               │
-                                               ↓
-                                    session 处理消息，事件流
-                                    (message_delta, tool_call,
-                                     tool_result, message)
-                                    通过 event-bus → WebSocket 广播
+```mermaid
+graph LR
+    WS[浏览器 WebSocket] -->|session:user_message {sessionId,text}| SR[session-registry]
+    SR -->|按 sessionId 查找| SESSION[对应 session]
+    SESSION -->|session.prompt text| AGENT[agent 处理]
+    AGENT -->|事件流| EB[event-bus]
+    EB -->|广播| WS
 ```
 
 ### 实现要点
 
-- WebSocket 收到 `session:user_message` → 服务器按 `sessionId` 找到对应 session → 调用 `pi.sendUserMessage()`
+- WebSocket 收到 `session:user_message` → 按 `sessionId` 找到对应 session → 调用 `session.prompt(text)`
 - 注入的消息先广播 `session:message`（role=user）到所有连接的浏览器，保持 UI 同步
 - Worker/Reviewer session 收到用户消息后，agent 会将其视为任务上下文的一部分，可据此调整行为
-- 用户消息不自动触发 squad 状态转换，但 agent 可能因此调用 lifecycle 工具（如 `return_work`、`approve`、`reject`）
+- 用户消息不自动触发 squad 状态转换，但 agent 可能因此调用 lifecycle 工具（如 `return`、`delegate`）
 - 已结束的 session（completed / aborted）拒绝接收用户消息，Web UI 会禁用输入框
 - 用户消息在 session 的 JSONL 文件中正常记录，与终端输入的消息等效
 
-### 与 Self-Review 的关系
+### 与 Self-Confirm 的关系
 
-Self-review 消息能正常发给 session 说明 OMP 的 `sendUserMessage` 通道畅通。用户 steer 本质上是同一机制通过 WebSocket 暴露给 Web UI，不引入新的 session 管理逻辑。
+所有 steer 统一走 `session.prompt(text)`，`pi.sendUserMessage()` 在 squad-tau 中不使用。
 
-```
-                    ┌─────────────────────────────┐
-                    │      modelPool.acquire       │
-                    │       ('worker', signal)      │
-                    └──────────┬──────────────────┘
-                               ↓
-                    ┌─────────────────────────────┐
-                    │        runWorker             │
-                    │  → createAgentSession        │
-                    │  → inject return_work tool   │
-                    │  → session.prompt(task)      │
-                    │  → wait for settled          │
-                    └──────────┬──────────────────┘
-                               ↓ (workerResult)
-                    ┌─────────────────────────────┐
-                    │      captureFileSnapshots    │
-                    └──────────┬──────────────────┘
-                               ↓
-                    ┌─────────────────────────────┐
-                    │      runConfirmSession       │
-                    │  → reuse session             │
-                    │  → inject confirm/return_work│
-                    │  → session.prompt(confirm)   │
-                    │  → wait for settled          │
-                    └──────────┬──────────────────┘
-                    ┌──────────┴──────────────────┐
-                    │  confirm  │  return_work     │
-                    │  (approve)│  (resubmit)      │
-                    └────┬─────┴──────┬───────────┘
-                         ↓            ↓
-                   check tamper   update snapshot
-                         ↓            ↓
-                    ┌──────────┐     ┌───────────┐
-                    │  proceed │     │  re-run    │
-                    │ to review│     │  confirm   │
-                    └────┬─────┘     └───────────┘
-                         ↓
-                    ┌─────────────────────────────┐
-                    │     modelPool.acquire        │
-                    │     ('reviewer', signal)      │
-                    └──────────┬──────────────────┘
-                               ↓
-                    ┌─────────────────────────────┐
-                    │       runReviewer            │
-                    │  → createAgentSession        │
-                    │  → inject approve/reject     │
-                    │  → session.prompt(review)    │
-                    │  → wait for settled          │
-                    └──────────┬──────────────────┘
-                    ┌──────────┴──────────────────┐
-                    │  approve   │  reject         │
-                    │  → done    │  → retry        │
-                    └───────────┘  (increment      │
-                                   retryCount)     │
-                                   └───────────────┘
-```
+节点完整执行流程见 §3.4。

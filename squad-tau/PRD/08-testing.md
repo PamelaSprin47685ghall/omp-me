@@ -2,18 +2,7 @@
 
 ## 8.1 测试金字塔
 
-```
-        ┌──────────┐
-        │  E2E     │  ← Puppeteer 浏览器测试（OMP 内部 + 独立）
-        │  (少量)  │
-       ┌┴──────────┴┐
-       │  Integration│  ← Squad 流程 + WebSocket（mock pi）
-       │  (中等)     │
-      ┌┴─────────────┴┐
-      │  Unit Tests   │  ← 状态机、DAG、模型池、事件总线
-      │  (大量)        │
-      └───────────────┘
-```
+三层测试：底层大量 Unit Test（状态机/DAG/模型池），中层 Integration Test（mock pi 模拟 squad 流程），顶层少量 E2E（Puppeteer 浏览器 + OMP RPC）。
 
 ## 8.2 单元测试（Bun Test，每个测试文件 ≤200 行）
 
@@ -28,10 +17,10 @@
 - 非法状态转换拒绝
 
 ### Squad FSM (`squad-fsm.test.js`)
-- idle → active → revising 转换
-- active 时禁止再次 submit_plan
-- revising → active（重投）
-- idle 时 submit_plan 拒绝
+- idle → delegate → 执行 → approved → idle
+- idle → delegate → 执行 → rejected → active
+- active → delegate → 执行 → approved → idle
+- active → delegate → 执行 → rejected → active（保留在 active）
 
 ### DAG 拓扑排序 (`dag-sort.test.js`)
 - 无依赖 → 单层
@@ -69,12 +58,6 @@
 - 命名空间隔离
 - 取消订阅
 
-### 文件篡改检测 (`tamper-detection.test.js`)
-- `captureFileSnapshots` / `filesChanged`：mtime 检测
-- 无变化时不报告
-- 文件删除时报告
-- 文件创建时报告
-
 ### 空轮次保护 (`empty-turns.test.js`)
 - MAX_EMPTY_TURNS 常量正确
 - 空轮次计数器递增
@@ -86,45 +69,22 @@
 - `runWorker` 创建 session 并注入工具
 - 模型分配逻辑
 
-### Confirm 执行 (`run-confirm.test.js`)
-- `buildConfirmPrompt`：包含原始任务，不包含 worker summary
-- `runConfirmSession` 复用 worker session
-- `confirm` / `return_work` 工具注入
-- 文件篡改检测集成
+### Worker 执行 (`run-worker.test.js`)
+- `buildWorkerPrompt`：包含节点任务 + 上游结果 + reviewer 反馈
+- `buildConfirmPrompt`：包含原始任务 + review_criteria 展开
+- 同一 session 两次 `return` 调用：首次进 confirm，二次进 reviewer
+- 空轮次保护
 
 ### Reviewer 执行 (`run-reviewer.test.js`)
-- `buildReviewerPrompt`：包含 review_criteria
-- `runReviewer` 创建只读 session
-- `approve` / `reject` 工具注入
-- 只读约束（无写工具）
+- `buildReviewerPrompt`：包含 review_criteria 展开（`name: description`）
+- `runReviewer` 每次新 session
+- `return` 工具（status='ok' 或 'error'）
 
 ### 8.3 集成测试（Bun Test + Mock）
 
 集成测试按需 mock OMP 框架，不 mock 整个 oh-my-pi 运行时。只 mock `pi` 对象的必要方法（`registerCommand`, `registerTool`, `on`, `createAgentSession`），其余保持真实。
 
-### Mock pi API
-```typescript
-function stubPi() {
-  return {
-    registerCommand: () => {},
-    registerTool: () => {},
-    on: () => () => {},       // returns unsub
-    sendMessage: () => {},
-    sendUserMessage: () => {},
-    setModel: () => {},
-    getActiveTools: () => [],
-    setActiveTools: () => {},
-    getSessionName: () => 'main',
-    getThinkingLevel: () => null,
-    events: new EventEmitter(),
-    pi: {
-      createAgentSession: async (opts) => {
-        return { session: createMockSession() };
-      }
-    }
-  };
-}
-```
+Mock pi 详见 `test/helpers/mock-pi.js`。
 
 ### Squad 流程 (`squad-flow.test.js`)
 - M 模式：从 init → approve 完整流程
@@ -132,8 +92,7 @@ function stubPi() {
 - L 模式：2 节点并行
 - L 模式：链式依赖
 - L 模式：菱形依赖
-- L 模式：外层 review reject → revising → 重新 submit_plan
-- 文件篡改检测触发
+- L 模式：外层 review reject → active → 重新 delegate
 - Abort 信号
 
 ### WebSocket 通信 (`websocket.test.js`)
@@ -179,173 +138,9 @@ function stubPi() {
 
 `omp --mode rpc` 是 oh-my-pi 的 JSON-RPC 模式，通过 stdin/stdout 双向 JSON 行协议暴露完整插件控制能力。这是最接近真实运行的测试方式——不 mock pi 对象，不依赖浏览器，直接驱动 OMP 运行时执行 squad-tau。
 
-#### RPC 协议
+RPC 协议格式详见 `test/helpers/rpc-tmux.js`。OMP RPC 使用 JSONL，`type` 字段标识命令，`id` 关联响应。异步事件（`agent_start`/`message_delta`）无 `id`。
 
-OMP RPC 使用 JSON 行协议（JSONL），每条消息独立一行。命令通过 `type` 字段标识，响应和事件通过 stdout 输出。
-
-```
-# ← stdout: 启动后立即发送
-{"type":"ready"}
-# 后续跟随 extension/ui 事件...
-
-# → stdin: 发送命令（需提供 id 用于关联响应）
-{"id":"1","type":"get_state"}
-{"id":"2","type":"get_available_models"}
-
-# ← stdout: 对应响应
-{"id":"1","type":"response","command":"get_state","success":true,"data":{...}}
-{"id":"2","type":"response","command":"get_available_models","success":true,"data":{"models":[...]}}
-
-# ← stdout: 异步事件（无 id）
-{"type":"agent_start","sessionId":"..."}
-{"type":"message_delta","sessionId":"...","delta":{"type":"thinking_delta","text":"..."}}
-```
-
-**所有命令列表**（来自 `src/modes/rpc/rpc-types.ts`）：
-
-| type | 用途 |
-|------|------|
-| `prompt` | 发送提示词（异步，后续跟随事件流） |
-| `steer` | 中断当前运行并发送新消息 |
-| `follow_up` | 排队发送消息（当前运行结束后执行） |
-| `abort` | 中止当前运行 |
-| `abort_and_prompt` | 中止 + 发送新消息 |
-| `new_session` | 创建新会话 |
-| `get_state` | 获取当前会话状态 |
-| `get_available_models` | 列出可用模型 |
-| `set_model` | 切换模型 |
-| `bash` | 执行 bash 命令并返回结果 |
-| `set_host_tools` | 注册 host 端工具（供插件使用） |
-| `get_messages` | 获取会话消息历史 |
-
-#### 交互式测试工作流（tmux）
-
-手动测试时，用 tmux 让 OMP 进程常驻后台，逐步交互：
-
-```bash
-# 1. 启动常驻进程
-tmux new-session -d -s omp-rpc 'omp --mode rpc 2>&1'
-
-# 2. 等待 ready
-sleep 2
-tmux capture-pane -t omp-rpc -p | head -5
-# 应看到: {"type":"ready"}
-
-# 3. 发送命令
-tmux send-keys -t omp-rpc '{"id":"1","type":"get_state"}' Enter
-
-# 4. 读取响应
-sleep 1
-tmux capture-pane -t omp-rpc -p | tail -10
-
-# 5. 发送 squad 任务（extension 注册了 /squad 命令后）
-tmux send-keys -t omp-rpc '{"id":"2","type":"prompt","message":"/squad M Write a sorting function"}' Enter
-
-# 6. 逐步读取事件流
-sleep 5
-tmux capture-pane -t omp-rpc -p | grep -o '"type":"[^"]*"' | sort -u
-
-# 7. 结束测试
-tmux kill-session -t omp-rpc
-```
-
-#### 自动化测试驱动（tmux + Bun）
-
-OMP 进程由 tmux 托管，Bun 测试脚本通过 tmux CLI 发送命令和读取输出。Bun 负责 JSON 解析和断言。
-
-```javascript
-// helpers/rpc-tmux.js — tmux 驱动的 RPC 客户端
-import { $ } from 'bun';
-
-const SESSION = 'omp-rpc';
-
-export async function setupRpc() {
-  await $`tmux new-session -d -s ${SESSION} 'omp --mode rpc 2>&1'`;
-  // 轮询直到收到 ready
-  for (let i = 0; i < 20; i++) {
-    const out = await $`tmux capture-pane -t ${SESSION} -p`.text();
-    if (out.includes('"type":"ready"')) return;
-    await Bun.sleep(500);
-  }
-  throw new Error('RPC did not become ready');
-}
-
-export async function rpcSend(json) {
-  await $`tmux send-keys -t ${SESSION} ${json} Enter`;
-}
-
-export async function rpcRead() {
-  return await $`tmux capture-pane -t ${SESSION} -p`.text();
-}
-
-export async function waitForResponse(timeout = 15000) {
-  const deadline = Date.now() + timeout;
-  while (Date.now() < deadline) {
-    const text = await rpcRead();
-    // 从末尾向前找最后一条 response JSON
-    const lines = text.split('\n').filter(l => l.startsWith('{'));
-    for (let i = lines.length - 1; i >= 0; i--) {
-      try {
-        const obj = JSON.parse(lines[i]);
-        if (obj.type === 'response') return obj;
-      } catch {}
-    }
-    await Bun.sleep(200);
-  }
-  throw new Error('Timeout waiting for RPC response');
-}
-
-export async function teardownRpc() {
-  await $`tmux kill-session -t ${SESSION}`.nothrow();
-}
-```
-
-#### 测试用例设计
-
-**`rpc-e2e.test.js`**（Bun test）：
-
-| 用例 | 步骤 | 验证点 |
-|------|------|--------|
-| 基础连接 | `setupRpc()` | ✓ 不抛异常 |
-| 获取状态 | `rpcSend(get_state)` → `waitForResponse()` | ✓ `command === "get_state"`<br>✓ `success === true`<br>✓ `data.sessionId` 存在 |
-| M 模式完整流程 | `rpcSend(prompt /squad M ...)` | ✓ 事件流包含 `agent_start`/`message_delta`/`agent_end` |
-| L 模式菱形依赖 | `rpcSend(prompt /squad L ...)` | ✓ 事件序列正确 |
-| bash 命令 | `rpcSend(bash)` | ✓ `BashResult` 含 stdout/exitCode |
-| 异常命令 | `rpcSend(畸形JSON)`<br>`rpcSend(未知 type)` | ✓ 进程不崩溃 |
-
-```javascript
-// rpc-e2e.test.js
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { setupRpc, rpcSend, waitForResponse, teardownRpc } from './helpers/rpc-tmux.js';
-
-beforeAll(setupRpc);
-afterAll(teardownRpc);
-
-test('get_state returns session state', async () => {
-  await rpcSend(JSON.stringify({ id: '1', type: 'get_state' }));
-  const resp = await waitForResponse();
-  expect(resp.success).toBe(true);
-  expect(resp.data.sessionId).toBeDefined();
-});
-
-test('get_available_models returns model list', async () => {
-  await rpcSend(JSON.stringify({ id: '2', type: 'get_available_models' }));
-  const resp = await waitForResponse();
-  expect(resp.success).toBe(true);
-  expect(resp.data.models.length).toBeGreaterThan(0);
-});
-```
-
-### 8.4.4 断言共享
-
-所有测试共享的断言逻辑抽取到 `helpers/`：
-
-| 文件 | 用途 |
-|------|------|
-| `puppeteer-setup.js` | 启动/关闭 Puppeteer 浏览器，连接 WebSocket |
-| `mock-pi.js` | Mock pi API + 模拟事件流 |
-| `rpc-tmux.js` | tmux 驱动的 RPC 客户端（setup/send/read/teardown） |
-| `assertions.js` | 共享断言（等待 UI 元素、验证状态图标、RPC 响应匹配） |
+自动化驱动代码详见 `test/helpers/rpc-tmux.js`。测试用例覆盖：基础连接、get_state、M/L 模式完整流程、bash 命令、异常命令。
 
 ## 8.5 Chaos 测试（疯猴子测试）
 
