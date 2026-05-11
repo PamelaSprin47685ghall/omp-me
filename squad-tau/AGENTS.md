@@ -3,6 +3,8 @@
 在任何操作之前，请仔细通读 PRD/REF-*.md 每个都要全文阅读！切记！
 注意运行 bash 命令和测试必须设置 10s 超时，防止把自己卡住！切记！
 
+**凡是实际测试 omp，一定用 tmux，不要直接在 bash 里跑！**
+
 ## 代码约束
 
 - 超过 40 行的单函数，必须合理拆解成很多函数和模块
@@ -20,7 +22,7 @@
 | `REF-02-oh-tau-mirror.md` | `../oh-tau-mirror/` | 适配层：`proxy.js`(MITM/多会话路由/透明转发)、`index.js`(桥接)、`injected.js`(浏览器注入) |
 | `REF-03-squad-engine.md` | `../squad/` | Squad 引擎：`state-machine.js`(节点状态机)、`review-fsm.js`(执行器)、`dag-engine.js`(DAG)、`outer-review.js`、`model-pool.js`、`squad-fsm.js` |
 | `REF-04-omp-extension-api.md` | `~/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/` + `../shim-packages/` | OMP 扩展 API：`ExtensionAPI`、`sendUserMessage`、`SessionManager`、`createAgentSession`、shim 格式 |
-| `REF-05-plugin-structure.md` | `../block-head-tail/`、`../ollama-search/` | 标准插件结构（`shim.mjs` + `index.js` + `test/`） |
+| `REF-05-plugin-structure.md` | `../block-head-tail/`、`../ollama-search/` | 标准插件结构（`index.js` + `test/`） |
 
 ## 参考网址
 

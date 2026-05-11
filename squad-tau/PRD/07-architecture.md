@@ -6,7 +6,6 @@
 ```
 squad-tau/
 ├── index.js          # 插件入口
-├── shim.mjs          # ESM shim
 ├── server/           # 服务端（Node.js）
 ├── client/           # 前端（React SPA）
 ├── test/             # 测试
@@ -105,7 +104,6 @@ squad-tau/
 
 ```
 Runtime deps:
-  @oh-my-pi/resolve-pi  -- getCodingAgentModule for SessionManager
   ws                     -- WebSocket server (bundled dependency)
   vite                   -- Dev server (bundled dependency)
   @blueprintjs/core      -- UI components
@@ -127,5 +125,5 @@ Dev deps:
 | server/ | ~36 个 JS | ≤200 | 引擎、DAG、节点执行、网络层 |
 | client/ | 21 个 JSX/JS/CSS | ≤200 | 组件、hooks、入口 |
 | test/ | 24 个 JS | ≤200 | unit/integration/e2e + helpers |
-| 根目录 | 4 个 | ≤200 | index.js, shim.mjs, package.json |
-| **总计** | **~82 个文件** | **≤200** | |
+| 根目录 | 3 个 | ≤200 | index.js, package.json, README.md |
+| **总计** | **~81 个文件** | **≤200** | |

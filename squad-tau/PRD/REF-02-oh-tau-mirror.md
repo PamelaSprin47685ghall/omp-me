@@ -53,9 +53,9 @@ MITM Proxy，位于浏览器与 tau-mirror 之间。
 | 覆盖目标 | tau-mirror 全局 `latestCtx`、`handleMirrorSync()` 等 |
 | 功能 | 使浏览器能跟踪和显示多个 session（squad worker/reviewer 会话） |
 
-## `shim.mjs`
+## `index.js`
 
-oh-my-pi 插件标准 shim 导出，格式参考。
+oh-my-pi 插件标准入口，格式参考。
 
 ```javascript
 import { loadPlugin } from '@oh-my-pi/shim';

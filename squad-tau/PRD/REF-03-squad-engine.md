@@ -7,7 +7,6 @@
 ```
 squad/
 ├── index.js              # 插件入口：命令注册、FSM、submit_plan 工具
-├── shim.mjs              # ESM shim
 ├── squad-fsm.js          # Squad FSM (idle / active / revising)
 ├── state-machine.js      # 节点状态机（纯函数）
 ├── review-fsm.js         # 节点执行器（Worker/Reviewer/Confirm 会话）

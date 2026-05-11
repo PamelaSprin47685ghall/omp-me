@@ -45,8 +45,11 @@ function registerSquadCommand(pi, serverPromise) {
     pi.registerCommand('squad', {
         description: 'Start a squad task with multi-agent orchestration',
         async handler(args, ctx) {
-            const task = (args || []).join(' ').trim();
-            if (!task) return pi.sendMessage('Usage: /squad <task description>');
+            const task = typeof args === 'string' ? args.trim() : (args || []).join(' ').trim();
+            if (!task) {
+                pi.sendMessage('Usage: /squad <task description>');
+                return;
+            }
 
             await serverPromise;
             const port = getServerPort();
@@ -58,7 +61,7 @@ function registerSquadCommand(pi, serverPromise) {
             const { signal } = abortController;
             const startTime = Date.now();
 
-            pi.sendMessage(`Squad UI: http://127.0.0.1:${port}`);
+            ctx.ui?.notify(`Squad UI: http://127.0.0.1:${port}`, 'info');
 
             const onComplete = createOnCompleteHandler({ ctx, fsm, eventBus });
 
@@ -125,7 +128,7 @@ async function runSquadSession(pi, ctx, task, fsm, eventBus) {
     try {
         await executeSquadPrompt(session, task, fsm);
     } catch (err) {
-        handleSquadError(ctx, err);
+        handleSquadError(pi, err);
     } finally {
         cleanupSquadSession(unsubSessionEvents, sessionId, fsm);
     }
@@ -191,10 +194,10 @@ ${task}`;
     }
 }
 
-function handleSquadError(ctx, err) {
-    if (err.name === 'AbortError') getCodingAgentModule().then((m) => m.pi.sendMessage('Squad aborted by user'));
+function handleSquadError(pi, err) {
+    if (err.name === 'AbortError') pi.sendMessage('Squad aborted by user');
     else {
-        getCodingAgentModule().then((m) => m.pi.sendMessage(`Squad error: ${err.message}`));
+        pi.sendMessage(`Squad error: ${err.message}`);
         throw err;
     }
 }

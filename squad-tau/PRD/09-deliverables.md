@@ -6,7 +6,7 @@
 - [x] `squad-tau/` 完整源码（server + client + test）
   - [x] 服务端：引擎、DAG 执行器、节点执行、网络层、模型池、基础设施
   - [x] 前端：React SPA、Blueprint.js 组件、hooks
-  - [x] 配置：`package.json`, `shim.mjs`, `README.md`, `SPEC.md`
+  - [x] 配置：`package.json`, `README.md`, `SPEC.md`
 - [x] 单元测试（28 个文件，260+ 用例，Bun Test）
   - [x] 状态机 70 / 事件总线 12 / DAG 排序 12 / DAG 验证 21
   - [x] 模型池基础 7 / 动态 10 / 配置 5

@@ -107,7 +107,7 @@
 
 | API | 用途 |
 |-----|------|
-| `loadPlugin(importMetaUrl)` | 加载插件（相对于 shim.mjs 位置解析 index.js） |
+| `loadPlugin(importMetaUrl)` | 加载插件（相对于插件根目录解析 index.js） |
 | `resolvePluginPath(importMetaUrl)` | 解析插件路径 |
 
 ### `shim-packages/pi-resolve/index.js`

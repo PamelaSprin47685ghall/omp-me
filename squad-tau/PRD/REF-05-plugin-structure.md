@@ -9,7 +9,6 @@
 ```
 block-head-tail/
 ├── index.js       # 插件主体
-├── shim.mjs       # Shim 导出
 ├── test/
 │   └── plugin.test.js
 ├── SPEC.md        # 插件规格
@@ -21,18 +20,10 @@ block-head-tail/
 ```
 ollama-search/
 ├── index.js
-├── shim.mjs
 ├── test/
 │   └── plugin.test.js
 ├── SPEC.md
 └── README.md
-```
-
-### `shim.mjs` 标准模板
-
-```javascript
-import { loadPlugin } from '@oh-my-pi/shim';
-export default loadPlugin(import.meta.url);
 ```
 
 ### `index.js` 标准入口模式
