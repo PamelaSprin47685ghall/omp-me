@@ -25,7 +25,7 @@ export async function routeMessage(msg, modelPool, configModule, eventBus, ws) {
             return true;
 
         case 'session:user_message': {
-            const { sessionId, text } = msg.payload || {};
+            const { sessionId, text, messageId, parentId } = msg.payload || {};
             if (!sessionId || typeof text !== 'string') {
                 ws.send(
                     JSON.stringify({
@@ -54,8 +54,8 @@ export async function routeMessage(msg, modelPool, configModule, eventBus, ws) {
                 sessionId,
                 role: 'user',
                 content: [{ type: 'text', text }],
-                messageId: `user-${Date.now()}`,
-                parentId: msg.payload.parentId,
+                messageId: messageId || `user-${Date.now()}`,
+                parentId: parentId,
                 timestamp: Date.now(),
             });
 

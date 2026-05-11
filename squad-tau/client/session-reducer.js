@@ -28,10 +28,8 @@ function handleSessionMessage(state, payload) {
     const messages = new Map(state.messages);
     const list = messages.get(sessionId) || [];
 
-    // Deduplicate by messageId or by parentId matching an optimistic message
-    const existingIdx = list.findIndex(
-        (msg) => msg.messageId === messageId || (parentId && msg.messageId === parentId),
-    );
+    // Deduplicate by messageId
+    const existingIdx = list.findIndex((msg) => msg.messageId === messageId);
 
     if (existingIdx !== -1) {
         const updated = list.map((msg, i) =>

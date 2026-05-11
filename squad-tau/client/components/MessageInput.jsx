@@ -45,7 +45,7 @@ export function MessageInput({ sessionId, sessionEndReason, send, onOptimisticMe
   const handleSend = useCallback(() => {
     if (!value.trim() || !sessionId || disabled) return;
     const msg = buildOptimisticMessage(sessionId, value.trim());
-    send({ type: 'session:user_message', payload: { sessionId, text: value.trim(), parentId: msg.messageId } });
+    send({ type: 'session:user_message', payload: { sessionId, text: value.trim(), messageId: msg.messageId } });
     onOptimisticMessage(msg);
     setValue('');
   }, [value, sessionId, disabled, send, onOptimisticMessage]);
