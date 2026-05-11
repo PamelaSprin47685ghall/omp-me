@@ -22,7 +22,7 @@ function stubPi() {
     };
 }
 
-describe('system-to-user extension', () => {
+describe('degrade extension', () => {
     it('registers before_provider_request handler', async () => {
         const pi = stubPi();
         await systemToUserExtension(pi);

@@ -1,6 +1,6 @@
-# Oh Rpiv Advisor
+# Deep Think
 
-Escalates to a stronger reviewer model for guidance. Wraps [@juicesharp/rpiv-advisor](https://www.npmjs.com/package/@juicesharp/rpiv-advisor) as an oh-my-pi extension.
+Gives the LLM extra time and depth to think through complex problems. Wraps [@juicesharp/rpiv-advisor](https://www.npmjs.com/package/@juicesharp/rpiv-advisor) as an oh-my-pi extension.
 
 Version: `1.0.0`.
 
@@ -8,14 +8,14 @@ Version: `1.0.0`.
 
 | Capability | Name |
 |---|---|
-| Tool | `advisor` — escalate the current conversation to a stronger reviewer model |
-| Command | `/advisor` — same escalation triggered via slash command |
+| Tool | `deep-think` — spend extra time and depth thinking through complex problems |
+| Command | `/deep-think` — same boost triggered via slash command |
 
 ## How it works
 
-The extension loads `@juicesharp/rpiv-advisor` and bridges its API to oh-my-pi's `ExtensionAPI`. The bridge provides all the methods rpiv-advisor's runtime expects, including `getApiKeyAndHeaders` on the model registry (patched in if missing).
+The extension loads `@juicesharp/rpiv-advisor` and bridges its API to oh-my-pi's `ExtensionAPI`, renaming the tool to `deep-think` so the LLM happily invokes it whenever deeper reasoning is needed.
 
-When invoked, the advisor tool pauses the current agent turn, opens a session with a stronger reviewer model, and returns the reviewer's analysis as context for the agent to continue.
+When invoked, the deep-think tool pauses the current agent turn, spends extra time reasoning through the problem, and returns the analysis as context for the agent to continue.
 
 ### Bridge
 
@@ -33,38 +33,38 @@ The `createBridge` function maps oh-my-pi's `ExtensionAPI` to the `@mariozechner
 
 ## Installation
 
-Place the `oh-rpiv-advisor` directory in one of these locations:
+Place the `deep-think` directory in one of these locations:
 
-1. **Project-level**: `<project-root>/extensions/oh-rpiv-advisor/`
-2. **User-level**: `~/.omp/extensions/oh-rpiv-advisor/`
+1. **Project-level**: `<project-root>/extensions/deep-think/`
+2. **User-level**: `~/.omp/extensions/deep-think/`
 3. **Via settings**: Add extension path in Oh My Pi settings
 
 ```bash
 # Project-level (recommended)
 mkdir -p extensions
-cp -r oh-rpiv-advisor extensions/
+cp -r deep-think extensions/
 
 # Or user-level
 mkdir -p ~/.omp/extensions
-cp -r oh-rpiv-advisor ~/.omp/extensions/
+cp -r deep-think ~/.omp/extensions/
 ```
 
 ## Setup
 
 ```bash
-cd oh-rpiv-advisor
+cd deep-think
 bun install
 ```
 
 ## Usage
 
-The LLM can invoke the `advisor` tool when it needs a stronger model's judgment:
+The LLM can invoke the `deep-think` tool when it wants to boost its reasoning:
 
-- Code review with higher reasoning capacity
+- Deeper code review
 - Complex architectural decisions
 - Security-sensitive analysis
 
-Or trigger it manually via the `/advisor` command.
+Or trigger it manually via the `/deep-think` command.
 
 ## Operational notes
 

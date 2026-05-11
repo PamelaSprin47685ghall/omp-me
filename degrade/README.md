@@ -1,4 +1,4 @@
-# System to User
+# Degrade
 
 Replaces `role: system` with `role: user` in provider request messages. Some providers (e.g. Anthropic) lack a dedicated system role — this extension transparently converts it so messages reach the model as expected.
 
@@ -18,20 +18,20 @@ If the payload has no `input` array (e.g. a `messages`-based completion API path
 
 ## Installation
 
-Place the `system-to-user` directory in one of these locations:
+Place the `degrade` directory in one of these locations:
 
-1. **Project-level**: `<project-root>/extensions/system-to-user/`
-2. **User-level**: `~/.omp/extensions/system-to-user/`
+1. **Project-level**: `<project-root>/extensions/degrade/`
+2. **User-level**: `~/.omp/extensions/degrade/`
 3. **Via settings**: Add extension path in Oh My Pi settings
 
 ```bash
 # Project-level (recommended)
 mkdir -p extensions
-cp -r system-to-user extensions/
+cp -r degrade extensions/
 
 # Or user-level
 mkdir -p ~/.omp/extensions
-cp -r system-to-user ~/.omp/extensions/
+cp -r degrade ~/.omp/extensions/
 ```
 
 ## Setup

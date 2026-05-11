@@ -7,7 +7,7 @@
     "test:squad": "bun test squad/",
     "test:tau": "bun test oh-tau-mirror/",
     "test:advisor": "bun test oh-rpiv-advisor/",
-    "test:s2u": "bun test system-to-user/",
+    "test:s2u": "bun test degrade/",
     "test:head": "bun test block-head-tail/",
     "test:search": "bun test ollama-search/",
     "prepare": "simple-git-hooks",

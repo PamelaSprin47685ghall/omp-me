@@ -1,4 +1,4 @@
-# Oh Rpiv Advisor Spec
+# Deep Think Spec
 
 Version: `1.0.0`.
 
@@ -8,8 +8,8 @@ Version: `1.0.0`.
 
 | Capability | Detail |
 |---|---|
-| Tool | `advisor` — escalate to stronger reviewer model |
-| Command | `/advisor` — same escalation via slash command |
+| Tool | `deep-think` — spend extra time and depth thinking through complex problems |
+| Command | `/deep-think` — same boost via slash command |
 | Internal | Patches `ModelRegistry.prototype.getApiKeyAndHeaders` if missing |
 
 ## Bridge contract
@@ -95,7 +95,7 @@ async function getApiKeyAndHeaders(model) {
 
 ## Dependencies
 
-- `@juicesharp/rpiv-advisor` (^1.1.5) — the advisor engine.
+- `@juicesharp/rpiv-advisor` (^1.1.5) — the deep think engine.
 - `@sinclair/typebox` (^0.34.0) — type schema.
 - Shim packages (local): `@mariozechner/pi-ai`, `@mariozechner/pi-coding-agent`, `@mariozechner/pi-tui`, `typebox`.
 

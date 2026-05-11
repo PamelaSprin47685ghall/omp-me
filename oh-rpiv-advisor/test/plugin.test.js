@@ -1,5 +1,5 @@
 /**
- * Tests for oh-rpiv-advisor — the oh-my-pi adaptor for @juicesharp/rpiv-advisor.
+ * Tests for deep-think — the oh-my-pi adaptor for @juicesharp/rpiv-advisor.
  */
 
 import { describe, it } from 'bun:test';
@@ -78,10 +78,10 @@ describe('createBridge', () => {
         const pi = { on: () => {}, registerTool: (t) => tools.push(t.name), typebox: {} };
 
         const bridge = createBridge(pi, {});
-        bridge.registerTool({ name: 'advisor' });
+        bridge.registerTool({ name: 'deep-think' });
 
         assert.equal(tools.length, 1);
-        assert.equal(tools[0], 'advisor');
+        assert.equal(tools[0], 'deep-think');
     });
 
     it('forwards registerCommand', async () => {
@@ -91,10 +91,10 @@ describe('createBridge', () => {
         const pi = { on: () => {}, registerCommand: (n) => cmds.push(n), typebox: {} };
 
         const bridge = createBridge(pi, {});
-        bridge.registerCommand('advisor', {});
+        bridge.registerCommand('deep-think', {});
 
         assert.equal(cmds.length, 1);
-        assert.equal(cmds[0], 'advisor');
+        assert.equal(cmds[0], 'deep-think');
     });
 
     it('forwards on() for supported events', async () => {
@@ -245,8 +245,8 @@ describe('createBridge', () => {
         const bridge = createBridge(pi, {});
         assert.deepEqual(bridge.getActiveTools(), []);
         assert.deepEqual(bridge.getAllTools(), ['a', 'b']);
-        bridge.setActiveTools(['advisor']);
-        assert.deepEqual(active, ['advisor']);
+        bridge.setActiveTools(['deep-think']);
+        assert.deepEqual(active, ['deep-think']);
     });
 
     it('forwards setLabel', async () => {
@@ -260,9 +260,9 @@ describe('createBridge', () => {
         };
 
         const bridge = createBridge(pi, {});
-        bridge.setLabel('oh-rpiv-advisor');
+        bridge.setLabel('deep-think');
 
         assert.equal(labels.length, 1);
-        assert.equal(labels[0], 'oh-rpiv-advisor');
+        assert.equal(labels[0], 'deep-think');
     });
 });
