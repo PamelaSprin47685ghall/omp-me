@@ -9,73 +9,68 @@ function createInitialState() {
     };
 }
 
+function handleSquadInit(state, payload) {
+    const { mode, nodes, originalTask } = payload;
+    const nodeMap = new Map();
+    nodes.forEach((node) => {
+        nodeMap.set(node.id, {
+            ...node,
+            status: node.depends_on?.length ? 'waiting_deps' : 'pending',
+            retryCount: 0,
+        });
+    });
+    return {
+        ...state,
+        squad: { mode, originalTask },
+        nodes: nodeMap,
+        results: null,
+        outerReview: null,
+    };
+}
+
+function handleNodeState(state, payload) {
+    const { nodeId, status, retryCount, summary, affectedFiles } = payload;
+    const updatedNodes = new Map(state.nodes);
+    const existing = updatedNodes.get(nodeId);
+    if (existing) {
+        updatedNodes.set(nodeId, {
+            ...existing,
+            status,
+            retryCount,
+            summary,
+            affectedFiles,
+        });
+    }
+    return { ...state, nodes: updatedNodes };
+}
+
+function handleOuterReview(state, action) {
+    if (action.type === 'OUTER_REVIEW_START') {
+        return {
+            ...state,
+            outerReview: { round: action.payload.round, verdict: null, feedback: null },
+        };
+    }
+    const { round, verdict, feedback } = action.payload;
+    return {
+        ...state,
+        outerReview: { round, verdict, feedback },
+    };
+}
+
 function squadReducer(state, action) {
     switch (action.type) {
-        case 'SQUAD_INIT': {
-            const { mode, nodes, originalTask } = action.payload;
-            const nodeMap = new Map();
-            nodes.forEach((node) => {
-                nodeMap.set(node.id, {
-                    ...node,
-                    status: node.depends_on?.length ? 'waiting_deps' : 'pending',
-                    retryCount: 0,
-                });
-            });
-            return {
-                ...state,
-                squad: { mode, originalTask },
-                nodes: nodeMap,
-                results: null,
-                outerReview: null,
-            };
-        }
-
-        case 'NODE_STATE': {
-            const { nodeId, status, retryCount, summary, affectedFiles } = action.payload;
-            const updatedNodes = new Map(state.nodes);
-            const existing = updatedNodes.get(nodeId);
-            if (existing) {
-                updatedNodes.set(nodeId, {
-                    ...existing,
-                    status,
-                    retryCount,
-                    summary,
-                    affectedFiles,
-                });
-            }
-            return { ...state, nodes: updatedNodes };
-        }
-
-        case 'SQUAD_COMPLETE': {
-            const { results } = action.payload;
-            return { ...state, results };
-        }
-
-        case 'OUTER_REVIEW_START': {
-            const { round } = action.payload;
-            return {
-                ...state,
-                outerReview: { round, verdict: null, feedback: null },
-            };
-        }
-
-        case 'OUTER_REVIEW_RESULT': {
-            const { round, verdict, feedback } = action.payload;
-            return {
-                ...state,
-                outerReview: { round, verdict, feedback },
-            };
-        }
-
-        case 'SQUAD_ABORT': {
-            return {
-                squad: null,
-                nodes: new Map(),
-                results: null,
-                outerReview: null,
-            };
-        }
-
+        case 'SQUAD_INIT':
+            return handleSquadInit(state, action.payload);
+        case 'NODE_STATE':
+            return handleNodeState(state, action.payload);
+        case 'SQUAD_COMPLETE':
+            return { ...state, results: action.payload.results };
+        case 'OUTER_REVIEW_START':
+        case 'OUTER_REVIEW_RESULT':
+            return handleOuterReview(state, action);
+        case 'SQUAD_ABORT':
+            return createInitialState();
         default:
             return state;
     }

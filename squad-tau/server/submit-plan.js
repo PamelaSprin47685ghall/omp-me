@@ -4,6 +4,13 @@ import fs from 'fs';
 import path from 'path';
 
 function readNodesFromDir(plan_dir) {
+    const tomlFiles = listTomlFiles(plan_dir);
+    const nodes = tomlFiles.map((file) => parseTomlNode(plan_dir, file));
+    const mode = nodes.length === 1 ? 'M' : 'L';
+    return { nodes, mode };
+}
+
+function listTomlFiles(plan_dir) {
     let entries;
     try {
         entries = fs.readdirSync(plan_dir);
@@ -14,31 +21,29 @@ function readNodesFromDir(plan_dir) {
     if (tomlFiles.length === 0) {
         throw new Error(`No .toml files found in ${plan_dir}`);
     }
-    const nodes = [];
-    for (const file of tomlFiles) {
-        const filePath = path.join(plan_dir, file);
-        let content;
-        try {
-            content = fs.readFileSync(filePath, 'utf8');
-        } catch (err) {
-            throw new Error(`Failed to read ${file}: ${err.message}`);
-        }
-        let parsed;
-        try {
-            parsed = Bun.TOML.parse(content);
-        } catch (err) {
-            throw new Error(`Invalid TOML in ${file}: ${err.message}`);
-        }
-        const id = path.basename(file, '.toml');
-        nodes.push({
-            id,
-            task: parsed.task,
-            depends_on: parsed.depends_on || [],
-            review_criteria: parsed.review_criteria || [],
-        });
+    return tomlFiles;
+}
+
+function parseTomlNode(plan_dir, file) {
+    const filePath = path.join(plan_dir, file);
+    let content;
+    try {
+        content = fs.readFileSync(filePath, 'utf8');
+    } catch (err) {
+        throw new Error(`Failed to read ${file}: ${err.message}`);
     }
-    const mode = nodes.length === 1 ? 'M' : 'L';
-    return { nodes, mode };
+    let parsed;
+    try {
+        parsed = Bun.TOML.parse(content);
+    } catch (err) {
+        throw new Error(`Invalid TOML in ${file}: ${err.message}`);
+    }
+    return {
+        id: path.basename(file, '.toml'),
+        task: parsed.task,
+        depends_on: parsed.depends_on || [],
+        review_criteria: parsed.review_criteria || [],
+    };
 }
 
 function buildNodeResults(results) {
@@ -123,18 +128,7 @@ async function finalize({
     };
 }
 
-function createDelegateHandler({
-    fsm,
-    executeDAG,
-    ctx,
-    pi,
-    signal,
-    eventBus,
-    modelPool,
-    onComplete,
-    originalTask,
-    startTime,
-}) {
+function createDelegateHandler(deps) {
     return {
         name: 'delegate',
         description: 'Delegate execution by reading plan nodes from a directory of .toml files',
@@ -146,6 +140,7 @@ function createDelegateHandler({
             required: ['plan_dir'],
         },
         handler: async ({ plan_dir }) => {
+            const { fsm, eventBus, originalTask } = deps;
             const currentState = fsm.getState();
             if (currentState !== 'active') {
                 throw new Error(`Cannot delegate in state: ${currentState}. Must be active.`);
@@ -153,27 +148,19 @@ function createDelegateHandler({
             const { nodes, mode } = readNodesFromDir(plan_dir);
             validatePlan({ mode, nodes });
             if (eventBus) eventBus.emit('squad', 'init', { mode, nodes, originalTask: originalTask || '' });
-            try {
-                const results = await executeDAG({ nodes, ctx, pi, signal, eventBus, modelPool });
-                return await finalize({
-                    results,
-                    mode,
-                    nodes,
-                    fsm,
-                    startTime,
-                    onComplete,
-                    originalTask,
-                    ctx,
-                    pi,
-                    signal,
-                    eventBus,
-                    modelPool,
-                });
-            } catch (error) {
-                throw new Error(`DAG execution failed: ${error.message}`);
-            }
+            return await runDelegate({ nodes, mode, ...deps });
         },
     };
+}
+
+async function runDelegate(deps) {
+    const { nodes, mode, executeDAG, ctx, pi, signal, eventBus, modelPool } = deps;
+    try {
+        const results = await executeDAG({ nodes, ctx, pi, signal, eventBus, modelPool });
+        return await finalize({ results, ...deps });
+    } catch (error) {
+        throw new Error(`DAG execution failed: ${error.message}`);
+    }
 }
 
 export { createDelegateHandler };

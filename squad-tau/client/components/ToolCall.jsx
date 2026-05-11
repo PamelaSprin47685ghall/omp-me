@@ -68,6 +68,52 @@ function formatJson(value) {
   }
 }
 
+function ToolHeader({ expanded, onToggle, toolName, hasResult, isError }) {
+  const expandIcon = expanded ? IconNames.CHEVRON_DOWN : IconNames.CHEVRON_RIGHT;
+  return (
+    <div style={HEADER_STYLE} onClick={onToggle} role="button" tabIndex={0}>
+      <Icon icon={expandIcon} size={14} />
+      <Icon icon={IconNames.CODE_BLOCK} size={14} />
+      <span style={{ fontWeight: 600 }}>{toolName}</span>
+      {!hasResult && <Spinner size={14} />}
+      {isError && <Icon icon={IconNames.ERROR} intent="danger" size={14} />}
+    </div>
+  );
+}
+
+function ToolResultSection({ hasResult, isError, open, onToggle, result }) {
+  if (!hasResult) return null;
+  return (
+    <>
+      <div style={SECTION_HEADER_STYLE} onClick={onToggle} role="button" tabIndex={0}>
+        <Icon icon={open ? IconNames.CHEVRON_DOWN : IconNames.CHEVRON_RIGHT} size={12} />
+        <Icon icon={isError ? IconNames.ERROR : IconNames.TICK} size={12} />
+        <span style={{ fontSize: '12px', fontWeight: 600 }}>Result</span>
+      </div>
+      <Collapse isOpen={open}>
+        <pre style={isError ? { ...JSON_STYLE, ...ERROR_STYLE } : JSON_STYLE}>
+          {formatJson(result)}
+        </pre>
+      </Collapse>
+    </>
+  );
+}
+
+function ToolParamsSection({ open, onToggle, params }) {
+  return (
+    <>
+      <div style={SECTION_HEADER_STYLE} onClick={onToggle} role="button" tabIndex={0}>
+        <Icon icon={open ? IconNames.CHEVRON_DOWN : IconNames.CHEVRON_RIGHT} size={12} />
+        <Icon icon={IconNames.PROPERTIES} size={12} />
+        <span style={{ fontSize: '12px', fontWeight: 600 }}>Parameters</span>
+      </div>
+      <Collapse isOpen={open}>
+        <pre style={JSON_STYLE}>{formatJson(params)}</pre>
+      </Collapse>
+    </>
+  );
+}
+
 /**
  * Tool call card renderer.
  * @param {ToolCallProps} props
@@ -84,48 +130,29 @@ export default function ToolCall({ toolCall, toolResult, isLatest, borderColor }
   const toggleParams = useCallback(() => setParamsOpen((v) => !v), []);
   const toggleResult = useCallback(() => setResultOpen((v) => !v), []);
 
-  const expandIcon = expanded ? IconNames.CHEVRON_DOWN : IconNames.CHEVRON_RIGHT;
-
   return (
     <Card style={CARD_STYLE(borderColor)} compact>
-      <div style={HEADER_STYLE} onClick={toggleExpanded} role="button" tabIndex={0}>
-        <Icon icon={expandIcon} size={14} />
-        <Icon icon={IconNames.CODE_BLOCK} size={14} />
-        <span style={{ fontWeight: 600 }}>{toolCall.toolName}</span>
-        {!hasResult && <Spinner size={14} />}
-        {isError && <Icon icon={IconNames.ERROR} intent="danger" size={14} />}
-      </div>
-
+      <ToolHeader
+        expanded={expanded}
+        onToggle={toggleExpanded}
+        toolName={toolCall.toolName}
+        hasResult={hasResult}
+        isError={isError}
+      />
       <Collapse isOpen={expanded}>
         <div style={SECTION_BODY_STYLE}>
-          <div style={SECTION_HEADER_STYLE} onClick={toggleParams} role="button" tabIndex={0}>
-            <Icon icon={paramsOpen ? IconNames.CHEVRON_DOWN : IconNames.CHEVRON_RIGHT} size={12} />
-            <Icon icon={IconNames.PROPERTIES} size={12} />
-            <span style={{ fontSize: '12px', fontWeight: 600 }}>Parameters</span>
-          </div>
-          <Collapse isOpen={paramsOpen}>
-            <pre style={JSON_STYLE}>{formatJson(toolCall.params)}</pre>
-          </Collapse>
-
-          {hasResult && (
-            <>
-              <div
-                style={SECTION_HEADER_STYLE}
-                onClick={toggleResult}
-                role="button"
-                tabIndex={0}
-              >
-                <Icon icon={resultOpen ? IconNames.CHEVRON_DOWN : IconNames.CHEVRON_RIGHT} size={12} />
-                <Icon icon={isError ? IconNames.ERROR : IconNames.TICK} size={12} />
-                <span style={{ fontSize: '12px', fontWeight: 600 }}>Result</span>
-              </div>
-              <Collapse isOpen={resultOpen}>
-                <pre style={isError ? { ...JSON_STYLE, ...ERROR_STYLE } : JSON_STYLE}>
-                  {formatJson(toolResult.result)}
-                </pre>
-              </Collapse>
-            </>
-          )}
+          <ToolParamsSection
+            open={paramsOpen}
+            onToggle={toggleParams}
+            params={toolCall.params}
+          />
+          <ToolResultSection
+            hasResult={hasResult}
+            isError={isError}
+            open={resultOpen}
+            onToggle={toggleResult}
+            result={toolResult?.result}
+          />
         </div>
       </Collapse>
     </Card>

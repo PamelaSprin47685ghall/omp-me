@@ -36,12 +36,26 @@ const FLOAT_BTN_STYLE = {
   zIndex: 100,
 };
 
+const ScrollButton = ({ visible, onClick }) => {
+  if (!visible) return null;
+  return (
+    <div style={FLOAT_BTN_STYLE}>
+      <Button
+        icon={<Icon icon={IconNames.ARROW_DOWN} size={16} />}
+        onClick={onClick}
+        minimal
+        large
+        title="Scroll to latest message"
+      />
+    </div>
+  );
+};
+
 export default function MessageList({ messages, sessionRole, deltas = [], toolCalls = [], toolResults = [] }) {
   const containerRef = useRef(null);
-
   const { isAtBottom, scrollToBottom } = useAutoScroll(containerRef, [messages, deltas]);
 
-  if (!messages || messages.length === 0) {
+  if (!messages?.length) {
     return (
       <div style={CONTAINER_STYLE} ref={containerRef}>
         <div style={EMPTY_STYLE}>No messages yet</div>
@@ -62,18 +76,7 @@ export default function MessageList({ messages, sessionRole, deltas = [], toolCa
           />
         </div>
       ))}
-
-      {!isAtBottom && (
-        <div style={FLOAT_BTN_STYLE}>
-          <Button
-            icon={<Icon icon={IconNames.ARROW_DOWN} size={16} />}
-            onClick={scrollToBottom}
-            minimal
-            large
-            title="Scroll to latest message"
-          />
-        </div>
-      )}
+      <ScrollButton visible={!isAtBottom} onClick={scrollToBottom} />
     </div>
   );
 }

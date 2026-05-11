@@ -1,49 +1,59 @@
 function subscribeToSessionEvents(session, eventBus, sessionId) {
     return session.subscribe((event) => {
         if (event.type === 'message_update') {
-            const assistantEvent = event.assistantMessageEvent;
-            if (assistantEvent.type === 'text_delta') {
-                eventBus.emit('session', 'message_delta', {
-                    sessionId,
-                    messageId: event.message.id,
-                    delta: {
-                        type: 'text_delta',
-                        text: assistantEvent.delta,
-                    },
-                });
-            } else if (assistantEvent.type === 'thinking_delta') {
-                eventBus.emit('session', 'message_delta', {
-                    sessionId,
-                    messageId: event.message.id,
-                    delta: {
-                        type: 'thinking_delta',
-                        text: assistantEvent.delta,
-                    },
-                });
-            }
+            handleMessageUpdate(event, eventBus, sessionId);
         } else if (event.type === 'tool_execution_start') {
-            eventBus.emit('session', 'tool_call', {
-                sessionId,
-                toolName: event.toolName,
-                toolId: event.toolCallId,
-                params: event.args,
-            });
+            handleToolStart(event, eventBus, sessionId);
         } else if (event.type === 'tool_execution_end') {
-            eventBus.emit('session', 'tool_result', {
-                sessionId,
-                toolId: event.toolCallId,
-                result: event.result,
-                isError: event.isError || false,
-            });
+            handleToolEnd(event, eventBus, sessionId);
         } else if (event.type === 'message_end') {
-            eventBus.emit('session', 'message', {
-                sessionId,
-                role: event.message.role,
-                content: event.message.content,
-                messageId: event.message.id,
-                parentId: event.message.parentId,
-            });
+            handleMessageEnd(event, eventBus, sessionId);
         }
+    });
+}
+
+function handleMessageUpdate(event, eventBus, sessionId) {
+    const assistantEvent = event.assistantMessageEvent;
+    if (assistantEvent.type === 'text_delta') {
+        eventBus.emit('session', 'message_delta', {
+            sessionId,
+            messageId: event.message.id,
+            delta: { type: 'text_delta', text: assistantEvent.delta },
+        });
+    } else if (assistantEvent.type === 'thinking_delta') {
+        eventBus.emit('session', 'message_delta', {
+            sessionId,
+            messageId: event.message.id,
+            delta: { type: 'thinking_delta', text: assistantEvent.delta },
+        });
+    }
+}
+
+function handleToolStart(event, eventBus, sessionId) {
+    eventBus.emit('session', 'tool_call', {
+        sessionId,
+        toolName: event.toolName,
+        toolId: event.toolCallId,
+        params: event.args,
+    });
+}
+
+function handleToolEnd(event, eventBus, sessionId) {
+    eventBus.emit('session', 'tool_result', {
+        sessionId,
+        toolId: event.toolCallId,
+        result: event.result,
+        isError: event.isError || false,
+    });
+}
+
+function handleMessageEnd(event, eventBus, sessionId) {
+    eventBus.emit('session', 'message', {
+        sessionId,
+        role: event.message.role,
+        content: event.message.content,
+        messageId: event.message.id,
+        parentId: event.message.parentId,
     });
 }
 

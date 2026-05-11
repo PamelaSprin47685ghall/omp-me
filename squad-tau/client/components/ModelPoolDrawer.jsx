@@ -25,28 +25,116 @@ function SelectField({ label, value, onChange, options }) {
   );
 }
 
-export default function ModelPoolDrawer({ isOpen, onClose, slots, onUpdateSlot }) {
+function AddSlotForm({ onAdd }) {
   const [provider, setProvider] = useState('');
   const [modelId, setModelId] = useState('');
   const [role, setRole] = useState('');
   const [thinkingLevel, setThinkingLevel] = useState('');
-  const [editingIndex, setEditingIndex] = useState(null);
-  const [editingThinkingLevel, setEditingThinkingLevel] = useState('');
-  const [deleteIndex, setDeleteIndex] = useState(null);
 
   const handleAdd = () => {
     if (!provider || !modelId || !role) return;
-    onUpdateSlot('add', { provider, modelId, role, thinkingLevel: thinkingLevel || 'none', inUse: false });
+    onAdd({ provider, modelId, role, thinkingLevel: thinkingLevel || 'none', inUse: false });
     setProvider('');
     setModelId('');
     setRole('');
     setThinkingLevel('');
   };
 
-  const handleEditStart = (index, currentLevel) => {
-    setEditingIndex(index);
-    setEditingThinkingLevel(currentLevel);
-  };
+  const disabled = !provider || !modelId || !role;
+
+  return (
+    <div style={ADD_FORM_STYLE}>
+      <SelectField label="Provider" value={provider} onChange={setProvider} options={PROVIDERS} />
+      <div style={{ ...FORM_FIELD_STYLE, flex: 1 }}>
+        <label style={LABEL_STYLE}>Model ID</label>
+        <InputGroup value={modelId} onChange={(e) => setModelId(e.target.value)} placeholder="e.g. claude-3-5-sonnet" />
+      </div>
+      <SelectField label="Role" value={role} onChange={setRole} options={ROLES} />
+      <SelectField label="Thinking Level" value={thinkingLevel} onChange={setThinkingLevel} options={THINKING_LEVELS} />
+      <Button icon={IconNames.ADD} intent="primary" onClick={handleAdd} disabled={disabled} />
+    </div>
+  );
+}
+
+function SlotActions({ index, onEdit, onDelete, disabled }) {
+  return (
+    <td>
+      <Button icon={IconNames.EDIT} small minimal onClick={() => onEdit(index)} disabled={disabled} />
+      <Button icon={IconNames.TRASH} small minimal intent="danger" onClick={() => onDelete(index)} />
+    </td>
+  );
+}
+
+function SlotRow({ slot, index, isEditing, editingLevel, setEditingLevel, onSave, onCancel, onEdit, onDelete }) {
+  return (
+    <tr key={index}>
+      <td>{slot.provider}</td>
+      <td>{slot.modelId}</td>
+      <td>{slot.role}</td>
+      <td>
+        {isEditing ? (
+          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+            <HTMLSelect
+              value={editingLevel}
+              onChange={(e) => setEditingLevel(e.target.value)}
+              options={THINKING_LEVELS.map(t => ({ label: t, value: t }))}
+            />
+            <Button icon={IconNames.TICK} small intent="success" onClick={() => onSave(index)} />
+            <Button icon={IconNames.CROSS} small onClick={onCancel} />
+          </div>
+        ) : slot.thinkingLevel}
+      </td>
+      <td>{slot.inUse ? '✓' : '✗'}</td>
+      <SlotActions index={index} onEdit={onEdit} onDelete={onDelete} disabled={isEditing} />
+    </tr>
+  );
+}
+
+function SlotTable({ slots, editingIndex, editingLevel, setEditingLevel, onSave, onCancel, onEdit, onDelete }) {
+  if (slots.length === 0) {
+    return <div style={EMPTY_STYLE}>No models configured. Add one above.</div>;
+  }
+  return (
+    <div style={TABLE_CONTAINER_STYLE}>
+      <HTMLTable striped interactive style={{ width: '100%' }}>
+        <thead>
+          <tr>
+            <th>Provider</th><th>Model ID</th><th>Role</th>
+            <th>Thinking Level</th><th>In Use</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {slots.map((slot, index) => (
+            <SlotRow
+              key={index} slot={slot} index={index}
+              isEditing={editingIndex === index}
+              editingLevel={editingLevel} setEditingLevel={setEditingLevel}
+              onSave={onSave} onCancel={onCancel}
+              onEdit={() => onEdit(index, slot.thinkingLevel)} onDelete={onDelete}
+            />
+          ))}
+        </tbody>
+      </HTMLTable>
+    </div>
+  );
+}
+
+function DeleteAlert({ index, onClose, onConfirm }) {
+  return (
+    <Alert
+      isOpen={index !== null} onClose={onClose} onConfirm={onConfirm}
+      intent="danger" icon={IconNames.TRASH}
+      confirmButtonText="Delete" cancelButtonText="Cancel"
+    >
+      <p>Are you sure you want to delete this model slot?</p>
+    </Alert>
+  );
+}
+
+export default function ModelPoolDrawer({ isOpen, onClose, slots, onUpdateSlot }) {
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editingThinkingLevel, setEditingThinkingLevel] = useState('');
+  const [deleteIndex, setDeleteIndex] = useState(null);
 
   const handleEditSave = (index) => {
     onUpdateSlot('edit', { ...slots[index], thinkingLevel: editingThinkingLevel }, index);
@@ -62,80 +150,19 @@ export default function ModelPoolDrawer({ isOpen, onClose, slots, onUpdateSlot }
     <>
       <Drawer isOpen={isOpen} onClose={onClose} title="Model Pool Configuration" size="600px" position="right">
         <div style={{ padding: '16px' }}>
-          <div style={ADD_FORM_STYLE}>
-            <SelectField label="Provider" value={provider} onChange={setProvider} options={PROVIDERS} />
-            <div style={{ ...FORM_FIELD_STYLE, flex: 1 }}>
-              <label style={LABEL_STYLE}>Model ID</label>
-              <InputGroup value={modelId} onChange={(e) => setModelId(e.target.value)} placeholder="e.g. claude-3-5-sonnet" />
-            </div>
-            <SelectField label="Role" value={role} onChange={setRole} options={ROLES} />
-            <SelectField label="Thinking Level" value={thinkingLevel} onChange={setThinkingLevel} options={THINKING_LEVELS} />
-            <Button icon={IconNames.ADD} intent="primary" onClick={handleAdd} disabled={!provider || !modelId || !role} />
-          </div>
-
-          <div style={TABLE_CONTAINER_STYLE}>
-            {slots.length === 0 ? (
-              <div style={EMPTY_STYLE}>No models configured. Add one above.</div>
-            ) : (
-              <HTMLTable striped interactive style={{ width: '100%' }}>
-                <thead>
-                  <tr>
-                    <th>Provider</th>
-                    <th>Model ID</th>
-                    <th>Role</th>
-                    <th>Thinking Level</th>
-                    <th>In Use</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {slots.map((slot, index) => (
-                    <tr key={index}>
-                      <td>{slot.provider}</td>
-                      <td>{slot.modelId}</td>
-                      <td>{slot.role}</td>
-                      <td>
-                        {editingIndex === index ? (
-                          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-                            <HTMLSelect
-                              value={editingThinkingLevel}
-                              onChange={(e) => setEditingThinkingLevel(e.target.value)}
-                              options={THINKING_LEVELS.map(t => ({ label: t, value: t }))}
-                            />
-                            <Button icon={IconNames.TICK} small intent="success" onClick={() => handleEditSave(index)} />
-                            <Button icon={IconNames.CROSS} small onClick={() => setEditingIndex(null)} />
-                          </div>
-                        ) : (
-                          slot.thinkingLevel
-                        )}
-                      </td>
-                      <td>
-                        {slot.inUse ? '✓' : '✗'}
-                      </td>
-                      <td>
-                        <Button icon={IconNames.EDIT} small minimal onClick={() => handleEditStart(index, slot.thinkingLevel)} disabled={editingIndex !== null} />
-                        <Button icon={IconNames.TRASH} small minimal intent="danger" onClick={() => setDeleteIndex(index)} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </HTMLTable>
-            )}
-          </div>
+          <AddSlotForm onAdd={(data) => onUpdateSlot('add', data)} />
+          <SlotTable
+            slots={slots} editingIndex={editingIndex}
+            editingLevel={editingThinkingLevel} setEditingLevel={setEditingThinkingLevel}
+            onSave={handleEditSave} onCancel={() => setEditingIndex(null)}
+            onEdit={(idx, lvl) => { setEditingIndex(idx); setEditingThinkingLevel(lvl); }}
+            onDelete={setDeleteIndex}
+          />
         </div>
       </Drawer>
-
-      <Alert
-        isOpen={deleteIndex !== null}
-        onClose={() => setDeleteIndex(null)}
-        onConfirm={handleDeleteConfirm}
-        intent="danger"
-        icon={IconNames.TRASH}
-        confirmButtonText="Delete"
-        cancelButtonText="Cancel"
-      >
-        <p>Are you sure you want to delete this model slot?</p>
-      </Alert>
+      <DeleteAlert index={deleteIndex} onClose={() => setDeleteIndex(null)} onConfirm={handleDeleteConfirm} />
     </>
   );
 }
+
+

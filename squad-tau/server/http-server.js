@@ -39,27 +39,30 @@ function createBasicApp() {
 
     const app = (req, res) => {
         let index = 0;
-
         const next = (err) => {
-            if (err) {
-                res.writeHead(500, { 'Content-Type': 'text/plain' });
-                res.end('Internal Server Error');
-                return;
-            }
-
-            if (index >= middlewares.length) {
-                res.writeHead(404, { 'Content-Type': 'text/plain' });
-                res.end('Not Found');
-                return;
-            }
-
+            if (err) return handleMiddlewareError(res);
+            if (index >= middlewares.length) return handleNotFound(res);
             const middleware = middlewares[index++];
             middleware(req, res, next);
         };
-
         next();
     };
 
+    setupAppMethods(app, middlewares);
+    return app;
+}
+
+function handleMiddlewareError(res) {
+    res.writeHead(500, { 'Content-Type': 'text/plain' });
+    res.end('Internal Server Error');
+}
+
+function handleNotFound(res) {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not Found');
+}
+
+function setupAppMethods(app, middlewares) {
     app.use = (middleware) => {
         middlewares.push(middleware);
     };
@@ -73,8 +76,6 @@ function createBasicApp() {
             }
         });
     };
-
-    return app;
 }
 
 async function allocatePort(server) {

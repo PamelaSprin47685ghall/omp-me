@@ -36,7 +36,7 @@ function getNodeAtPath(nodes, path) {
   return current;
 }
 
-export default function SessionTree({ nodes, activeSessionId, onNodeClick }) {
+function useTreeHandlers(nodes, activeSessionId, onNodeClick) {
   const [contents, setContents] = useState(() => 
     nodes.map(n => enrichNode(n, activeSessionId))
   );
@@ -47,28 +47,33 @@ export default function SessionTree({ nodes, activeSessionId, onNodeClick }) {
   
   const handleNodeClick = useCallback((nodeData, nodePath) => {
     const node = getNodeAtPath(contents, nodePath);
-    if (node.sessionId) {
-      onNodeClick(node.sessionId);
-    }
+    if (node.sessionId) onNodeClick(node.sessionId);
   }, [contents, onNodeClick]);
   
-  const handleNodeCollapse = useCallback((nodeData, nodePath) => {
+  const updateNode = useCallback((nodePath, isExpanded) => {
     setContents(curr => {
       const updated = [...curr];
       const node = getNodeAtPath(updated, nodePath);
-      if (node) node.isExpanded = false;
+      if (node) node.isExpanded = isExpanded;
       return updated;
     });
   }, []);
-  
-  const handleNodeExpand = useCallback((nodeData, nodePath) => {
-    setContents(curr => {
-      const updated = [...curr];
-      const node = getNodeAtPath(updated, nodePath);
-      if (node) node.isExpanded = true;
-      return updated;
-    });
-  }, []);
+
+  return {
+    contents,
+    handleNodeClick,
+    handleNodeCollapse: (d, p) => updateNode(p, false),
+    handleNodeExpand: (d, p) => updateNode(p, true)
+  };
+}
+
+export default function SessionTree({ nodes, activeSessionId, onNodeClick }) {
+  const {
+    contents,
+    handleNodeClick,
+    handleNodeCollapse,
+    handleNodeExpand
+  } = useTreeHandlers(nodes, activeSessionId, onNodeClick);
   
   return (
     <Tree

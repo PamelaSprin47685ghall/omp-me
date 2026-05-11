@@ -1,5 +1,5 @@
 import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
-import { buildReviewerPrompt } from './run-reviewer-prompt.js';
+import { buildReviewerPrompt as getReviewerPrompt } from './run-reviewer-prompt.js';
 import { REVIEWER_MAX_EMPTY, createCounter } from './empty-turns.js';
 import { buildBaseSessionOptions } from './session-options.js';
 import { register, unregister, setReturnResolver, clearReturnResolver } from './session-registry.js';
@@ -11,120 +11,92 @@ function emitSessionEnd(eventBus, sessionId, phase, reason, errorMessage) {
     eventBus.emit('session', 'end', { sessionId, reason, errorMessage });
 }
 
-async function runReviewer({ node, workerResult, ctx, pi, signal, eventBus, modelSlot }) {
-    const createAgentSession = pi?.pi?.createAgentSession;
-    if (!createAgentSession) {
-        throw new Error('squad: createAgentSession unavailable — is the coding-agent loaded?');
-    }
-
+async function setupReviewerSession({ node, ctx, pi, modelSlot, eventBus, state }) {
     const { SessionManager } = await getCodingAgentModule();
-
     const options = buildBaseSessionOptions(ctx, pi, modelSlot);
     options.toolNames = ['read', 'search', 'find', 'lsp', 'bash'];
+    const sessionOpts = { ...options, sessionManager: SessionManager.create(options.cwd) };
+    const factoryResult = await pi.pi.createAgentSession(sessionOpts);
+    const session = factoryResult.session;
+    const sessionId = session.sessionFile;
 
-    const promptText = buildReviewerPrompt({ node, workerResult });
+    register(sessionId, {
+        sendUserMessage: (text) => session.prompt(text),
+        session,
+        status: 'reviewing',
+    });
 
+    setReturnResolver(sessionId, (params) => {
+        state.settled = true;
+        state.outcomeResolve({ approved: params.status === 'ok', reason: params.reason });
+    });
+
+    if (eventBus) {
+        eventBus.emit('session', 'start', {
+            sessionId,
+            nodeId: node.id,
+            phase: 'reviewer',
+            model: options.model ? { provider: options.model.provider, id: options.model.id } : undefined,
+        });
+        eventBus.emit('session', 'state', { sessionId, phase: 'reviewing' });
+        state.unsub = subscribeToSessionEvents(session, eventBus, sessionId);
+    }
+    return { session, sessionId };
+}
+
+async function pollReviewerSettled(session, state, childAbort) {
+    const emptyCounter = createCounter(REVIEWER_MAX_EMPTY);
+    while (!state.settled) {
+        if (childAbort.signal.aborted) break;
+        while (session.isStreaming) {
+            await new Promise((r) => setTimeout(r, 200));
+            if (state.settled || childAbort.signal.aborted) break;
+        }
+        if (state.settled || childAbort.signal.aborted) break;
+        emptyCounter.increment();
+        if (emptyCounter.exceeded()) {
+            throw new Error(`Reviewer ended without calling return after ${REVIEWER_MAX_EMPTY} empty turns`);
+        }
+        await session.prompt('ERROR: You must call return to finish this review. Do not output prose — call the tool.');
+    }
+}
+
+async function buildReviewerPrompt(session, node, workerResult, iterationHistory) {
+    await session.prompt(getReviewerPrompt({ node, workerResult, iterationHistory: iterationHistory || [] }));
+}
+
+async function runReviewer(args) {
+    const { node, workerResult, pi, signal, eventBus, iterationHistory } = args;
+    if (!pi?.pi?.createAgentSession) throw new Error('squad: createAgentSession unavailable');
+    const state = { settled: false, unsub: null };
     const { promise: outcomePromise, resolve: outcomeResolve } = Promise.withResolvers();
+    state.outcomeResolve = outcomeResolve;
 
     const childAbort = new AbortController();
-    let settled = false;
+    if (signal) signal.addEventListener('abort', () => childAbort.abort(), { once: true });
 
-    if (signal) {
-        signal.addEventListener(
-            'abort',
-            () => {
-                childAbort.abort();
-            },
-            { once: true },
-        );
-    }
-
-    let session = null;
-    let unsub = null;
-    let sessionId = null;
-
+    let session = null,
+        sessionId = null;
     try {
-        const sessionOpts = {
-            ...options,
-            sessionManager: SessionManager.create(options.cwd),
-        };
-
-        const factoryResult = await createAgentSession(sessionOpts);
-        session = factoryResult.session;
-        sessionId = session.sessionFile;
-
-        register(sessionId, {
-            sendUserMessage: (text) => session.prompt(text),
-            session,
-            status: 'reviewing',
-        });
-
-        setReturnResolver(sessionId, (params) => {
-            settled = true;
-            outcomeResolve({ approved: params.status === 'ok', reason: params.reason });
-        });
-
-        if (eventBus) {
-            eventBus.emit('session', 'start', {
-                sessionId,
-                nodeId: node.id,
-                phase: 'reviewer',
-                model: options.model ? { provider: options.model.provider, id: options.model.id } : undefined,
-            });
-            eventBus.emit('session', 'state', {
-                sessionId,
-                phase: 'reviewing',
-            });
-
-            unsub = subscribeToSessionEvents(session, eventBus, sessionId);
-        }
-
-        await session.prompt(promptText);
-
-        const emptyCounter = createCounter(REVIEWER_MAX_EMPTY);
-
-        while (!settled) {
-            if (childAbort.signal.aborted) break;
-
-            while (session.isStreaming) {
-                await new Promise((r) => setTimeout(r, 200));
-                if (settled || childAbort.signal.aborted) break;
-            }
-
-            if (settled || childAbort.signal.aborted) break;
-
-            emptyCounter.increment();
-            if (emptyCounter.exceeded()) {
-                throw new Error(`Reviewer ended without calling return after ${REVIEWER_MAX_EMPTY} empty turns`);
-            }
-
-            await session.prompt(
-                'ERROR: You must call return to finish this review. Do not output prose — call the tool.',
-            );
-        }
-
-        if (!settled) {
-            return null;
-        }
+        ({ session, sessionId } = await setupReviewerSession({ ...args, state }));
+        await buildReviewerPrompt(session, node, workerResult, iterationHistory);
+        await pollReviewerSettled(session, state, childAbort);
+        if (!state.settled) return null;
 
         const outcome = await outcomePromise;
-
         emitSessionEnd(eventBus, sessionId, 'completed', 'completed');
-
         return outcome;
     } catch (err) {
         if (childAbort.signal.aborted && signal?.aborted) {
             emitSessionEnd(eventBus, sessionId, 'aborted', 'aborted');
             return null;
         }
-
         emitSessionEnd(eventBus, sessionId, 'error', 'error', err.message);
-
         throw err;
     } finally {
         childAbort.abort();
         session?.abort?.();
-        unsub?.();
+        state.unsub?.();
         if (sessionId) {
             clearReturnResolver(sessionId);
             unregister(sessionId);

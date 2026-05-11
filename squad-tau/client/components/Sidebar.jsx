@@ -35,6 +35,20 @@ function getStatusIcon(status) {
   }
 }
 
+function sortTreeNodes(nodeMap) {
+  const sortedNodes = Array.from(nodeMap.values()).sort((a, b) => 
+    parseInt(a.firstSessionId) - parseInt(b.firstSessionId)
+  );
+  
+  sortedNodes.forEach(node => {
+    node.childNodes.sort((a, b) => 
+      parseInt(a.sessionId) - parseInt(b.sessionId)
+    );
+  });
+  
+  return sortedNodes;
+}
+
 function buildTreeNodes(sessions, nodes) {
   const nodeMap = new Map();
   
@@ -54,37 +68,18 @@ function buildTreeNodes(sessions, nodes) {
       });
     }
     
-    const node = nodeMap.get(nodeId);
-    const phaseLabel = `R${retryCount || 1}-${phase}`;
-    node.childNodes.push({
+    nodeMap.get(nodeId).childNodes.push({
       id: sessionId,
-      label: phaseLabel,
+      label: `R${retryCount || 1}-${phase}`,
       icon: getStatusIcon(status || 'pending'),
       sessionId
     });
   });
   
-  const sortedNodes = Array.from(nodeMap.values()).sort((a, b) => 
-    parseInt(a.firstSessionId) - parseInt(b.firstSessionId)
-  );
-  
-  sortedNodes.forEach(node => {
-    node.childNodes.sort((a, b) => 
-      parseInt(a.sessionId) - parseInt(b.sessionId)
-    );
-  });
-  
-  return sortedNodes;
+  return sortTreeNodes(nodeMap);
 }
 
-export default function Sidebar({ sessions, nodes, activeSessionId, onSelectSession }) {
-  const [locked, setLocked] = useState(false);
-  
-  const treeNodes = useMemo(() => 
-    buildTreeNodes(sessions, nodes),
-    [sessions, nodes]
-  );
-  
+function useAutoSelectSession(sessions, activeSessionId, onSelectSession, locked) {
   useEffect(() => {
     if (!locked && sessions.length > 0) {
       const latestSession = sessions[sessions.length - 1];
@@ -93,20 +88,23 @@ export default function Sidebar({ sessions, nodes, activeSessionId, onSelectSess
       }
     }
   }, [sessions, locked, activeSessionId, onSelectSession]);
+}
+
+export default function Sidebar({ sessions, nodes, activeSessionId, onSelectSession }) {
+  const [locked, setLocked] = useState(false);
+  const treeNodes = useMemo(() => buildTreeNodes(sessions, nodes), [sessions, nodes]);
+  
+  useAutoSelectSession(sessions, activeSessionId, onSelectSession, locked);
   
   const handleNodeClick = (sessionId) => {
     onSelectSession(sessionId);
     setLocked(true);
   };
   
-  const handleUnlock = () => {
-    setLocked(false);
-  };
-  
   return (
     <div style={SIDEBAR_STYLE}>
       {locked && (
-        <div style={LOCK_BUTTON_STYLE} onClick={handleUnlock}>
+        <div style={LOCK_BUTTON_STYLE} onClick={() => setLocked(false)}>
           <Icon icon={IconNames.LOCK} size={14} />
         </div>
       )}

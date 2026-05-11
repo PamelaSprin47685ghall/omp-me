@@ -63,31 +63,9 @@ function nodeStateKey(nodes) {
   return nodes.map(n => `${n.id}:${n.status}`).join('|');
 }
 
-/**
- * Renders a Mermaid DAG visualization for squad nodes.
- *
- * Re-render contract: The parent MUST memoize `nodes` such that it only
- * changes when a `squad:node_state` event arrives (or on squad:init /
- * squad:complete / squad:abort). The component uses a structural key derived
- * from node IDs and statuses to guard against unnecessary Mermaid redraws.
- *
- * Navigation contract: `onNodeClick(nodeId)` is called with the squad node ID.
- * The parent resolves this to the appropriate session (latest worker/reviewer
- * session for that node) and switches the active session view.
- *
- * @param {import('../types').DAGViewProps} props
- */
-export default function DAGView({ nodes, activeNodeId, onNodeClick, collapsed, onToggle }) {
+function useMermaidRender(nodeList, activeNodeId, onNodeClick) {
   const containerRef = useRef(null);
   const renderedKeyRef = useRef(null);
-
-  const nodeList = useMemo(() => {
-    if (!nodes) return [];
-    if (Array.isArray(nodes)) return nodes;
-    if (nodes instanceof Map) return Array.from(nodes.values());
-    return [];
-  }, [nodes]);
-
   const stateKey = nodeStateKey(nodeList);
 
   const renderDiagram = useCallback(async (list) => {
@@ -121,6 +99,23 @@ export default function DAGView({ nodes, activeNodeId, onNodeClick, collapsed, o
       g.onclick = () => nodeId && onNodeClick?.(nodeId);
     });
   });
+
+  return containerRef;
+}
+
+/**
+ * Renders a Mermaid DAG visualization for squad nodes.
+ * @param {import('../types').DAGViewProps} props
+ */
+export default function DAGView({ nodes, activeNodeId, onNodeClick, collapsed, onToggle }) {
+  const nodeList = useMemo(() => {
+    if (!nodes) return [];
+    if (Array.isArray(nodes)) return nodes;
+    if (nodes instanceof Map) return Array.from(nodes.values());
+    return [];
+  }, [nodes]);
+
+  const containerRef = useMermaidRender(nodeList, activeNodeId, onNodeClick);
 
   return (
     <Card style={PANEL_STYLE} elevation={2}>

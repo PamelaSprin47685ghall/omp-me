@@ -6,41 +6,42 @@ test('buildConfirmPrompt uses original task not worker summary', () => {
     const prompt = buildConfirmPrompt(originalTask);
 
     expect(prompt.includes(originalTask)).toBeTruthy();
-    expect(prompt.includes('ORIGINAL TASK DESCRIPTION')).toBeTruthy();
-    expect(prompt.includes("not the worker's summary")).toBeTruthy();
+    expect(prompt.includes('原始任务')).toBeTruthy();
+    expect(prompt.includes('不要依赖你自己之前提交的摘要')).toBeTruthy();
 });
 
-test('buildConfirmPrompt includes all 5 review dimensions', () => {
+test('buildConfirmPrompt includes all 4 review dimensions from AGENTS.md', () => {
     const originalTask = 'Add logging to API endpoints';
     const prompt = buildConfirmPrompt(originalTask);
 
-    expect(prompt.includes('Code Quality')).toBeTruthy();
-    expect(prompt.includes('Design Flaws')).toBeTruthy();
-    expect(prompt.includes('Security Vulnerabilities')).toBeTruthy();
-    expect(prompt.includes('User Experience')).toBeTruthy();
-    expect(prompt.includes('Goal Completeness')).toBeTruthy();
+    expect(prompt.includes('代码质量')).toBeTruthy();
+    expect(prompt.includes('设计缺陷')).toBeTruthy();
+    expect(prompt.includes('用户体验')).toBeTruthy();
+    expect(prompt.includes('目标完整性')).toBeTruthy();
 });
 
 test('buildConfirmPrompt mentions return tool', () => {
     const originalTask = 'Refactor database connection pool';
     const prompt = buildConfirmPrompt(originalTask);
 
-    expect(prompt.includes('return(')).toBeTruthy();
-    expect(prompt.includes("status: 'ok'")).toBeTruthy();
-    expect(prompt.includes("status: 'error'")).toBeTruthy();
+    expect(prompt.includes('return({ status: "ok", reason, affected_files })')).toBeTruthy();
 });
 
-test('buildConfirmPrompt emphasizes catching hallucinations and omissions', () => {
+test('buildConfirmPrompt emphasizes original task over summary', () => {
     const originalTask = 'Fix memory leak in event emitter';
     const prompt = buildConfirmPrompt(originalTask);
 
-    expect(prompt.includes('hallucinations or omissions')).toBeTruthy();
+    expect(prompt.includes('避免幻觉和遗漏')).toBeTruthy();
 });
 
-test('buildConfirmPrompt instructs re-submission when changes needed', () => {
-    const originalTask = 'Update API documentation';
-    const prompt = buildConfirmPrompt(originalTask);
+test('buildConfirmPrompt includes review_criteria when present', () => {
+    const node = {
+        task: 'Update API documentation',
+        review_criteria: [{ name: 'Criterion A', description: 'Must work' }],
+    };
+    const prompt = buildConfirmPrompt(node);
 
-    expect(prompt.includes('If anything needs fixing') || prompt.includes("status: 'error'")).toBeTruthy();
-    expect(prompt.includes('re-submit')).toBeTruthy();
+    expect(prompt.includes('评审标准')).toBeTruthy();
+    expect(prompt.includes('Criterion A')).toBeTruthy();
+    expect(prompt.includes('Must work')).toBeTruthy();
 });

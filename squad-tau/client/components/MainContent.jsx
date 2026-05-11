@@ -26,24 +26,8 @@ function getSessionRole(session) {
   return 'user';
 }
 
-export default function MainContent({
-  squadActive,
-  nodes,
-  activeSessionId,
-  sessions,
-  messages,
-  dagCollapsed,
-  onToggleDAG,
-  onNodeClick,
-  onOpenModelPool,
-  onOptimisticMessage,
-  send
-}) {
-  const activeSession = sessions[activeSessionId];
-  const activeMessages = messages[activeSessionId] || [];
-  const sessionRole = getSessionRole(activeSession);
-  
-  const { deltas, toolCalls, toolResults } = useMemo(() => {
+function useMessageDetails(activeMessages, activeSessionId) {
+  return useMemo(() => {
     const deltas = [];
     const toolCalls = [];
     const toolResults = [];
@@ -75,8 +59,64 @@ export default function MainContent({
     
     return { deltas, toolCalls, toolResults };
   }, [activeMessages, activeSessionId]);
-  
-  const failedNodes = useMemo(() => {
+}
+
+function WelcomeOrErrorSection({ squadActive, onOpenModelPool, failedNodes }) {
+  if (!squadActive) {
+    return (
+      <div style={MAIN_STYLE}>
+        <WelcomeView onOpenModelPool={onOpenModelPool} />
+      </div>
+    );
+  }
+  return failedNodes.length > 0 ? <ErrorBanner nodes={failedNodes} /> : null;
+}
+
+function StatusBarSection({ activeSession }) {
+  if (!activeSession) return null;
+  return (
+    <StatusBar
+      nodeId={activeSession.nodeId}
+      retryCount={activeSession.retryCount}
+      phase={activeSession.phase}
+      status={activeSession.status}
+      mode={null}
+      currentLayer={null}
+      totalLayers={null}
+    />
+  );
+}
+
+function MessageListSection({ activeMessages, sessionRole, details }) {
+  return (
+    <MessageList 
+      messages={activeMessages} 
+      sessionRole={sessionRole}
+      deltas={details.deltas}
+      toolCalls={details.toolCalls}
+      toolResults={details.toolResults}
+    />
+  );
+}
+
+function InputSection({ activeSession, activeSessionId, send, onOptimisticMessage }) {
+  if (!activeSession) return null;
+  const reason = ['completed', 'aborted', 'error'].includes(activeSession.status) 
+    ? activeSession.status 
+    : null;
+    
+  return (
+    <MessageInput
+      sessionId={activeSessionId}
+      sessionEndReason={reason}
+      send={send}
+      onOptimisticMessage={onOptimisticMessage}
+    />
+  );
+}
+
+function useFailedNodes(nodes) {
+  return useMemo(() => {
     const failed = [];
     nodes.forEach(node => {
       if (node.status === 'failed' || node.status === 'blocked') {
@@ -85,66 +125,52 @@ export default function MainContent({
     });
     return failed;
   }, [nodes]);
-  
-  const showError = failedNodes.length > 0;
+}
+
+function DAGSection({ nodes, activeSession, dagCollapsed, onNodeClick, onToggleDAG }) {
+  if (dagCollapsed) return null;
+  return (
+    <DAGView
+      nodes={Array.from(nodes.values())}
+      activeNodeId={activeSession?.nodeId}
+      onNodeClick={onNodeClick}
+      collapsed={dagCollapsed}
+      onToggle={onToggleDAG}
+    />
+  );
+}
+
+export default function MainContent({
+  squadActive, nodes, activeSessionId, sessions, messages,
+  dagCollapsed, onToggleDAG, onNodeClick, onOpenModelPool,
+  onOptimisticMessage, send
+}) {
+  const activeSession = sessions[activeSessionId];
+  const activeMessages = messages[activeSessionId] || [];
+  const sessionRole = getSessionRole(activeSession);
+  const details = useMessageDetails(activeMessages, activeSessionId);
+  const failedNodes = useFailedNodes(nodes);
   
   if (!squadActive) {
-    return (
-      <div style={MAIN_STYLE}>
-        <WelcomeView onOpenModelPool={onOpenModelPool} />
-      </div>
-    );
+    return <WelcomeOrErrorSection squadActive={false} onOpenModelPool={onOpenModelPool} />;
   }
-  
-  const sessionEndReason = 
-    activeSession?.status === 'completed' || 
-    activeSession?.status === 'aborted' || 
-    activeSession?.status === 'error' 
-      ? activeSession.status 
-      : null;
   
   return (
     <div style={MAIN_STYLE}>
-      {showError && <ErrorBanner nodes={failedNodes} />}
-      
-      {!dagCollapsed && (
-        <DAGView
-          nodes={Array.from(nodes.values())}
-          activeNodeId={activeSession?.nodeId}
-          onNodeClick={onNodeClick}
-          collapsed={dagCollapsed}
-          onToggle={onToggleDAG}
-        />
-      )}
-      
-      {activeSession && (
-        <StatusBar
-          nodeId={activeSession.nodeId}
-          retryCount={activeSession.retryCount}
-          phase={activeSession.phase}
-          status={activeSession.status}
-          mode={null}
-          currentLayer={null}
-          totalLayers={null}
-        />
-      )}
-      
-      <MessageList 
-        messages={activeMessages} 
-        sessionRole={sessionRole}
-        deltas={deltas}
-        toolCalls={toolCalls}
-        toolResults={toolResults}
+      <WelcomeOrErrorSection squadActive={true} failedNodes={failedNodes} />
+      <DAGSection
+        nodes={nodes} activeSession={activeSession}
+        dagCollapsed={dagCollapsed} onNodeClick={onNodeClick}
+        onToggleDAG={onToggleDAG}
       />
-      
-      {activeSession && (
-        <MessageInput
-          sessionId={activeSessionId}
-          sessionEndReason={sessionEndReason}
-          send={send}
-          onOptimisticMessage={onOptimisticMessage}
-        />
-      )}
+      <StatusBarSection activeSession={activeSession} />
+      <MessageListSection activeMessages={activeMessages} sessionRole={sessionRole} details={details} />
+      <InputSection
+        activeSession={activeSession} activeSessionId={activeSessionId}
+        send={send} onOptimisticMessage={onOptimisticMessage}
+      />
     </div>
   );
 }
+
+
