@@ -5,7 +5,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export async function createViteDevServer() {
-    if (process.env.NODE_ENV === 'test' || process.env.SKIP_VITE === 'true') {
+    if ((process.env.NODE_ENV === 'test' && !process.env.SQUAD_E2E) || process.env.SKIP_VITE === 'true') {
         return (req, res, next) => next();
     }
     let vite;
@@ -23,7 +23,6 @@ export async function createViteDevServer() {
         esbuild: {
             jsxFactory: 'React.createElement',
             jsxFragment: 'React.Fragment',
-            jsxInject: "import React from 'react'",
         },
     });
 

@@ -44,7 +44,7 @@ const WS_EVENT_TYPES = Object.freeze({
 });
 
 const DEFAULTS = Object.freeze({
-    PORT: 9527,
+    PORT: process.env.PORT ? parseInt(process.env.PORT) : 9527,
     FALLBACK_CONCURRENCY: 5,
     MAX_EMPTY_TURNS: 20,
     CONFIRM_MAX_EMPTY: 5,

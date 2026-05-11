@@ -3,7 +3,7 @@ import { Classes } from '@blueprintjs/core';
 import Header from './components/Header.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import MainContent from './components/MainContent.jsx';
-import useDarkMode from './hooks/useDarkMode.js';
+import { useDarkMode } from './hooks/useDarkMode.js';
 import { useWebSocket } from './hooks/useWebSocket.js';
 import useSquadState from './hooks/useSquadState.js';
 import { useSessionState } from './hooks/useSessionState.js';
@@ -44,7 +44,7 @@ export default function App() {
         break;
       }
       case type.startsWith('session:'): {
-        const eventType = type.replace('session:', '').toUpperCase().replace(/:/g, '_');
+        const eventType = 'SESSION_' + type.replace('session:', '').toUpperCase().replace(/:/g, '_');
         sessionDispatch({ type: eventType, payload });
         break;
       }
