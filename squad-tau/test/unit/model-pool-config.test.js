@@ -2,7 +2,6 @@ import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 import { loadModelsConfig, saveModelsConfig, CONFIG_PATH } from '../../server/model-pool-config.js';
 
 describe('model-pool-config', () => {
@@ -36,35 +35,67 @@ describe('model-pool-config', () => {
         assert.deepEqual(config, []);
     });
 
-    it('loadModelsConfig parses valid JSON', () => {
-        const testConfig = [
-            { id: 'model-1', name: 'GPT-4', endpoint: 'https://api.openai.com' },
-            { id: 'model-2', name: 'Claude', endpoint: 'https://api.anthropic.com' },
-        ];
-        fs.writeFileSync(CONFIG_PATH, JSON.stringify(testConfig), 'utf8');
+    it('loadModelsConfig parses valid TOML and maps fields', () => {
+        const toml = `
+[[slot]]
+provider = "openai"
+model_id = "gpt-4"
+role = "worker"
+thinking_level = "high"
+
+[[slot]]
+provider = "anthropic"
+model_id = "claude-3"
+role = "reviewer"
+`;
+        fs.writeFileSync(CONFIG_PATH, toml, 'utf8');
 
         const config = loadModelsConfig();
-        assert.deepEqual(config, testConfig);
+        assert.deepEqual(config, [
+            { provider: 'openai', modelId: 'gpt-4', role: 'worker', thinkingLevel: 'high' },
+            { provider: 'anthropic', modelId: 'claude-3', role: 'reviewer', thinkingLevel: undefined },
+        ]);
     });
 
-    it('loadModelsConfig returns [] for malformed JSON', () => {
-        fs.writeFileSync(CONFIG_PATH, '{ invalid json', 'utf8');
+    it('loadModelsConfig returns [] for malformed TOML', () => {
+        fs.writeFileSync(CONFIG_PATH, '{ invalid toml', 'utf8');
 
         const config = loadModelsConfig();
         assert.deepEqual(config, []);
     });
 
-    it('saveModelsConfig writes correct JSON to disk', () => {
-        const testConfig = [{ id: 'model-1', name: 'GPT-4', endpoint: 'https://api.openai.com' }];
+    it('saveModelsConfig writes correct TOML to disk', () => {
+        const testConfig = [
+            { provider: 'openai', modelId: 'gpt-4', role: 'worker', thinkingLevel: 'high' },
+            { provider: 'anthropic', modelId: 'claude-3', role: 'reviewer' },
+        ];
 
         saveModelsConfig(testConfig);
 
         assert.ok(fs.existsSync(CONFIG_PATH));
         const content = fs.readFileSync(CONFIG_PATH, 'utf8');
-        const parsed = JSON.parse(content);
-        assert.deepEqual(parsed, testConfig);
+        const parsed = Bun.TOML.parse(content);
+        assert.deepEqual(parsed.slot, [
+            { provider: 'openai', model_id: 'gpt-4', role: 'worker', thinking_level: 'high' },
+            { provider: 'anthropic', model_id: 'claude-3', role: 'reviewer' },
+        ]);
+    });
 
-        assert.ok(content.includes('  '), 'JSON should be formatted with 2-space indent');
+    it('saveModelsConfig omits thinking_level when empty', () => {
+        const testConfig = [
+            { provider: 'openai', modelId: 'gpt-4', role: 'worker', thinkingLevel: '' },
+            { provider: 'anthropic', modelId: 'claude-3', role: 'reviewer', thinkingLevel: undefined },
+        ];
+
+        saveModelsConfig(testConfig);
+
+        const content = fs.readFileSync(CONFIG_PATH, 'utf8');
+        assert.ok(!content.includes('thinking_level'));
+        const parsed = Bun.TOML.parse(content);
+        assert.deepEqual(parsed.slot, [
+            { provider: 'openai', model_id: 'gpt-4', role: 'worker' },
+            { provider: 'anthropic', model_id: 'claude-3', role: 'reviewer' },
+        ]);
     });
 
     it('saveModelsConfig creates parent directory', () => {
@@ -73,12 +104,12 @@ describe('model-pool-config', () => {
             fs.rmSync(dir, { recursive: true, force: true });
         }
 
-        const testConfig = [{ id: 'test', name: 'Test Model' }];
+        const testConfig = [{ provider: 'test', modelId: 'test-1', role: 'worker' }];
         saveModelsConfig(testConfig);
 
         assert.ok(fs.existsSync(CONFIG_PATH));
         const content = fs.readFileSync(CONFIG_PATH, 'utf8');
-        const parsed = JSON.parse(content);
-        assert.deepEqual(parsed, testConfig);
+        const parsed = Bun.TOML.parse(content);
+        assert.deepEqual(parsed.slot, [{ provider: 'test', model_id: 'test-1', role: 'worker' }]);
     });
 });

@@ -1,7 +1,7 @@
 import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
 import { buildReviewerPrompt } from './run-reviewer-prompt.js';
 import { REVIEWER_MAX_EMPTY, createCounter } from './empty-turns.js';
-import { buildReviewerTools } from './reviewer-tools.js';
+import { buildReturnTool } from './lifecycle-tools.js';
 import { buildBaseSessionOptions } from './session-options.js';
 import { register, unregister } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
@@ -30,8 +30,9 @@ async function runReviewer({ node, workerResult, ctx, pi, signal, eventBus, mode
     const childAbort = new AbortController();
     let settled = false;
 
-    const reviewerTools = buildReviewerTools(outcomeResolve, (value) => {
-        settled = value;
+    const reviewerTools = buildReturnTool((params) => {
+        settled = true;
+        outcomeResolve({ approved: params.status === 'ok', reason: params.reason });
     });
 
     if (signal) {
@@ -96,13 +97,11 @@ async function runReviewer({ node, workerResult, ctx, pi, signal, eventBus, mode
 
             emptyCounter.increment();
             if (emptyCounter.exceeded()) {
-                throw new Error(
-                    `Reviewer ended without calling approve/reject after ${REVIEWER_MAX_EMPTY} empty turns`,
-                );
+                throw new Error(`Reviewer ended without calling return after ${REVIEWER_MAX_EMPTY} empty turns`);
             }
 
             await session.prompt(
-                'ERROR: You must call approve or reject to finish this review. Do not output prose — call the tool.',
+                'ERROR: You must call return to finish this review. Do not output prose — call the tool.',
             );
         }
 

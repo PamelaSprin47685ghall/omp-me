@@ -47,6 +47,40 @@ describe('validatePlan', () => {
         check({ mode: 'L', nodes: [node({ depends_on: 'x' })] }, 'must be an array');
     });
 
+    it('accepts valid review_criteria as array of objects', () => {
+        const result = validatePlan({
+            mode: 'L',
+            nodes: [node({ review_criteria: [{ name: 'n', description: 'd' }] })],
+        });
+        expect(result.valid).toBe(true);
+        expect(result.errors).toEqual([]);
+    });
+
+    it('flags invalid review_criteria shapes', () => {
+        check({ mode: 'L', nodes: [node({ review_criteria: [] })] }, 'review_criteria must not be empty');
+        check({ mode: 'L', nodes: [node({ review_criteria: ['', 'b'] })] }, 'review_criteria[0] must not be empty');
+        check(
+            { mode: 'L', nodes: [node({ review_criteria: [{ name: 'n' }] })] },
+            'review_criteria[0].description must be a non-empty string',
+        );
+        check(
+            { mode: 'L', nodes: [node({ review_criteria: [{ description: 'd' }] })] },
+            'review_criteria[0].name must be a non-empty string',
+        );
+        check(
+            { mode: 'L', nodes: [node({ review_criteria: [{ name: '', description: 'd' }] })] },
+            'review_criteria[0].name must be a non-empty string',
+        );
+        check(
+            { mode: 'L', nodes: [node({ review_criteria: [{ name: 'n', description: '' }] })] },
+            'review_criteria[0].description must be a non-empty string',
+        );
+        check(
+            { mode: 'L', nodes: [node({ review_criteria: 123 })] },
+            'review_criteria must be a non-empty string, array of strings, or array of {name, description} objects',
+        );
+    });
+
     it('accepts valid M mode plan', () => {
         const result = validatePlan({ mode: 'M', nodes: [node()] });
         expect(result.valid).toBe(true);

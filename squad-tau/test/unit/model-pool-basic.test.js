@@ -56,13 +56,9 @@ test('release marks slot available and wakes next waiter', async () => {
 test('role isolation - worker queue never gets reviewer slots', async () => {
     const config = [{ provider: 'anthropic', modelId: 'reviewer-model', role: 'reviewer' }];
     const pool = new ModelPool(config);
-    let workerResolved = false;
-    pool.acquire('worker').then(() => {
-        workerResolved = true;
-    });
-    await new Promise((r) => setTimeout(r, 10));
-    assert.equal(workerResolved, false);
-    assert.equal(pool.workerQueue.length, 1);
+    const slot = await pool.acquire('worker');
+    assert.strictEqual(slot, null, 'empty worker pool returns null for fallback');
+    assert.equal(pool.workerQueue.length, 0, 'no waiters queued when pool empty');
 });
 
 test('same config row multiple times = multiple slots', async () => {

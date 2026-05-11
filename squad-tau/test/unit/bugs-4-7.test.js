@@ -1,19 +1,28 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 
 /**
- * Bug 4: submit-plan.js onComplete must pass { results, mode, nodes } not raw array.
+ * Bug 4: delegate handler onComplete must pass { results, mode, nodes } not raw array.
  */
-describe('submit-plan onComplete contract (Bug 4 fixed)', () => {
-    it('submit-plan passes { results, mode, nodes } to onComplete', async () => {
-        const { createSubmitPlanHandler } = await import('../../server/submit-plan.js');
+describe('delegate onComplete contract (Bug 4 fixed)', () => {
+    it('delegate passes { results, mode, nodes } to onComplete', async () => {
+        const { createDelegateHandler } = await import('../../server/submit-plan.js');
+
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'delegate-test-'));
+        fs.writeFileSync(
+            path.join(tmpDir, 'n1.toml'),
+            'task = "write code"\nreview_criteria = [{ name = "quality", description = "code quality" }]\n',
+        );
 
         let onCompleteCalled = false;
         let onCompleteArg = null;
 
-        const fsm = { getState: () => 'active' };
+        const fsm = { getState: () => 'active', deactivate: () => {}, revise: () => {} };
 
-        const handler = createSubmitPlanHandler({
+        const handler = createDelegateHandler({
             fsm,
             executeDAG: async () => [{ nodeId: 'n1', status: 'approved' }],
             ctx: {},
@@ -28,11 +37,7 @@ describe('submit-plan onComplete contract (Bug 4 fixed)', () => {
             },
         });
 
-        const result = await handler.handler({
-            mode: 'M',
-            reasoning: 'test',
-            nodes: [{ id: 'n1', task: 'write code', review_criteria: 'quality' }],
-        });
+        const result = await handler.handler({ plan_dir: tmpDir });
 
         assert.ok(onCompleteCalled, 'onComplete must be called');
         assert.ok(onCompleteArg, 'onComplete arg must be truthy');
@@ -41,14 +46,22 @@ describe('submit-plan onComplete contract (Bug 4 fixed)', () => {
         assert.ok(Array.isArray(onCompleteArg.nodes), 'onComplete must receive .nodes array');
         assert.strictEqual(onCompleteArg.nodes.length, 1);
         assert.strictEqual(onCompleteArg.nodes[0].id, 'n1');
+
+        fs.rmSync(tmpDir, { recursive: true });
     });
 
-    it('submit-plan does not call onComplete when not provided', async () => {
-        const { createSubmitPlanHandler } = await import('../../server/submit-plan.js');
+    it('delegate does not call onComplete when not provided', async () => {
+        const { createDelegateHandler } = await import('../../server/submit-plan.js');
 
-        const fsm = { getState: () => 'active' };
+        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'delegate-test-'));
+        fs.writeFileSync(
+            path.join(tmpDir, 'n1.toml'),
+            'task = "write code"\nreview_criteria = [{ name = "quality", description = "code quality" }]\n',
+        );
 
-        const handler = createSubmitPlanHandler({
+        const fsm = { getState: () => 'active', deactivate: () => {}, revise: () => {} };
+
+        const handler = createDelegateHandler({
             fsm,
             executeDAG: async () => [],
             ctx: {},
@@ -60,13 +73,11 @@ describe('submit-plan onComplete contract (Bug 4 fixed)', () => {
             // no onComplete
         });
 
-        const result = await handler.handler({
-            mode: 'M',
-            reasoning: 'test',
-            nodes: [{ id: 'n1', task: 'write code', review_criteria: 'quality' }],
-        });
+        const result = await handler.handler({ plan_dir: tmpDir });
 
         assert.ok(result.success);
+
+        fs.rmSync(tmpDir, { recursive: true });
     });
 });
 

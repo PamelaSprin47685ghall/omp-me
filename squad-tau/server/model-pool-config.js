@@ -1,8 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 
-const CONFIG_PATH = path.join(os.homedir(), '.omp/squad/models.json');
+const CONFIG_PATH = path.join(process.cwd(), '.omp', 'models.toml');
 
 let watcherActive = false;
 let debounceTimer = null;
@@ -10,7 +9,14 @@ let debounceTimer = null;
 function loadModelsConfig() {
     try {
         const content = fs.readFileSync(CONFIG_PATH, 'utf8');
-        return JSON.parse(content);
+        const parsed = Bun.TOML.parse(content);
+        const slots = parsed.slot || [];
+        return slots.map((s) => ({
+            provider: s.provider,
+            modelId: s.model_id,
+            role: s.role,
+            thinkingLevel: s.thinking_level || undefined,
+        }));
     } catch (err) {
         if (err.code === 'ENOENT') return [];
         return [];
@@ -22,7 +28,18 @@ function saveModelsConfig(config) {
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
     }
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2), 'utf8');
+    let toml = '';
+    for (const entry of config) {
+        toml += '[[slot]]\n';
+        toml += `provider = ${JSON.stringify(entry.provider)}\n`;
+        toml += `model_id = ${JSON.stringify(entry.modelId)}\n`;
+        toml += `role = ${JSON.stringify(entry.role)}\n`;
+        if (entry.thinkingLevel) {
+            toml += `thinking_level = ${JSON.stringify(entry.thinkingLevel)}\n`;
+        }
+        toml += '\n';
+    }
+    fs.writeFileSync(CONFIG_PATH, toml, 'utf8');
 }
 
 function watchConfig(callback) {
@@ -48,13 +65,6 @@ function unwatchConfig() {
     fs.unwatchFile(CONFIG_PATH);
 }
 
-/**
- * Sync a ModelPool instance to match a given configuration array.
- * Adds new slots, removes deleted slots. In-use removed slots
- * are marked pending_delete and removed on release.
- * @param {import('./model-pool.js').ModelPool} modelPool
- * @param {Array} newConfig - New configuration array
- */
 function syncModelPoolFromConfig(modelPool, newConfig) {
     const oldSlots = modelPool.getSlots();
     const oldMap = new Map(oldSlots.map((s) => [`${s.provider}|${s.modelId}|${s.role}`, s]));

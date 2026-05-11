@@ -1,3 +1,14 @@
+function formatReviewCriteria(criteria) {
+    if (!criteria) return null;
+    if (typeof criteria === 'string') return criteria;
+    if (Array.isArray(criteria)) {
+        if (criteria.length === 0) return null;
+        if (typeof criteria[0] === 'string') return criteria.join('\n');
+        return criteria.map((c) => `- ${c.name}: ${c.description}`).join('\n');
+    }
+    return null;
+}
+
 function buildWorkerPrompt(node, upstreamResults, reviewerFeedback) {
     const lines = [`## Task\n${node.task}`];
 
@@ -17,10 +28,16 @@ function buildWorkerPrompt(node, upstreamResults, reviewerFeedback) {
         lines.push('\nAddress every issue listed above before resubmitting.');
     }
 
+    const criteriaText = formatReviewCriteria(node.review_criteria);
+    if (criteriaText) {
+        lines.push('\n## Review Criteria (MUST address these)');
+        lines.push(criteriaText);
+    }
+
     lines.push(
         '\n---',
-        'Complete this task. When finished, you MUST call the `return_work` tool with:',
-        '- `summary`: concise description of what you accomplished',
+        'Complete this task. When finished, you MUST call the `return` tool with:',
+        '- `reason`: concise description of what you accomplished',
         '- `affected_files`: every file you created or modified',
         '',
         'Do NOT output prose to signal completion — only the tool call counts.',

@@ -1,8 +1,7 @@
 import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
 import { buildWorkerPrompt } from './run-worker-prompt.js';
-import { captureFileSnapshots } from './tamper-detection.js';
 import { MAX_EMPTY_TURNS, createCounter } from './empty-turns.js';
-import { buildReturnWorkTool } from './lifecycle-tools.js';
+import { buildReturnTool } from './lifecycle-tools.js';
 import { buildWorkerSessionOptions } from './session-options.js';
 import { register, unregister } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
@@ -27,13 +26,21 @@ async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, sig
     const { promise: firstPromise, resolve: firstResolve } = Promise.withResolvers();
     const { promise: finalPromise, resolve: finalResolve } = Promise.withResolvers();
 
-    let callPhase = 0;
-    const returnWorkTool = buildReturnWorkTool((params) => {
-        if (callPhase === 0) {
-            callPhase = 1;
-            firstResolve({ summary: params.summary, affected_files: params.affected_files || [] });
+    let phase = 0;
+    let redo = false;
+    let redoReason = '';
+    const returnTool = buildReturnTool((params) => {
+        if (params.status === 'error') {
+            redo = true;
+            redoReason = params.reason || '';
+            return;
+        }
+
+        if (phase === 0) {
+            phase = 1;
+            firstResolve({ reason: params.reason, affected_files: params.affected_files || [] });
         } else {
-            finalResolve({ summary: params.summary, affected_files: params.affected_files || [] });
+            finalResolve({ reason: params.reason, affected_files: params.affected_files || [] });
         }
     });
 
@@ -49,7 +56,7 @@ async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, sig
     try {
         const sessionOpts = {
             ...options,
-            customTools: [returnWorkTool],
+            customTools: [returnTool],
             sessionManager: SessionManager.create(options.cwd),
         };
 
@@ -74,22 +81,27 @@ async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, sig
             unsub = subscribeToSessionEvents(session, eventBus, sessionId);
         }
 
-        // Phase 1: Worker does the work, calls return_work once
+        // Phase 1: Worker does the work, calls return once
         await session.prompt(promptText);
 
         const emptyCounter = createCounter(MAX_EMPTY_TURNS);
-        while (callPhase === 0) {
+        while (phase === 0) {
+            if (redo) {
+                redo = false;
+                await session.prompt(`Redo requested: ${redoReason}\nContinue working and call return when ready.`);
+                continue;
+            }
             if (childAbort.signal.aborted) break;
             while (session.isStreaming) {
                 await new Promise((r) => setTimeout(r, 200));
-                if (callPhase !== 0 || childAbort.signal.aborted) break;
+                if (phase !== 0 || childAbort.signal.aborted) break;
             }
-            if (callPhase !== 0 || childAbort.signal.aborted) break;
+            if (phase !== 0 || childAbort.signal.aborted) break;
             emptyCounter.increment();
             if (emptyCounter.exceeded()) {
-                throw new Error(`Worker ended without calling return_work after ${MAX_EMPTY_TURNS} empty turns`);
+                throw new Error(`Worker ended without calling return after ${MAX_EMPTY_TURNS} empty turns`);
             }
-            await session.prompt('ERROR: You must call return_work to submit your work.');
+            await session.prompt('ERROR: You must call return to submit your work.');
         }
 
         if (childAbort.signal.aborted && signal?.aborted) {
@@ -97,31 +109,38 @@ async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, sig
             return null;
         }
 
-        const firstResult = await firstPromise;
-        const fileSnapshots = await captureFileSnapshots(firstResult.affected_files, options.cwd);
+        await firstPromise;
 
-        // Phase 2: Self-confirm — agent reviews and calls return_work again
+        // Phase 2: Self-confirm — agent reviews and calls return again
         if (eventBus) {
             eventBus.emit('session', 'state', { sessionId, phase: 'confirming' });
         }
 
         const { buildConfirmPrompt } = await import('./run-confirm-prompt.js');
-        await session.prompt(buildConfirmPrompt(node.task));
+        await session.prompt(buildConfirmPrompt(node));
 
         const confirmCounter = createCounter(MAX_EMPTY_TURNS);
-        while (callPhase === 1) {
+        while (phase === 1) {
+            if (redo) {
+                redo = false;
+                phase = 0;
+                await session.prompt(
+                    `Self-review redo requested: ${redoReason}\nContinue working and call return when ready.`,
+                );
+                continue;
+            }
             if (childAbort.signal.aborted) break;
             while (session.isStreaming) {
                 await new Promise((r) => setTimeout(r, 200));
-                if (callPhase !== 1 || childAbort.signal.aborted) break;
+                if (phase !== 1 || childAbort.signal.aborted) break;
             }
-            if (callPhase !== 1 || childAbort.signal.aborted) break;
+            if (phase !== 1 || childAbort.signal.aborted) break;
             confirmCounter.increment();
             if (confirmCounter.exceeded()) {
-                throw new Error(`Self-confirm ended without calling return_work after ${MAX_EMPTY_TURNS} empty turns`);
+                throw new Error(`Self-confirm ended without calling return after ${MAX_EMPTY_TURNS} empty turns`);
             }
             await session.prompt(
-                'ERROR: You must call return_work to confirm your submission. If changes are needed, make them and call return_work again.',
+                'ERROR: You must call return to confirm your submission. If changes are needed, make them and call return again.',
             );
         }
 
@@ -131,10 +150,14 @@ async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, sig
         }
 
         const finalResult = await finalPromise;
-        const snapshots = await captureFileSnapshots(finalResult.affected_files, options.cwd);
 
         emitEnd(eventBus, sessionId, 'completed');
-        return { ...finalResult, session, sessionFile: session.sessionFile, fileSnapshots: snapshots };
+        return {
+            reason: finalResult.reason,
+            affected_files: finalResult.affected_files,
+            session,
+            sessionFile: session.sessionFile,
+        };
     } catch (err) {
         if (childAbort.signal.aborted && signal?.aborted) {
             emitEnd(eventBus, sessionId, 'aborted');

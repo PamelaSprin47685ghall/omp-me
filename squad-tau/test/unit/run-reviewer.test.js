@@ -8,7 +8,7 @@ const baseNode = {
 };
 
 const baseResult = {
-    summary: 'Added JWT middleware with expiry and revocation checks',
+    reason: 'Added JWT middleware with expiry and revocation checks',
     affected_files: ['src/auth/jwt.js', 'src/middleware/auth.js'],
 };
 
@@ -23,21 +23,22 @@ test('buildReviewerPrompt includes node task and review_criteria', () => {
     );
 });
 
-test('buildReviewerPrompt includes worker summary and affected_files', () => {
+test('buildReviewerPrompt includes worker reason and affected_files', () => {
     const prompt = buildReviewerPrompt({ node: baseNode, workerResult: baseResult });
 
-    assert.ok(prompt.includes(baseResult.summary), 'Must include worker summary');
-    assert.ok(prompt.includes(`**Summary:** ${baseResult.summary}`), 'Must prefix summary with label');
+    assert.ok(prompt.includes(baseResult.reason), 'Must include worker reason');
+    assert.ok(prompt.includes(`**Summary:** ${baseResult.reason}`), 'Must prefix reason with Summary label');
     for (const file of baseResult.affected_files) {
         assert.ok(prompt.includes(file), `Must include affected file: ${file}`);
     }
 });
 
-test('buildReviewerPrompt mentions approve() and reject()', () => {
+test('buildReviewerPrompt mentions return tool', () => {
     const prompt = buildReviewerPrompt({ node: baseNode, workerResult: baseResult });
 
-    assert.ok(prompt.includes('approve('), 'Must mention approve()');
-    assert.ok(prompt.includes('reject('), 'Must mention reject()');
+    assert.ok(prompt.includes('return('), 'Must mention return()');
+    assert.ok(prompt.includes("status: 'ok'"), "Must mention status: 'ok'");
+    assert.ok(prompt.includes("status: 'error'"), "Must mention status: 'error'");
 });
 
 test('buildReviewerPrompt includes all built-in review dimensions', () => {

@@ -6,6 +6,16 @@ const REVIEW_DIMENSIONS = [
     { title: 'Goal Completeness', desc: 'Does it fully satisfy the requirements?' },
 ];
 
+function formatReviewCriteria(criteria) {
+    if (Array.isArray(criteria) && criteria.length > 0 && typeof criteria[0] === 'object' && criteria[0] !== null) {
+        return criteria.map((c) => `- ${c.name}: ${c.description}`).join('\n');
+    }
+    if (Array.isArray(criteria)) {
+        return criteria.join('\n');
+    }
+    return String(criteria);
+}
+
 export function buildReviewerPrompt({ node, workerResult }) {
     const dimensionsList = REVIEW_DIMENSIONS.map((d) => `- **${d.title}** — ${d.desc}`).join('\n');
 
@@ -14,7 +24,7 @@ export function buildReviewerPrompt({ node, workerResult }) {
     const sections = [];
 
     if (node.review_criteria) {
-        sections.push('## Review Criteria (MUST address these)', '', node.review_criteria, '');
+        sections.push('## Review Criteria (MUST address these)', '', formatReviewCriteria(node.review_criteria), '');
     }
 
     sections.push(
@@ -24,7 +34,7 @@ export function buildReviewerPrompt({ node, workerResult }) {
         '',
         '## Worker Submission',
         '',
-        `**Summary:** ${workerResult.summary}`,
+        `**Summary:** ${workerResult.reason}`,
         '',
         '**Affected files:**',
         filesList,
@@ -37,9 +47,9 @@ export function buildReviewerPrompt({ node, workerResult }) {
         '',
         'You are a code reviewer. Use the read-only tools available to inspect the changed files.',
         'Address the review criteria above and evaluate against the built-in dimensions.',
-        'End by calling **one** of:',
-        '  - `approve({ comment })` if the submission is acceptable',
-        '  - `reject({ feedback })` if changes are needed',
+        'End by calling the `return` tool with **one** of:',
+        "  - `return({ status: 'ok', reason: string })` if the submission is acceptable",
+        "  - `return({ status: 'error', reason: string })` if changes are needed",
     );
 
     return sections.join('\n');

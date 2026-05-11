@@ -66,16 +66,18 @@ describe('createOnCompleteHandler', () => {
         const fsm = new SquadFSM();
         fsm.activate();
 
+        const handlerStartTime = Date.now() - 100; // 100ms ago
         const handler = createOnCompleteHandler({
             ...baseDeps,
             eventBus: eb,
             fsm,
-            startTime: Date.now() - 100, // 100ms ago
+            startTime: handlerStartTime,
         });
         await handler({
             results: [{ nodeId: 'n1', status: 'approved', summary: 'Ok', affectedFiles: [] }],
             mode: 'M',
             nodes: [],
+            durationMs: Date.now() - handlerStartTime,
         });
 
         expect(events.length).toBe(1);

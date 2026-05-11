@@ -16,25 +16,26 @@ function createLifecycleTool(spec, onInvoke) {
     };
 }
 
-const RTN_WORK = {
-    name: 'return_work',
-    label: 'Return Work',
-    desc: 'Submit completed work. You MUST call this tool to finish.',
+const RETURN = {
+    name: 'return',
+    label: 'Return',
+    desc: 'Return result from current phase. You MUST call this tool to finish.',
     props: {
-        summary: { type: 'string', description: 'What you accomplished' },
+        status: { type: 'string', enum: ['ok', 'error'], description: 'ok = success/approve, error = failure/reject' },
+        reason: { type: 'string', description: 'Summary or feedback' },
         affected_files: {
             type: 'array',
             items: { type: 'string' },
-            description: 'Files you modified or created',
+            description: 'Files modified or created',
         },
     },
-    required: ['summary', 'affected_files'],
+    required: ['status', 'reason'],
 };
 
-function buildReturnWorkTool(resolve) {
-    return createLifecycleTool(RTN_WORK, (p) =>
-        resolve({ summary: p.summary, affected_files: p.affected_files || [] }),
+function buildReturnTool(resolve) {
+    return createLifecycleTool(RETURN, (p) =>
+        resolve({ status: p.status, reason: p.reason, affected_files: p.affected_files || [] }),
     );
 }
 
-export { createLifecycleTool, RTN_WORK, buildReturnWorkTool };
+export { createLifecycleTool, RETURN, buildReturnTool };

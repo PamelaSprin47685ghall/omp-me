@@ -1,8 +1,6 @@
 import { runWorker } from './run-worker.js';
-import { runConfirmSession } from './run-confirm.js';
 import { runReviewer } from './run-reviewer.js';
-import { captureFileSnapshots } from './tamper-detection.js';
-import { STATUS, EVENT } from './constants.js';
+import { STATUS } from './constants.js';
 
 async function runNode({ node, upstreamResults, ctx, pi, signal, eventBus, modelPool }) {
     const { nodeId } = node;
@@ -46,36 +44,6 @@ async function runNode({ node, upstreamResults, ctx, pi, signal, eventBus, model
                 timestamp: Date.now(),
             });
 
-            let finalWorkerResult = workerResult;
-
-            while (true) {
-                const confirmResult = await runConfirmSession({
-                    ctx,
-                    pi,
-                    sessionId: workerResult.sessionFile,
-                    workerOptions: {
-                        summary: finalWorkerResult.summary,
-                        affectedFiles: finalWorkerResult.affected_files,
-                        cwd: ctx.cwd,
-                    },
-                    originalTask: node.task,
-                    signal,
-                    eventBus,
-                });
-
-                if (confirmResult.type === 'return_work') {
-                    finalWorkerResult = {
-                        summary: confirmResult.summary,
-                        affected_files: confirmResult.affected_files,
-                    };
-                    continue;
-                }
-
-                if (confirmResult.approved) {
-                    break;
-                }
-            }
-
             eventBus.emit('squad', 'node_state', {
                 nodeId,
                 status: STATUS.REVIEWING,
@@ -86,7 +54,7 @@ async function runNode({ node, upstreamResults, ctx, pi, signal, eventBus, model
 
             const reviewResult = await runReviewer({
                 node,
-                workerResult: finalWorkerResult,
+                workerResult,
                 ctx,
                 pi,
                 signal,
@@ -111,13 +79,13 @@ async function runNode({ node, upstreamResults, ctx, pi, signal, eventBus, model
                 return {
                     nodeId,
                     status: STATUS.APPROVED,
-                    summary: finalWorkerResult.summary,
-                    affectedFiles: finalWorkerResult.affected_files,
+                    summary: workerResult.reason,
+                    affectedFiles: workerResult.affected_files,
                 };
             }
 
             retryCount++;
-            reviewerFeedback = reviewResult.feedback;
+            reviewerFeedback = reviewResult.reason;
 
             eventBus.emit('squad', 'node_state', {
                 nodeId,

@@ -74,6 +74,10 @@ export default function App() {
   
   const handleToggleDAG = () => setDagCollapsed(!dagCollapsed);
   
+  const handleOptimisticMessage = useCallback((msg) => {
+    sessionDispatch({ type: 'SESSION_MESSAGE', payload: msg });
+  }, [sessionDispatch]);
+  
   const handleAbort = () => {
     send({ type: 'abort', payload: {} });
   };
@@ -119,6 +123,7 @@ export default function App() {
           onToggleDAG={handleToggleDAG}
           onNodeClick={handleNodeClick}
           onOpenModelPool={openModelPool}
+          onOptimisticMessage={handleOptimisticMessage}
           send={send}
         />
       </div>

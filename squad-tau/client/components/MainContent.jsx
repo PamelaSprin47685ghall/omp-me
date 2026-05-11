@@ -36,6 +36,7 @@ export default function MainContent({
   onToggleDAG,
   onNodeClick,
   onOpenModelPool,
+  onOptimisticMessage,
   send
 }) {
   const activeSession = sessions[activeSessionId];
@@ -95,10 +96,6 @@ export default function MainContent({
     );
   }
   
-  const handleOptimisticMessage = (msg) => {
-    // Optimistic update handled by parent
-  };
-  
   const sessionEndReason = 
     activeSession?.status === 'completed' || 
     activeSession?.status === 'aborted' || 
@@ -145,7 +142,7 @@ export default function MainContent({
           sessionId={activeSessionId}
           sessionEndReason={sessionEndReason}
           send={send}
-          onOptimisticMessage={handleOptimisticMessage}
+          onOptimisticMessage={onOptimisticMessage}
         />
       )}
     </div>

@@ -97,7 +97,6 @@ describe('Performance Benchmarks', () => {
 
         const plan = {
             mode: 'L',
-            reasoning: 'bench',
             nodes: [
                 { id: 'n1', task: 'task 1', review_criteria: 'quality' },
                 { id: 'n2', task: 'task 2', review_criteria: 'quality', depends_on: ['n1'] },

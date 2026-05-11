@@ -46,19 +46,43 @@ function validatePlan(plan) {
             errors.push(`${prefix}.task must be a non-empty string`);
         }
 
-        if (typeof node.review_criteria !== 'string' && !Array.isArray(node.review_criteria)) {
-            errors.push(`${prefix}.review_criteria must be a string or array`);
-        } else if (Array.isArray(node.review_criteria)) {
-            if (node.review_criteria.length === 0) {
-                errors.push(`${prefix}.review_criteria array must not be empty`);
+        const rc = node.review_criteria;
+        if (typeof rc === 'string') {
+            if (rc.trim() === '') {
+                errors.push(`${prefix}.review_criteria must not be empty`);
             }
-            for (let j = 0; j < node.review_criteria.length; j++) {
-                if (typeof node.review_criteria[j] !== 'string') {
-                    errors.push(`${prefix}.review_criteria[${j}] must be a string`);
+        } else if (Array.isArray(rc)) {
+            if (rc.length === 0) {
+                errors.push(`${prefix}.review_criteria must not be empty`);
+            } else if (typeof rc[0] === 'string') {
+                for (let j = 0; j < rc.length; j++) {
+                    if (typeof rc[j] !== 'string' || rc[j].trim() === '') {
+                        errors.push(`${prefix}.review_criteria[${j}] must not be empty`);
+                    }
                 }
+            } else if (typeof rc[0] === 'object' && rc[0] !== null) {
+                for (let j = 0; j < rc.length; j++) {
+                    const item = rc[j];
+                    if (!item || typeof item !== 'object') {
+                        errors.push(`${prefix}.review_criteria[${j}] must be an object`);
+                    } else {
+                        if (typeof item.name !== 'string' || item.name.trim() === '') {
+                            errors.push(`${prefix}.review_criteria[${j}].name must be a non-empty string`);
+                        }
+                        if (typeof item.description !== 'string' || item.description.trim() === '') {
+                            errors.push(`${prefix}.review_criteria[${j}].description must be a non-empty string`);
+                        }
+                    }
+                }
+            } else {
+                errors.push(
+                    `${prefix}.review_criteria must be a non-empty string, array of strings, or array of {name, description} objects`,
+                );
             }
-        } else if (node.review_criteria.trim() === '') {
-            errors.push(`${prefix}.review_criteria string must not be empty`);
+        } else {
+            errors.push(
+                `${prefix}.review_criteria must be a non-empty string, array of strings, or array of {name, description} objects`,
+            );
         }
 
         if (plan.mode === 'M' && node.depends_on) {

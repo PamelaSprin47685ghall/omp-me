@@ -15,14 +15,13 @@ import {
     syncModelPoolFromConfig,
 } from './model-pool-config.js';
 import SquadFSM from './squad-fsm.js';
-import { createSubmitPlanHandler } from './submit-plan.js';
+import { createDelegateHandler } from './submit-plan.js';
 import { executeDAG } from './dag-execute.js';
 import { buildSnapshot } from './model-pool-events.js';
 import { createOnCompleteHandler } from './squad-complete.js';
 import { subscribeToSessionEvents } from './session-events.js';
 import { register, unregister } from './session-registry.js';
 import path from 'path';
-import os from 'os';
 import fs from 'fs';
 
 export default function squadPlugin(pi) {
@@ -62,31 +61,18 @@ export default function squadPlugin(pi) {
                 bridgeEventsToWebSocket(eventBus, wsClients);
 
                 wsServer.on('connection', (ws) => {
-                    ws.send(
-                        JSON.stringify({
-                            type: 'model_pool:snapshot',
-                            payload: buildSnapshot(modelPool),
-                            timestamp: Date.now(),
-                        }),
-                    );
-
+                    const send = (type, payload) => ws.send(JSON.stringify({ type, payload, timestamp: Date.now() }));
+                    send('model_pool:snapshot', buildSnapshot(modelPool));
                     ws.on('message', async (data) => {
                         try {
                             const msg = JSON.parse(data.toString());
                             if (msg.type === 'abort') {
                                 eventBus.emit('squad', 'abort', { reason: 'User requested abort' });
-                                abortController.abort();
-                                return;
+                                return abortController.abort();
                             }
                             await routeMessage(msg, modelPool, { loadModelsConfig, saveModelsConfig }, eventBus, ws);
                         } catch (err) {
-                            ws.send(
-                                JSON.stringify({
-                                    type: 'error',
-                                    payload: { message: err.message },
-                                    timestamp: Date.now(),
-                                }),
-                            );
+                            send('error', { message: err.message });
                         }
                     });
                 });
@@ -106,11 +92,9 @@ export default function squadPlugin(pi) {
 
                 const startTime = Date.now();
 
-                const submitPlanHandler = createSubmitPlanHandler({
+                const delegateHandler = createDelegateHandler({
                     fsm,
-                    executeDAG: async ({ nodes }) => {
-                        return await executeDAG({ nodes, ctx, pi, signal, eventBus, modelPool });
-                    },
+                    executeDAG: async ({ nodes }) => executeDAG({ nodes, ctx, pi, signal, eventBus, modelPool }),
                     ctx,
                     pi,
                     signal,
@@ -118,7 +102,7 @@ export default function squadPlugin(pi) {
                     modelPool,
                     originalTask: task,
                     startTime,
-                    onComplete: createOnCompleteHandler({ ctx, fsm }),
+                    onComplete: createOnCompleteHandler({ ctx, fsm, eventBus }),
                 });
 
                 fsm.activate();
@@ -128,7 +112,7 @@ export default function squadPlugin(pi) {
                     cwd: ctx.cwd,
                     hasUI: false,
                     toolNames: ['read', 'write', 'edit', 'search', 'find', 'bash', 'lsp', 'eval'],
-                    customTools: [submitPlanHandler],
+                    customTools: [delegateHandler],
                     sessionManager: SessionManager.create(ctx.cwd),
                 };
 
@@ -143,34 +127,25 @@ export default function squadPlugin(pi) {
 
                 let unsubSessionEvents = null;
                 if (eventBus) {
-                    eventBus.emit('session', 'start', {
-                        sessionId,
-                        phase: 'main',
-                    });
+                    eventBus.emit('session', 'start', { sessionId, phase: 'main' });
                     eventBus.emit('session', 'state', { sessionId, phase: 'authoring' });
                     unsubSessionEvents = subscribeToSessionEvents(session, eventBus, sessionId);
                 }
 
                 try {
                     await session.prompt(
-                        `Execute this task using the squad system. Analyze the task and call submit_plan with an appropriate plan (M mode for single cohesive work, L mode for parallelizable DAG):\n\n${task}`,
+                        `Execute this task using the squad system. Analyze the task and call delegate with a directory containing .toml node definitions:\n\n${task}`,
                     );
 
                     // Agent turn loop — handles outer review rejection feedback
                     while (fsm.isActive() || fsm.isRevising()) {
-                        while (session.isStreaming) {
-                            await new Promise((r) => setTimeout(r, 200));
-                        }
-
+                        while (session.isStreaming) await new Promise((r) => setTimeout(r, 200));
                         if (session.settled) break;
-
                         if (fsm.isRevising()) {
                             await session.prompt(
-                                'ERROR: Outer review rejected your submission. You MUST call submit_plan with a revised plan before ending. Do not output prose — call the tool.',
+                                'ERROR: Outer review rejected your submission. You MUST call delegate with a revised plan before ending. Do not output prose — call the tool.',
                             );
-                        } else if (fsm.isIdle()) {
-                            break;
-                        }
+                        } else if (fsm.isIdle()) break;
                     }
 
                     await session.settled;
@@ -179,21 +154,16 @@ export default function squadPlugin(pi) {
                     if (sessionId) unregister(sessionId);
                 }
             } catch (err) {
-                if (err.name === 'AbortError') {
-                    ctx.sendMessage('Squad aborted by user');
-                } else {
+                if (err.name === 'AbortError') ctx.sendMessage('Squad aborted by user');
+                else {
                     ctx.sendMessage(`Squad error: ${err.message}`);
                     throw err;
                 }
             } finally {
                 fsm.deactivate();
                 unwatchConfig();
-                if (wsServer) {
-                    wsServer.close();
-                }
-                if (httpServer) {
-                    httpServer.close();
-                }
+                if (wsServer) wsServer.close();
+                if (httpServer) httpServer.close();
             }
         },
     });
@@ -202,7 +172,7 @@ export default function squadPlugin(pi) {
         name: 'squad-models',
         description: 'Generate initial model pool configuration',
         async handler(ctx) {
-            const configPath = path.join(os.homedir(), '.omp/squad/models.json');
+            const configPath = path.join(ctx.cwd, '.omp', 'models.toml');
             const configDir = path.dirname(configPath);
 
             if (!fs.existsSync(configDir)) {
@@ -214,12 +184,18 @@ export default function squadPlugin(pi) {
                 return;
             }
 
-            const defaultConfig = [
-                { provider: 'anthropic', modelId: 'claude-3-5-sonnet-20241022', role: 'worker' },
-                { provider: 'anthropic', modelId: 'claude-3-5-sonnet-20241022', role: 'reviewer' },
-            ];
+            const defaultConfig = `[[slot]]
+provider = "anthropic"
+model_id = "claude-3-5-sonnet-20241022"
+role = "worker"
 
-            saveModelsConfig(defaultConfig);
+[[slot]]
+provider = "anthropic"
+model_id = "claude-3-5-sonnet-20241022"
+role = "reviewer"
+`;
+
+            fs.writeFileSync(configPath, defaultConfig, 'utf8');
             ctx.sendMessage(`Created default model pool config at ${configPath}`);
         },
     });

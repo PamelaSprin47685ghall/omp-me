@@ -1,6 +1,6 @@
 import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
 import { OUTER_REVIEW_MAX_EMPTY, createCounter } from './empty-turns.js';
-import { buildReviewerTools } from './reviewer-tools.js';
+import { buildReturnTool } from './lifecycle-tools.js';
 import { buildBaseSessionOptions } from './session-options.js';
 import { register, unregister } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
@@ -23,8 +23,8 @@ ${nodeList}
 
 Does the aggregated result satisfy the original task?
 
-If yes, call approve({ comment: "..." }).
-If no, call reject({ feedback: "..." }) with specific guidance for the next round.`;
+If yes, call return({ status: 'ok', reason: '...' }).
+If no, call return({ status: 'error', reason: '...' }) with specific guidance for the next round.`;
 }
 
 function emitSessionEnd(eventBus, sessionId, phase, reason, errorMessage) {
@@ -57,8 +57,9 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
     const childAbort = new AbortController();
     let settled = false;
 
-    const reviewerTools = buildReviewerTools(outcomeResolve, (value) => {
-        settled = value;
+    const reviewerTools = buildReturnTool((params) => {
+        settled = true;
+        outcomeResolve({ approved: params.status === 'ok', reason: params.reason });
     });
 
     if (signal) {
@@ -124,12 +125,12 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
             emptyCounter.increment();
             if (emptyCounter.exceeded()) {
                 throw new Error(
-                    `Outer review ended without calling approve/reject after ${OUTER_REVIEW_MAX_EMPTY} empty turns`,
+                    `Outer review ended without calling return after ${OUTER_REVIEW_MAX_EMPTY} empty turns`,
                 );
             }
 
             await session.prompt(
-                'ERROR: You must call approve or reject to finish this review. Do not output prose — call the tool.',
+                'ERROR: You must call return to finish this review. Do not output prose — call the tool.',
             );
         }
 
@@ -145,7 +146,7 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
             eventBus.emit('squad', 'outer_review_result', {
                 round,
                 verdict: outcome.approved ? 'approved' : 'rejected',
-                feedback: outcome.comment || outcome.feedback,
+                feedback: outcome.reason,
             });
         }
 

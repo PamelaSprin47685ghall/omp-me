@@ -22,15 +22,13 @@ test('buildConfirmPrompt includes all 5 review dimensions', () => {
     assert.ok(prompt.includes('Goal Completeness'), 'Must include Goal Completeness dimension');
 });
 
-test('buildConfirmPrompt mentions confirm() and return_work()', () => {
+test('buildConfirmPrompt mentions return tool', () => {
     const originalTask = 'Refactor database connection pool';
     const prompt = buildConfirmPrompt(originalTask);
 
-    assert.ok(prompt.includes('confirm('), 'Must mention confirm() tool');
-    assert.ok(prompt.includes('return_work('), 'Must mention return_work() tool');
-    assert.ok(prompt.includes('comment?: string'), 'Must show confirm signature with optional comment');
-    assert.ok(prompt.includes('summary: string'), 'Must show return_work signature with summary');
-    assert.ok(prompt.includes('affected_files: string[]'), 'Must show return_work signature with affected_files');
+    assert.ok(prompt.includes('return('), 'Must mention return() tool');
+    assert.ok(prompt.includes("status: 'ok'"), 'Must mention ok status');
+    assert.ok(prompt.includes("status: 'error'"), 'Must mention error status');
 });
 
 test('buildConfirmPrompt emphasizes catching hallucinations and omissions', () => {
@@ -44,6 +42,9 @@ test('buildConfirmPrompt instructs re-submission when changes needed', () => {
     const originalTask = 'Update API documentation';
     const prompt = buildConfirmPrompt(originalTask);
 
-    assert.ok(prompt.includes('If anything needs to change'), 'Must provide guidance for when changes are needed');
+    assert.ok(
+        prompt.includes('If anything needs fixing') || prompt.includes("status: 'error'"),
+        'Must provide guidance for when changes are needed',
+    );
     assert.ok(prompt.includes('re-submit'), 'Must mention re-submission process');
 });
