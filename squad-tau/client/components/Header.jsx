@@ -66,14 +66,14 @@ export default function Header({
         </Tooltip>
       </Navbar.Group>
 
-      <Navbar.Group align="center">
+      <div style={{ display: 'flex', flex: 1, justifyContent: 'center', alignItems: 'center', height: '100%' }}>
         <div style={STATUS_STYLE}>
           <Tooltip content={statusText}>
             <Icon icon={IconNames.DOT} size={16} color={statusColor} />
           </Tooltip>
           {connected && <span style={{fontSize:12,color:'#5C7080'}}>:&#8203;{port}</span>}
         </div>
-      </Navbar.Group>
+      </div>
 
       <Navbar.Group align="right">
         <Tooltip content="Model Pool Configuration">

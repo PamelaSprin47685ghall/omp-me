@@ -62,7 +62,7 @@ export function MessageInput({ sessionId, sessionEndReason, send, onOptimisticMe
       <TextArea
         autoFocus
         fill
-        growVertically
+        autoResize
         value={value}
         onChange={e => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
