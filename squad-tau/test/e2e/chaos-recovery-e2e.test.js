@@ -38,6 +38,7 @@ describe('Chaos: Destructive / Functional scenarios', () => {
         const page = await browser.newPage();
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
         await page.waitForSelector('#root', { timeout: 3000 });
+        await page.waitForFunction(() => window.__wsConnected, { timeout: 3000 });
 
         // Disruption
         for (let i = 0; i < 10; i++) {
@@ -72,6 +73,7 @@ describe('Chaos: Destructive / Functional scenarios', () => {
         const page = await browser.newPage();
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
         await page.waitForSelector('#root', { timeout: 3000 });
+        await page.waitForFunction(() => window.__wsConnected, { timeout: 3000 });
 
         for (let i = 0; i < 5; i++) {
             eb.emit('squad', 'init', {
@@ -105,6 +107,7 @@ describe('Chaos: Destructive / Functional scenarios', () => {
         const page = await browser.newPage();
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
         await page.waitForSelector('#root', { timeout: 3000 });
+        await page.waitForFunction(() => window.__wsConnected, { timeout: 3000 });
 
         eb.emit('squad', 'init', {
             mode: 'M',
@@ -131,9 +134,17 @@ describe('Chaos: Destructive / Functional scenarios', () => {
             messageId: 'sw-m2',
         });
 
-        // Both session labels visible in sidebar tree
-        await page.waitForFunction(() => document.body.innerText.includes('sw-s1'), { timeout: 3000 }).catch(() => {});
-        await page.waitForFunction(() => document.body.innerText.includes('sw-s2'), { timeout: 3000 }).catch(() => {});
+        // Session 2 is latest, auto-selected
+        await page.waitForFunction(() => document.body.innerText.includes('Session TWO content'), { timeout: 3000 });
+
+        // Both session labels (R1-worker, R1-reviewer) visible in sidebar
+        await page.waitForFunction(
+            () => {
+                const text = document.body.innerText;
+                return text.includes('R1-worker') && text.includes('R1-reviewer');
+            },
+            { timeout: 3000 },
+        );
         await page.close();
     }, 15000);
 

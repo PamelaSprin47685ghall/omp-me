@@ -34,6 +34,7 @@ describe('Chaos E2E (PRD scenarios)', () => {
         const page = await browser.newPage();
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
         await page.waitForSelector('#root', { timeout: 3000 });
+        await page.waitForFunction(() => window.__wsConnected, { timeout: 3000 });
 
         // Create a squad so sidebar appears (needed for session display)
         eb.emit('squad', 'init', {
@@ -60,6 +61,7 @@ describe('Chaos E2E (PRD scenarios)', () => {
         const page = await browser.newPage();
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
         await page.waitForSelector('#root', { timeout: 3000 });
+        await page.waitForFunction(() => window.__wsConnected, { timeout: 3000 });
 
         // Send model pool snapshot
         eb.emit('model_pool', 'snapshot', {
@@ -92,6 +94,7 @@ describe('Chaos E2E (PRD scenarios)', () => {
         const page = await browser.newPage();
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
         await page.waitForSelector('#root', { timeout: 3000 });
+        await page.waitForFunction(() => window.__wsConnected, { timeout: 3000 });
 
         eb.emit('squad', 'init', {
             mode: 'L',

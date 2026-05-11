@@ -36,6 +36,7 @@ describe('Chaos: UI visual correctness', () => {
         const page = await browser.newPage();
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
         await page.waitForSelector('#root', { timeout: 3000 });
+        await page.waitForFunction(() => window.__wsConnected, { timeout: 3000 });
 
         eb.emit('squad', 'init', {
             mode: 'L',
@@ -67,6 +68,7 @@ describe('Chaos: UI visual correctness', () => {
         const page = await browser.newPage();
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
         await page.waitForSelector('#root', { timeout: 3000 });
+        await page.waitForFunction(() => window.__wsConnected, { timeout: 3000 });
 
         eb.emit('squad', 'init', {
             mode: 'M',
@@ -94,6 +96,7 @@ describe('Chaos: UI visual correctness', () => {
     test('welcome view appears and disappears on init/abort', async () => {
         const page = await browser.newPage();
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
+        await page.waitForFunction(() => window.__wsConnected, { timeout: 3000 });
         await page.waitForFunction(() => document.body.innerText.includes('Welcome to Squad-Tau'), { timeout: 5000 });
 
         // Init hides welcome
