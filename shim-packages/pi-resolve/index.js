@@ -1,64 +1,43 @@
-/**
- * pi-resolve: resolves pi-coding-agent, pi-ai, pi-tui from global install,
- * and provides createRequire-based external module loading for OMP plugins.
- *
- * OMP loads plugins from a temp directory, causing bare specifier resolution
- * failures for packages like `ws`. `requireScoped` solves this by creating a
- * require() scoped to the calling module's actual filesystem path.
- */
-import { createRequire } from 'node:module';
-import { pathToFileURL } from 'node:url';
+import { pathToFileURL, fileURLToPath } from 'node:url';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
-import { fileURLToPath } from 'node:url';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
-// Detect correct bun install path
-function detectBunBase() {
-    const home = homedir();
-    const paths = [
+const home = homedir();
+const PI_BASE =
+    [
         join(home, '.cache/.bun/install/global/node_modules/@oh-my-pi'),
         join(home, '.bun/install/global/node_modules/@oh-my-pi'),
-    ];
+    ].find(existsSync) || join(home, '.bun/install/global/node_modules/@oh-my-pi');
 
-    for (const path of paths) {
-        if (existsSync(path)) {
-            return path;
-        }
+const _thisFile = fileURLToPath(import.meta.url);
+function findRoot(dir) {
+    while (dir !== dirname(dir)) {
+        if (existsSync(join(dir, 'squad-tau', 'client', 'index.html'))) return dir;
+        dir = dirname(dir);
     }
-
-    // Fallback to .cache path if neither exists
-    return paths[0];
+    return dir;
 }
 
-const BASE = detectBunBase();
+export const OMP_ME_HOME = findRoot(dirname(_thisFile));
+export const getPiBase = () => PI_BASE;
 
-export function getPiBase() {
-    return BASE;
+const cache = new Map();
+
+export async function importNodeModule(name, subpath = null) {
+    const key = subpath ? `${name}:${subpath}` : name;
+    if (cache.has(key)) return cache.get(key);
+
+    const target = await import.meta.resolve(subpath ? `${name}/${subpath}` : name);
+    const mod = await import(target);
+    cache.set(key, mod);
+    return mod;
 }
 
-let _codingAgentMod = null;
-
-/**
- * Get the @oh-my-pi/pi-coding-agent module from the global Bun install.
- */
 export async function getCodingAgentModule() {
-    if (!_codingAgentMod) {
-        const piAgentPath = join(BASE, 'pi-coding-agent/src/index.ts');
-        _codingAgentMod = await import(pathToFileURL(piAgentPath).href);
-    }
-    return _codingAgentMod;
-}
-
-/**
- * Create a CommonJS require() function scoped to the calling module's
- * directory. Use this to load external npm packages (like `ws`, `vite`)
- * without OMP's temp-directory resolution issues.
- *
- * @param {string} importMetaUrl - Pass `import.meta.url` from the caller.
- * @returns {NodeRequire}
- */
-export function requireScoped(importMetaUrl) {
-    const __filename = fileURLToPath(importMetaUrl);
-    return createRequire(join(dirname(__filename), 'noop.js'));
+    const key = '@oh-my-pi/pi-coding-agent';
+    if (cache.has(key)) return cache.get(key);
+    const mod = await import(pathToFileURL(join(PI_BASE, 'pi-coding-agent/src/index.ts')).href);
+    cache.set(key, mod);
+    return mod;
 }

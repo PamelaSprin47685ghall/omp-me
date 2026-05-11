@@ -1,3 +1,4 @@
+import { OMP_ME_HOME } from '@oh-my-pi/resolve-pi';
 import { describe, it } from 'bun:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
@@ -88,14 +89,14 @@ describe('delegate onComplete contract (Bug 4 fixed)', () => {
 describe('useDarkMode destructure contract (Bug 5 fixed)', () => {
     it('useDarkMode hook returns object with isDark property', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('client/hooks/useDarkMode.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'client/hooks/useDarkMode.js'), 'utf8');
         assert.ok(src.includes('return { isDark }'), 'hook must return { isDark } object');
     });
 
     it('App.jsx destructures isDark from useDarkMode', async () => {
         // Use fs to read App.jsx since it's JSX and can't be imported in node:test
         const fs = await import('fs');
-        const src = fs.readFileSync('client/App.jsx', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'client/App.jsx'), 'utf8');
         // After fix: const { isDark } = useDarkMode()
         assert.ok(src.includes('const { isDark } = useDarkMode()'), 'App.jsx must destructure isDark from useDarkMode');
     });
@@ -107,14 +108,14 @@ describe('useDarkMode destructure contract (Bug 5 fixed)', () => {
 describe('App.jsx event dispatch mapping (Bug 6 fixed)', () => {
     it('maps squad:init to SQUAD_INIT', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('client/App.jsx', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'client/App.jsx'), 'utf8');
         // After fix: there should be a mapping for squad:init → SQUAD_INIT
         assert.ok(src.includes("'squad:init': 'SQUAD_INIT'"), 'App.jsx must map squad:init to SQUAD_INIT');
     });
 
     it('maps squad:complete to SQUAD_COMPLETE', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('client/App.jsx', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'client/App.jsx'), 'utf8');
         assert.ok(
             src.includes("'squad:complete': 'SQUAD_COMPLETE'"),
             'App.jsx must map squad:complete to SQUAD_COMPLETE',
@@ -123,7 +124,7 @@ describe('App.jsx event dispatch mapping (Bug 6 fixed)', () => {
 
     it('maps squad:abort to SQUAD_ABORT', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('client/App.jsx', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'client/App.jsx'), 'utf8');
         assert.ok(src.includes("'squad:abort': 'SQUAD_ABORT'"), 'App.jsx must map squad:abort to SQUAD_ABORT');
     });
 });
@@ -134,7 +135,10 @@ describe('App.jsx event dispatch mapping (Bug 6 fixed)', () => {
 describe('ModelPoolDrawer delete in-use slots (Bug 7 fixed)', () => {
     it('delete button is not disabled for in-use slots', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('client/components/ModelPoolDrawer.jsx', 'utf8');
+        const src = fs.readFileSync(
+            path.join(OMP_ME_HOME, 'squad-tau', 'client/components/ModelPoolDrawer.jsx'),
+            'utf8',
+        );
         // After fix: the disabled={slot.inUse} should be removed from trash button
         assert.ok(
             !src.includes('disabled={slot.inUse}') ||

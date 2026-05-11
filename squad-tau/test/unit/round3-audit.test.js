@@ -1,3 +1,5 @@
+import path from 'path';
+import { OMP_ME_HOME } from '@oh-my-pi/resolve-pi';
 import { describe, it } from 'bun:test';
 import assert from 'node:assert/strict';
 
@@ -8,7 +10,7 @@ import assert from 'node:assert/strict';
 describe('model_pool:changed broadcast after update (PRD §6.3)', () => {
     it('handleModelPoolMessage must emit model_pool:changed after add', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/model-pool-events.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/model-pool-events.js'), 'utf8');
         // The function must receive eventBus and emit after each action
         assert.ok(src.includes('eventBus'), 'handleModelPoolMessage must accept eventBus param');
         assert.ok(
@@ -19,7 +21,7 @@ describe('model_pool:changed broadcast after update (PRD §6.3)', () => {
 
     it('ws-handler routes model_pool:update to handleModelPoolMessage with eventBus', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/ws-handler.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/ws-handler.js'), 'utf8');
         const caseIdx = src.indexOf("case 'model_pool:update'");
         assert.ok(caseIdx >= 0, 'must handle model_pool:update');
         // The call must pass eventBus
@@ -35,7 +37,7 @@ describe('model_pool:changed broadcast after update (PRD §6.3)', () => {
 describe('session:state event emission (PRD §5.5)', () => {
     it('run-worker.js must emit session:state for authoring/completed/aborted', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/run-worker.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/run-worker.js'), 'utf8');
         // Must emit session, state at appropriate points
         const matches = src.match(/eventBus\.emit\('session',\s*'state'/g);
         assert.ok(matches && matches.length > 0, 'run-worker must emit session:state events');
@@ -44,14 +46,14 @@ describe('session:state event emission (PRD §5.5)', () => {
 
     it('run-reviewer.js must emit session:state for reviewing/completed', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/run-reviewer.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/run-reviewer.js'), 'utf8');
         const matches = src.match(/eventBus\.emit\('session',\s*'state'/g);
         assert.ok(matches && matches.length >= 1, 'run-reviewer must emit session:state');
     });
 
     it('outer-review.js must emit session:state', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/outer-review.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/outer-review.js'), 'utf8');
         const matches = src.match(/eventBus\.emit\('session',\s*'state'/g);
         assert.ok(matches && matches.length >= 1, 'outer-review must emit session:state');
     });

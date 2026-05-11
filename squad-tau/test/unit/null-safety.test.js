@@ -1,3 +1,5 @@
+import path from 'path';
+import { OMP_ME_HOME } from '@oh-my-pi/resolve-pi';
 import { describe, it } from 'bun:test';
 import assert from 'node:assert/strict';
 
@@ -19,7 +21,7 @@ describe('ModelPool null-safety', () => {
 
     it('ModelPool.release has null guard at source', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/model-pool.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/model-pool.js'), 'utf8');
         const releaseMethod = src.match(/release\(slot\)\s*\{[^}]+\}/);
         assert.ok(releaseMethod, 'release method must exist');
         assert.ok(src.includes('if (!slot) return;'), 'ModelPool.release must guard against null slot at the source');

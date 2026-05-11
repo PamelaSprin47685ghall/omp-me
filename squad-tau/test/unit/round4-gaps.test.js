@@ -1,3 +1,5 @@
+import path from 'path';
+import { OMP_ME_HOME } from '@oh-my-pi/resolve-pi';
 import { describe, it } from 'bun:test';
 import assert from 'node:assert/strict';
 
@@ -10,7 +12,7 @@ import assert from 'node:assert/strict';
 describe('Header port display (PRD §4.5)', () => {
     it('Header must display port number near connection status', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('client/components/Header.jsx', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'client/components/Header.jsx'), 'utf8');
         // Must use window.location.port or receive port prop
         // NOT just matching 'import' substring
         const hasPortDisplay =
@@ -25,7 +27,7 @@ describe('Header port display (PRD §4.5)', () => {
 
     it('Header JSX renders port in the status area', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('client/components/Header.jsx', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'client/components/Header.jsx'), 'utf8');
         // The status area should show port number
         // Pattern: something like `:{port}` or `location.port`
         assert.ok(src.includes('location.port'), 'Header must reference window.location.ort to display port');
@@ -33,7 +35,7 @@ describe('Header port display (PRD §4.5)', () => {
 
     it('App.jsx must provide port to Header or Header reads it directly', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('client/components/Header.jsx', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'client/components/Header.jsx'), 'utf8');
         // Either Header reads window.location.port itself,
         // or App passes it as a prop
         assert.ok(src.includes('location.port'), 'Header must read port itself (simplest approach)');
@@ -47,7 +49,7 @@ describe('Header port display (PRD §4.5)', () => {
 describe('Dark mode on root element (PRD §4.8)', () => {
     it('App.jsx dark mode effect must use document.documentElement', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('client/App.jsx', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'client/App.jsx'), 'utf8');
         // Must target document.documentElement, not document.body
         assert.ok(!src.includes('document.body.classList'), 'App.jsx must NOT toggle Classes.DARK on document.body');
         assert.ok(
@@ -58,7 +60,7 @@ describe('Dark mode on root element (PRD §4.8)', () => {
 
     it('useDarkMode hook must use document.documentElement', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('client/hooks/useDarkMode.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'client/hooks/useDarkMode.js'), 'utf8');
         assert.ok(src.includes('document.documentElement'), 'useDarkMode must target document.documentElement');
     });
 });
@@ -70,7 +72,10 @@ describe('Dark mode on root element (PRD §4.8)', () => {
 describe('ModelPoolDrawer role selector (PRD §4.7)', () => {
     it('ModelPoolDrawer uses Select not RadioGroup for role', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('client/components/ModelPoolDrawer.jsx', 'utf8');
+        const src = fs.readFileSync(
+            path.join(OMP_ME_HOME, 'squad-tau', 'client/components/ModelPoolDrawer.jsx'),
+            'utf8',
+        );
         // Code must be consistent - if it uses SelectField, document that
         assert.ok(src.includes('SelectField'), 'ModelPoolDrawer uses SelectField for role selection');
         assert.ok(!src.includes('RadioGroup'), 'PRD says RadioGroup but code uses Select - update PRD to match');

@@ -10,6 +10,7 @@
  */
 
 import * as proxy from './proxy.js';
+const { importNodeModule } = await import('@oh-my-pi/resolve-pi');
 
 console.log = () => {};
 console.warn = () => {};
@@ -21,7 +22,7 @@ let mainEventBus = null;
 let unsubEventBus = null;
 
 export default async function ohTauMirrorAdaptor(pi) {
-    const { default: tauMirrorExtension } = await import('tau-mirror/extensions/mirror-server.ts');
+    const { default: tauMirrorExtension } = await importNodeModule('tau-mirror', 'extensions/mirror-server.ts');
 
     const origOn = pi.on.bind(pi);
     pi.on = function (event, handler) {

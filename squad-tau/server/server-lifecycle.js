@@ -1,8 +1,9 @@
-import { EventBus } from './event-bus.js';
+import { createServer } from 'http';
 import { createHttpServer } from './http-server.js';
 import { createWsServer } from './ws-server.js';
 import { startHeartbeat } from './ws-heartbeat.js';
 import { routeMessage } from './ws-handler.js';
+import { EventBus } from './event-bus.js';
 import { createViteDevServer, closeViteServer } from './vite-setup.js';
 import { ModelPool } from './model-pool.js';
 import {
@@ -15,112 +16,96 @@ import {
 import { buildSnapshot } from './model-pool-events.js';
 import { getCurrentRun } from './plugin-state.js';
 
-let globalEventBus = null;
-let globalModelPool = null;
-let httpServerInstance = null;
-let wssInstance = null;
-let heartbeatCleanup = null;
-let bridgeCleanup = null;
-let serverPort = null;
-let serverPromise = null;
+let _server = null;
+let _close = null;
 
 export async function startServer() {
-    if (httpServerInstance) return { port: serverPort };
-    if (serverPromise) return serverPromise;
+    if (_server) return { port: _server.port, eventBus: _server.eventBus, modelPool: _server.modelPool };
 
-    serverPromise = (async () => {
-        if (httpServerInstance) return { port: serverPort };
-        globalEventBus = new EventBus();
-        const config = loadModelsConfig();
-        globalModelPool = new ModelPool(config);
+    const eventBus = new EventBus();
+    const config = loadModelsConfig();
+    const modelPool = new ModelPool(config);
 
-        const viteMiddlewares = await createViteDevServer();
-        const httpResult = await createHttpServer({ viteMiddlewares });
-        httpServerInstance = httpResult.server;
-        serverPort = httpResult.port;
+    // 1. Create the raw HTTP server first (before binding, no request handler yet).
+    const rawServer = createServer();
 
-        const wsResult = createWsServer(httpServerInstance, globalEventBus, {
-            onConnection: (ws) => {
-                ws.send(
-                    JSON.stringify({
-                        type: 'model_pool:snapshot',
-                        payload: buildSnapshot(globalModelPool),
-                        timestamp: Date.now(),
-                    }),
-                );
-            },
-            onMessage: async (msg, ws) => {
-                await routeMessage(msg, globalModelPool, { loadModelsConfig, saveModelsConfig }, globalEventBus, ws);
-            },
-        });
-        wssInstance = wsResult.wss;
-        bridgeCleanup = wsResult.unsub;
+    // 2. Pass it to Vite so Vite attaches its WS to our server (not a new one).
+    const viteMiddlewares = await createViteDevServer({ httpServer: rawServer });
 
-        heartbeatCleanup = startHeartbeat(wssInstance.clients);
+    // 3. Create the WS server on the same raw server.
+    const { wss, unsub } = createWsServer(rawServer, eventBus, {
+        onConnection: (ws) => {
+            ws.send(
+                JSON.stringify({
+                    type: 'model_pool:snapshot',
+                    payload: buildSnapshot(modelPool),
+                    timestamp: Date.now(),
+                }),
+            );
+        },
+        onMessage: async (msg, ws) => {
+            await routeMessage(msg, modelPool, { loadModelsConfig, saveModelsConfig }, eventBus, ws);
+        },
+    });
 
-        watchConfig(() => {
-            syncModelPoolFromConfig(globalModelPool, loadModelsConfig());
-            globalEventBus.emit('model_pool', 'changed', buildSnapshot(globalModelPool));
-        });
+    // 4. Start heartbeat before creating close handler (avoids hoisting issue).
+    const heartbeatCleanup = startHeartbeat(wss.clients);
 
-        globalEventBus.on('squad:abort', () => {
-            const run = getCurrentRun();
-            if (run) run.abortController.abort();
-        });
-
-        return { port: serverPort };
-    })();
-
-    return serverPromise;
-}
-
-export async function stopServer() {
-    if (wssInstance) {
+    // 5. Now add our request handler (with Vite middleware + status endpoint) and bind.
+    const http = await createHttpServer({ viteMiddlewares, server: rawServer });
+    const close = async () => {
         const closeMsg = JSON.stringify({
             type: 'connection:close',
             payload: { reason: 'server_stop' },
             timestamp: Date.now(),
         });
-        for (const client of wssInstance.clients) {
-            client.send(closeMsg);
-        }
-    }
-    await closeViteServer();
-    if (heartbeatCleanup) {
+        for (const client of wss.clients) client.send(closeMsg);
         heartbeatCleanup();
-        heartbeatCleanup = null;
-    }
-    if (bridgeCleanup) {
-        bridgeCleanup();
-        bridgeCleanup = null;
-    }
-    unwatchConfig();
-    if (wssInstance) {
-        for (const client of wssInstance.clients) {
-            client.terminate();
-        }
-        wssInstance.close();
-        wssInstance = null;
-    }
-    if (httpServerInstance) {
-        if (typeof httpServerInstance.closeAllConnections === 'function') {
-            httpServerInstance.closeAllConnections();
-        }
-        await new Promise((resolve) => httpServerInstance.close(() => resolve()));
-        httpServerInstance = null;
-    }
-    globalEventBus = null;
-    globalModelPool = null;
-    serverPort = null;
-    serverPromise = null;
+        unsub();
+        unwatchConfig();
+        for (const client of wss.clients) client.terminate();
+        wss.close();
+
+        // Close the HTTP server first so Vite's async dep-scan requests
+        // fail at the connection level (ECONNREFUSED) instead of hitting
+        // a closed middleware that throws "server is being restarted".
+        if (typeof rawServer.closeAllConnections === 'function') rawServer.closeAllConnections();
+        await new Promise((r) => rawServer.close(() => r()));
+
+        // Then close Vite (no more pending requests to race against).
+        await closeViteServer();
+
+        _server = null;
+        _close = null;
+    };
+
+    watchConfig(() => {
+        syncModelPoolFromConfig(modelPool, loadModelsConfig());
+        eventBus.emit('model_pool', 'changed', buildSnapshot(modelPool));
+    });
+
+    eventBus.on('squad:abort', () => {
+        const run = getCurrentRun();
+        if (run) run.abortController.abort();
+    });
+
+    _server = { port: http.port, eventBus, modelPool };
+    _close = close;
+
+    return { port: http.port, eventBus, modelPool, close };
+}
+
+export async function stopServer() {
+    if (!_close) return;
+    await _close();
 }
 
 export function getGlobalEventBus() {
-    return globalEventBus;
+    return _server?.eventBus ?? null;
 }
 export function getGlobalModelPool() {
-    return globalModelPool;
+    return _server?.modelPool ?? null;
 }
 export function getServerPort() {
-    return serverPort;
+    return _server?.port ?? null;
 }

@@ -19,19 +19,30 @@
     "@earendil-works/pi-coding-agent": "@mariozechner/pi-coding-agent",
     "@earendil-works/pi-tui": "@mariozechner/pi-tui"
   },
-  "devDependencies": {
-    "lint-staged": "^15.5.2",
-    "simple-git-hooks": "^2.13.1"
-  },
   "dependencies": {
+    "@blueprintjs/core": "^6.12.1",
+    "@blueprintjs/icons": "^6.9.1",
     "@juicesharp/rpiv-advisor": "^1.4.0",
     "@mariozechner/pi-ai": "file:shim-packages/pi-ai",
     "@mariozechner/pi-coding-agent": "file:shim-packages/pi-coding-agent",
     "@mariozechner/pi-tui": "file:shim-packages/pi-tui",
     "@oh-my-pi/resolve-pi": "file:shim-packages/pi-resolve",
     "@sinclair/typebox": "^0.34.49",
+    "mermaid": "^11.14.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
     "tau-mirror": "^1.0.7",
-    "typebox": "file:shim-packages/typebox"
+    "typebox": "file:shim-packages/typebox",
+    "vite": "^8.0.11",
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
+    "happy-dom": "^20.9.0",
+    "lint-staged": "^15.5.2",
+    "puppeteer": "^24.43.0",
+    "simple-git-hooks": "^2.13.1"
   },
   "lint-staged": {
     "*.{js,mjs}": "bun x prettier --write"

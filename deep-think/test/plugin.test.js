@@ -4,6 +4,7 @@
 
 import { describe, it } from 'bun:test';
 import assert from 'node:assert/strict';
+const { importNodeModule } = await import('@oh-my-pi/resolve-pi');
 
 // --------------------------------------------------------------------------
 // Shim packages
@@ -11,13 +12,13 @@ import assert from 'node:assert/strict';
 
 describe('shim packages', () => {
     it('typebox exports Type', async () => {
-        const mod = await import('typebox');
+        const mod = await importNodeModule('typebox');
         assert.equal(typeof mod.Type, 'object');
         assert.equal(typeof mod.Type.Object, 'function');
     });
 
     it('@mariozechner/pi-tui exports UI components', async () => {
-        const mod = await import('@mariozechner/pi-tui');
+        const mod = await importNodeModule('@mariozechner/pi-tui');
         assert.equal(typeof mod.Container, 'function');
         assert.equal(typeof mod.SelectList, 'function');
         assert.equal(typeof mod.Spacer, 'function');
@@ -25,13 +26,13 @@ describe('shim packages', () => {
     });
 
     it('@mariozechner/pi-coding-agent exports DynamicBorder and convertToLlm', async () => {
-        const mod = await import('@mariozechner/pi-coding-agent');
+        const mod = await importNodeModule('@mariozechner/pi-coding-agent');
         assert.equal(typeof mod.DynamicBorder, 'function');
         assert.equal(typeof mod.convertToLlm, 'function');
     });
 
     it('@mariozechner/pi-ai exports completeSimple and getSupportedThinkingLevels', async () => {
-        const mod = await import('@mariozechner/pi-ai');
+        const mod = await importNodeModule('@mariozechner/pi-ai');
         assert.equal(typeof mod.completeSimple, 'function');
         assert.equal(typeof mod.getSupportedThinkingLevels, 'function');
     });
@@ -42,7 +43,7 @@ describe('shim packages', () => {
     });
 
     it('getSupportedThinkingLevels includes xhigh for models that support it', async () => {
-        const { getSupportedThinkingLevels } = await import('@mariozechner/pi-ai');
+        const { getSupportedThinkingLevels } = await importNodeModule('@mariozechner/pi-ai');
 
         const noReasoning = { reasoning: false };
         assert.deepEqual(getSupportedThinkingLevels(noReasoning), []);

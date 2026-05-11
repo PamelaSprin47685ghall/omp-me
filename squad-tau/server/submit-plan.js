@@ -41,8 +41,8 @@ function parseTomlNode(plan_dir, file) {
     return {
         id: path.basename(file, '.toml'),
         task: parsed.task,
-        depends_on: parsed.depends_on || [],
         review_criteria: parsed.review_criteria || [],
+        ...(parsed.depends_on !== undefined && { depends_on: parsed.depends_on }),
     };
 }
 

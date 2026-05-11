@@ -1,3 +1,5 @@
+import path from 'path';
+import { OMP_ME_HOME } from '@oh-my-pi/resolve-pi';
 import { describe, it } from 'bun:test';
 import assert from 'node:assert/strict';
 
@@ -8,7 +10,7 @@ import assert from 'node:assert/strict';
 describe('ws-server.js dead code', () => {
     it('broadcast function should be used or removed', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/ws-server.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/ws-server.js'), 'utf8');
         // If broadcast is defined, it should be exported or used internally
         if (src.includes('function broadcast(')) {
             assert.ok(src.includes('export') || src.includes('broadcast('), 'broadcast must be exported if defined');
@@ -17,7 +19,7 @@ describe('ws-server.js dead code', () => {
 
     it('getClientCount function should be used or removed', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/ws-server.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/ws-server.js'), 'utf8');
         if (src.includes('function getClientCount(')) {
             assert.ok(
                 src.includes('export') || src.includes('getClientCount('),

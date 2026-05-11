@@ -11,10 +11,13 @@ import path from 'path';
 import fs from 'fs';
 
 export default function squadPlugin(pi) {
-    const serverPromise = startServer();
+    let server = null;
 
     registerDelegateTool(pi);
-    registerSquadCommand(pi, serverPromise);
+    registerSquadCommand(pi, () => {
+        if (!server) server = startServer();
+        return server;
+    });
     registerSquadModelsCommand(pi);
 }
 
@@ -40,7 +43,7 @@ function registerDelegateTool(pi) {
     });
 }
 
-function registerSquadCommand(pi, serverPromise) {
+function registerSquadCommand(pi, getServer) {
     pi.registerCommand('squad', {
         description: 'Start a squad task with multi-agent orchestration',
         async handler(args, ctx) {
@@ -50,11 +53,7 @@ function registerSquadCommand(pi, serverPromise) {
                 return;
             }
 
-            await serverPromise;
-            const port = getServerPort();
-            const eventBus = getGlobalEventBus();
-            const modelPool = getGlobalModelPool();
-
+            const { port, eventBus, modelPool } = await getServer();
             const fsm = new SquadFSM();
             const abortController = new AbortController();
             const { signal } = abortController;

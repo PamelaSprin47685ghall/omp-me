@@ -1,8 +1,55 @@
 import { createServer } from 'http';
-import { DEFAULTS } from './constants.js';
 
-export async function createHttpServer({ viteMiddlewares, port: preferredPort }) {
-    const app = createBasicApp();
+/**
+ * Create a middleware-based HTTP app.
+ * Returns { app, attach } where:
+ *   app — the middleware request handler
+ *   attach(server) — adds the app as request listener to an existing server
+ */
+export function createApp() {
+    const stack = [];
+
+    const app = (req, res) => {
+        let i = 0;
+        const next = (err) => {
+            if (err) return handleError(res, err);
+            if (i >= stack.length) return handleNotFound(res);
+            stack[i++](req, res, next);
+        };
+        next();
+    };
+
+    app.use = (mw) => stack.push(mw);
+    app.get = (path, handler) =>
+        stack.push((req, res, next) => {
+            req.method === 'GET' && req.url === path ? handler(req, res) : next();
+        });
+
+    function attach(server) {
+        server.on('request', app);
+    }
+
+    return { app, attach };
+}
+
+function handleError(res, err) {
+    if (err) console.error('Middleware error:', err);
+    res.writeHead(500, { 'Content-Type': 'text/plain' });
+    res.end(err ? err.stack : 'Internal Server Error');
+}
+
+function handleNotFound(res) {
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not Found');
+}
+
+/**
+ * Create and bind an HTTP server.
+ * Can optionally receive a pre-created server (for sharing with Vite's WS).
+ * Returns { server, port, close }.
+ */
+export async function createHttpServer({ viteMiddlewares, server: existingServer } = {}) {
+    const { app, attach } = createApp();
 
     app.get('/api/status', (req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -15,88 +62,27 @@ export async function createHttpServer({ viteMiddlewares, port: preferredPort })
         );
     });
 
-    if (viteMiddlewares) {
-        app.use(viteMiddlewares);
-    }
+    if (viteMiddlewares) app.use(viteMiddlewares);
 
-    const server = createServer(app);
-    const port = await allocatePort(server, preferredPort);
+    const server = existingServer || createServer();
+    attach(server);
+
+    const port = await bind(server);
     app.port = port;
 
     return {
-        app,
         server,
         port,
-        close: () =>
-            new Promise((resolve, reject) => {
-                server.close((err) => (err ? reject(err) : resolve()));
-            }),
+        close: () => new Promise((r) => server.close(() => r())),
     };
 }
 
-function createBasicApp() {
-    const middlewares = [];
-
-    const app = (req, res) => {
-        let index = 0;
-        const next = (err) => {
-            if (err) return handleMiddlewareError(res);
-            if (index >= middlewares.length) return handleNotFound(res);
-            const middleware = middlewares[index++];
-            middleware(req, res, next);
-        };
-        next();
-    };
-
-    setupAppMethods(app, middlewares);
-    return app;
-}
-
-function handleMiddlewareError(res) {
-    res.writeHead(500, { 'Content-Type': 'text/plain' });
-    res.end('Internal Server Error');
-}
-
-function handleNotFound(res) {
-    res.writeHead(404, { 'Content-Type': 'text/plain' });
-    res.end('Not Found');
-}
-
-function setupAppMethods(app, middlewares) {
-    app.use = (middleware) => {
-        middlewares.push(middleware);
-    };
-
-    app.get = (path, handler) => {
-        middlewares.push((req, res, next) => {
-            if (req.method === 'GET' && req.url === path) {
-                handler(req, res);
-            } else {
-                next();
-            }
-        });
-    };
-}
-
-function tryListen(server, port) {
+function bind(server) {
     return new Promise((resolve, reject) => {
         server.once('error', reject);
-        server.listen(port, '127.0.0.1', () => {
+        server.listen(0, '127.0.0.1', () => {
             server.removeListener('error', reject);
-            resolve();
+            resolve(server.address().port);
         });
     });
-}
-
-async function allocatePort(server, preferredPort) {
-    const portToTry = preferredPort !== undefined ? preferredPort : DEFAULTS.PORT;
-    try {
-        await tryListen(server, portToTry);
-        return server.address().port;
-    } catch (err) {
-        if (err.code !== 'EADDRINUSE' || preferredPort !== undefined) throw err;
-        // Preferred port busy — let OS assign any available port
-        await tryListen(server, 0);
-        return server.address().port;
-    }
 }

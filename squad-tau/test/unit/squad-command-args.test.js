@@ -1,22 +1,14 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
+import { mock } from 'bun:test';
 import squadPlugin from '../../server/squad-engine.js';
 import { stubPi } from '../helpers/mock-pi.js';
 
-vi.mock('@oh-my-pi/resolve-pi', () => ({
-    getCodingAgentModule: vi.fn().mockResolvedValue({
+mock.module('@oh-my-pi/resolve-pi', () => ({
+    getCodingAgentModule: async () => ({
         SessionManager: {
-            create: vi.fn().mockReturnValue({
-                getSessionFile: () => 'test-session.jsonl',
-            }),
+            create: () => ({ getSessionFile: () => 'test-session.jsonl' }),
         },
     }),
-}));
-
-vi.mock('../../server/server-lifecycle.js', () => ({
-    startServer: vi.fn().mockResolvedValue({ port: 1234 }),
-    getServerPort: vi.fn().mockReturnValue(1234),
-    getGlobalEventBus: vi.fn().mockReturnValue({ emit: vi.fn(), on: vi.fn() }),
-    getGlobalModelPool: vi.fn().mockReturnValue({ acquire: vi.fn(), release: vi.fn() }),
 }));
 
 describe('squad command args handling', () => {
@@ -48,6 +40,11 @@ describe('squad command args handling', () => {
         await squadCmd.opts.handler(args, ctx);
 
         expect(sendMessageSpy).toHaveBeenCalledWith(expect.stringContaining('Usage: /squad'));
+    });
+
+    afterAll(async () => {
+        const { stopServer } = await import('../../server/server-lifecycle.js');
+        await stopServer();
     });
 
     it('should parse string args correctly (real OMP behavior)', () => {

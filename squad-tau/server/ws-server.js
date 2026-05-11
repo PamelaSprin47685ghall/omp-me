@@ -2,10 +2,9 @@
  * WebSocket server — single owner of ws lifecycle and broadcast.
  * Subscribes directly to the event bus; no cross-module client Set passing.
  */
-import { requireScoped } from '@oh-my-pi/resolve-pi';
-
-const require = requireScoped(import.meta.url);
-const { WebSocketServer } = require('ws');
+// Use importNodeModule to bypass OMP's bare-import rewriting and resolve from root node_modules.
+const { importNodeModule } = await import('@oh-my-pi/resolve-pi');
+const { WebSocketServer } = await importNodeModule('ws');
 
 let nextConnId = 1;
 

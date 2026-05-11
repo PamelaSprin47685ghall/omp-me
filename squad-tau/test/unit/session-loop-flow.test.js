@@ -1,29 +1,10 @@
+import path from 'path';
+import { OMP_ME_HOME } from '@oh-my-pi/resolve-pi';
 import { test, expect, mock } from 'bun:test';
 import { runWorker } from '../../server/run-worker.js';
 import { runReviewer } from '../../server/run-reviewer.js';
 import { stubPi } from '../helpers/mock-pi.js';
 import { EventBus } from '../../server/event-bus.js';
-
-mock.module('@oh-my-pi/resolve-pi', () => {
-    const { createRequire } = require('module');
-    const { fileURLToPath } = require('url');
-    const { dirname, join } = require('path');
-
-    return {
-        requireScoped: (importMetaUrl) => {
-            const __filename = fileURLToPath(importMetaUrl);
-            return createRequire(join(dirname(__filename), 'noop.js'));
-        },
-        getCodingAgentModule: async () => ({
-            SessionManager: {
-                create: (cwd) => {
-                    const id = `test-session-${Math.random().toString(36).slice(2)}`;
-                    return { cwd, getSessionFile: () => id };
-                },
-            },
-        }),
-    };
-});
 
 function makeModelPool() {
     const slots = [];
@@ -113,7 +94,7 @@ test('runReviewer uses waitForIdle (no isStreaming polling)', async () => {
 
 test('startHeartbeat does not use PONG_TIMEOUT or clients.delete', () => {
     const fs = require('fs');
-    const source = fs.readFileSync('server/ws-heartbeat.js', 'utf8');
+    const source = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/ws-heartbeat.js'), 'utf8');
     expect(source.includes('PONG_TIMEOUT')).toBe(false);
     expect(source.includes('clients.delete(ws)')).toBe(false);
 });

@@ -13,7 +13,7 @@
  * Dependencies resolved through root node_modules (single bun install).
  */
 
-import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
+import { getCodingAgentModule, importNodeModule } from '@oh-my-pi/resolve-pi';
 
 function ensureGetApiKeyAndHeaders(piMod) {
     const ModelRegistry = piMod.ModelRegistry;
@@ -31,7 +31,7 @@ function ensureGetApiKeyAndHeaders(piMod) {
 const UNSUPPORTED_EVENTS = new Set(['model_select']);
 
 export default async function deepThinkAdaptor(pi) {
-    const { default: rpivAdvisorExtension } = await import('@juicesharp/rpiv-advisor');
+    const { default: rpivAdvisorExtension } = await importNodeModule('@juicesharp/rpiv-advisor');
 
     const piMod = await getCodingAgentModule();
 

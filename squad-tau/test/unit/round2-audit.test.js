@@ -1,3 +1,5 @@
+import path from 'path';
+import { OMP_ME_HOME } from '@oh-my-pi/resolve-pi';
 import { describe, it } from 'bun:test';
 import assert from 'node:assert/strict';
 
@@ -9,7 +11,7 @@ import assert from 'node:assert/strict';
 describe('model-pool-config watchConfig incremental update', () => {
     it('watchConfig handler delegates to syncModelPoolFromConfig', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/server-lifecycle.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/server-lifecycle.js'), 'utf8');
 
         // Find the watchConfig callback section
         const watchIdx = src.indexOf('watchConfig(() =>');
@@ -31,7 +33,7 @@ describe('model-pool-config watchConfig incremental update', () => {
 
     it('syncModelPoolFromConfig uses addSlot and removeSlot', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/model-pool-config.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/model-pool-config.js'), 'utf8');
         assert.ok(src.includes('addSlot'), 'syncModelPoolFromConfig must call addSlot');
         assert.ok(src.includes('removeSlot'), 'syncModelPoolFromConfig must call removeSlot');
     });
@@ -85,14 +87,16 @@ describe('model-pool-config watchConfig incremental update', () => {
  */
 describe('Auto-scroll floating button', () => {
     it('useAutoScroll hook returns scrollToBottom function', async () => {
-        const src = await import('fs').then((fs) => fs.readFileSync('client/hooks/useAutoScroll.js', 'utf8'));
+        const src = await import('fs').then((fs) =>
+            fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'client/hooks/useAutoScroll.js'), 'utf8'),
+        );
         assert.ok(src.includes('scrollToBottom'), 'hook must expose scrollToBottom');
         assert.ok(src.includes('isAtBottom'), 'hook must expose isAtBottom state');
     });
 
     it('MessageList must pass scrollToBottom to floating button', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('client/components/MessageList.jsx', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'client/components/MessageList.jsx'), 'utf8');
 
         // The component should render a scroll-to-bottom button
         // when not at bottom. Check for scroll-bottom-btn class usage.
@@ -108,7 +112,7 @@ describe('Auto-scroll floating button', () => {
 describe('FALLBACK_CONCURRENCY constant usage', () => {
     it('dag-concurrency must import FALLBACK_CONCURRENCY from constants', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/dag-concurrency.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/dag-concurrency.js'), 'utf8');
         // Should import the constant, not hardcode 5
         assert.ok(
             src.includes('FALLBACK_CONCURRENCY') || src.includes('DEFAULTS'),
@@ -128,7 +132,7 @@ describe('FALLBACK_CONCURRENCY constant usage', () => {
 describe('REVIEWER_MAX_EMPTY location', () => {
     it('REVIEWER_MAX_EMPTY should be defined in empty-turns.js', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/empty-turns.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/empty-turns.js'), 'utf8');
         // empty-turns.js currently only exports MAX_EMPTY_TURNS and CONFIRM_MAX_EMPTY
         // Should also export REVIEWER_MAX_EMPTY and OUTER_REVIEW_MAX_EMPTY
         assert.ok(
@@ -139,7 +143,7 @@ describe('REVIEWER_MAX_EMPTY location', () => {
 
     it('run-reviewer.js must import REVIEWER_MAX_EMPTY from empty-turns.js', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/run-reviewer.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/run-reviewer.js'), 'utf8');
         assert.ok(
             src.includes('empty-turns.js') && src.includes('REVIEWER_MAX_EMPTY'),
             'run-reviewer.js must import REVIEWER_MAX_EMPTY from empty-turns',
@@ -148,7 +152,7 @@ describe('REVIEWER_MAX_EMPTY location', () => {
 
     it('outer-review.js must import OUTER_REVIEW_MAX_EMPTY from empty-turns.js', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/outer-review.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/outer-review.js'), 'utf8');
         assert.ok(
             src.includes('empty-turns.js') && src.includes('OUTER_REVIEW_MAX_EMPTY'),
             'outer-review.js must import OUTER_REVIEW_MAX_EMPTY from empty-turns',

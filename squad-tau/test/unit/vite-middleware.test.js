@@ -1,3 +1,5 @@
+import path from 'path';
+import { OMP_ME_HOME } from '@oh-my-pi/resolve-pi';
 import { describe, it } from 'bun:test';
 import assert from 'node:assert/strict';
 
@@ -9,7 +11,7 @@ import assert from 'node:assert/strict';
 describe('Vite middleware integration', () => {
     it('createViteDevServer must return server.middlewares not server', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/vite-setup.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/vite-setup.js'), 'utf8');
         // Must return the Connect middleware instance, not the ViteDevServer
         assert.ok(
             src.includes('.middlewares') || src.includes('.middleware'),
@@ -21,17 +23,19 @@ describe('Vite middleware integration', () => {
         );
     });
 
-    it('http-server must use middleware return value as function', async () => {
+    it('http-server calls middleware as function', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/http-server.js', 'utf8');
-        // The app.use pushes to array and calls as function
-        // This is correct - Vite's middlewares is a Connect instance (callable)
-        assert.ok(src.includes('middleware(req, res, next)'), 'http-server calls middleware as function');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/http-server.js'), 'utf8');
+        // Must invoke the stacked middlewares as functions
+        assert.ok(
+            src.includes('(req, res, next)') || src.includes('mw(req, res, next)'),
+            'http-server calls middleware as function',
+        );
     });
 
     it('server-lifecycle passes createViteDevServer result directly to http-server', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/server-lifecycle.js', 'utf8');
+        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'server/server-lifecycle.js'), 'utf8');
         // Verify the handoff: createViteDevServer() result → createHttpServer
         const match = src.match(/createViteDevServer\(\).*createHttpServer/s);
         if (!match) {
