@@ -1,29 +1,23 @@
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
-import { setupRpc, rpcSend, rpcRead, waitForResponse, teardownRpc, isSquadTauLoaded } from '../helpers/rpc-tmux.js';
-
-function parseJsonl(text) {
-    return text
-        .split('\n')
-        .filter((l) => l.trim().startsWith('{'))
-        .map((l) => {
-            try {
-                return JSON.parse(l);
-            } catch {
-                return null;
-            }
-        })
-        .filter(Boolean);
-}
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import {
+    setupRpc,
+    rpcSend,
+    waitForResponse,
+    waitForMatch,
+    teardownRpc,
+    isSquadTauLoaded,
+} from '../helpers/rpc-tmux.js';
 
 describe('OMP RPC E2E', () => {
     let squadLoaded = false;
 
-    beforeEach(async () => {
+    beforeAll(async () => {
+        // One shared RPC session for all tests
         await setupRpc();
         squadLoaded = await isSquadTauLoaded();
     }, 20_000);
 
-    afterEach(async () => {
+    afterAll(async () => {
         await teardownRpc();
     });
 
@@ -70,41 +64,21 @@ describe('OMP RPC E2E', () => {
                 }),
             );
 
-            let resp = null;
-            let agentStart = null;
-            const seen = new Set();
-            for (let i = 0; i < 100; i++) {
-                const text = await rpcRead();
-                const objs = parseJsonl(text);
-                for (const obj of objs) {
-                    const key = JSON.stringify(obj);
-                    if (seen.has(key)) continue;
-                    seen.add(key);
-                    if (obj.type === 'response' && obj.id === commandId) resp = obj;
-                    if (obj.type === 'agent_start') agentStart = obj;
-                }
-                if (resp && agentStart) break;
-                await Bun.sleep(100);
-            }
+            const resp = await waitForMatch(
+                (obj) => (obj.type === 'response' && obj.id === commandId ? obj : undefined),
+                30000,
+            );
             expect(resp).not.toBeNull();
             expect(resp.success).toBe(true);
             expect(resp.command).toBe('prompt');
+
+            const agentStart = await waitForMatch((obj) => (obj.type === 'agent_start' ? obj : undefined), 10000);
             expect(agentStart).not.toBeNull();
 
-            let toolExec = null;
-            const seen2 = new Set(seen);
-            for (let i = 0; i < 50; i++) {
-                const text = await rpcRead();
-                const objs = parseJsonl(text);
-                for (const obj of objs) {
-                    const key = JSON.stringify(obj);
-                    if (seen2.has(key)) continue;
-                    seen2.add(key);
-                    if (obj.type === 'tool_execution_start') toolExec = obj;
-                }
-                if (toolExec) break;
-                await Bun.sleep(100);
-            }
+            const toolExec = await waitForMatch(
+                (obj) => (obj.type === 'tool_execution_start' ? obj : undefined),
+                15000,
+            );
             expect(toolExec).not.toBeNull();
             expect(typeof toolExec.toolName).toBe('string');
         },
@@ -127,33 +101,18 @@ describe('OMP RPC E2E', () => {
                 }),
             );
 
-            let resp = null;
-            const seen = new Set();
-            for (let i = 0; i < 100; i++) {
-                const text = await rpcRead();
-                const objs = parseJsonl(text);
-                for (const obj of objs) {
-                    const key = JSON.stringify(obj);
-                    if (seen.has(key)) continue;
-                    seen.add(key);
-                    if (obj.type === 'response' && obj.id === commandId) resp = obj;
-                }
-                if (resp) break;
-                await Bun.sleep(100);
-            }
+            const resp = await waitForMatch(
+                (obj) => (obj.type === 'response' && obj.id === commandId ? obj : undefined),
+                30000,
+            );
             expect(resp).not.toBeNull();
             expect(resp.success).toBe(true);
             expect(resp.command).toBe('prompt');
 
             const turnEnds = [];
-            for (let i = 0; i < 100; i++) {
-                const text = await rpcRead();
-                const objs = parseJsonl(text);
-                for (const o of objs) {
-                    if (o.type === 'turn_end') turnEnds.push(o);
-                }
-                if (turnEnds.length >= 2) break;
-                await Bun.sleep(200);
+            while (turnEnds.length < 2) {
+                const ev = await waitForMatch((obj) => (obj.type === 'turn_end' ? obj : undefined), 60000);
+                if (ev) turnEnds.push(ev);
             }
             expect(turnEnds.length).toBeGreaterThanOrEqual(2);
         },

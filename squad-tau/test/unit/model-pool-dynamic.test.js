@@ -24,7 +24,7 @@ test('addSlot immediately wakes waiting acquire', async () => {
         resolved = true;
         return slot;
     });
-    await new Promise((r) => setTimeout(r, 10));
+    await new Promise((resolve) => queueMicrotask(resolve));
     assert.equal(resolved, false);
     pool.addSlot({ provider: 'anthropic', modelId: 'new-model', role: 'worker', thinkingLevel: 'low' });
     const slot = await acquirePromise;

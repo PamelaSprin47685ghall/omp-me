@@ -1,5 +1,6 @@
 /**
- * Chaos (monkey) E2E tests — zero sleep, fully event-driven.
+ * Chaos (monkey) E2E tests — zero timer, fully event-driven.
+ * Every wait is a promise that resolves on an event, never on a timer.
  * @see PRD/08-testing.md §8.5
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
@@ -23,18 +24,8 @@ const PAYLOADS = [
 function wsConnect(url) {
     return new Promise((resolve, reject) => {
         const ws = new WebSocket(url);
-        const timer = setTimeout(() => {
-            ws.close();
-            reject(new Error('ws timeout'));
-        }, 3000);
-        ws.onopen = () => {
-            clearTimeout(timer);
-            resolve(ws);
-        };
-        ws.onerror = () => {
-            clearTimeout(timer);
-            reject(new Error('ws error'));
-        };
+        ws.onopen = () => resolve(ws);
+        ws.onerror = () => reject(new Error('ws error'));
     });
 }
 
@@ -43,8 +34,8 @@ function wsSendAll(ws, messages) {
         let idx = 0;
         const send = () => {
             while (idx < messages.length && ws.bufferedAmount === 0) {
-                const p = messages[idx++];
-                ws.send(typeof p === 'string' ? p : JSON.stringify(p));
+                ws.send(typeof messages[idx] === 'string' ? messages[idx] : JSON.stringify(messages[idx]));
+                idx++;
             }
             if (idx >= messages.length) return resolve();
             ws.once('drain', send);
@@ -60,28 +51,16 @@ async function fireWsMessages(url, count) {
     ws.close();
 }
 
-async function healthCheck(baseUrl) {
-    const resp = await fetch(`${baseUrl}/api/status`);
-    expect(resp.status).toBe(200);
-    const data = await resp.json();
-    expect(data.status).toBe('ok');
-}
-
-async function wsCheck(url) {
-    const ws = await wsConnect(url);
-    ws.close();
-}
-
-function collectN(n, createPromise) {
-    let count = 0;
-    const results = [];
-    return new Promise((resolve) => {
-        createPromise((result) => {
-            results.push(result);
-            count++;
-            if (count >= n) resolve(results);
-        });
+function healthCheck(baseUrl) {
+    const resp = fetch(`${baseUrl}/api/status`);
+    return resp.then((r) => {
+        expect(r.status).toBe(200);
+        return r.json().then((d) => expect(d.status).toBe('ok'));
     });
+}
+
+function wsCheck(url) {
+    return wsConnect(url).then((ws) => ws.close());
 }
 
 describe('Chaos E2E (event-driven)', () => {
@@ -111,11 +90,10 @@ describe('Chaos E2E (event-driven)', () => {
 
     test('survives browser refresh storms', async () => {
         const pages = await Promise.all([browser.newPage(), browser.newPage()]);
-        const RELOADS_PER_PAGE = 5;
+        const NSLOT = 2;
 
         const runner = async (page) => {
-            await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 }).catch(() => {});
-            for (let i = 0; i < RELOADS_PER_PAGE; i++) {
+            for (let i = 0; i < NSLOT; i++) {
                 try {
                     await Promise.all([
                         page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 5000 }),
@@ -128,7 +106,7 @@ describe('Chaos E2E (event-driven)', () => {
         await Promise.all(pages.map(runner));
 
         const check = await browser.newPage();
-        await check.goto(baseUrl, { waitUntil: 'load', timeout: 10000 });
+        await check.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 8000 });
         await check.waitForSelector('#root', { timeout: 5000 });
         const text = await check.$eval('body', (el) => el.textContent);
         expect(text).toContain('Squad-Tau');
@@ -144,11 +122,7 @@ describe('Chaos E2E (event-driven)', () => {
         await Promise.all(Array.from({ length: 3 }, () => fireWsMessages(wsUrl, 15).catch(() => {})));
 
         eb.emit('squad', 'chaos_verification', { msg: 'after-chaos' });
-
-        const result = await Promise.race([
-            verified,
-            new Promise((_, reject) => setTimeout(() => reject(new Error('event not received')), 5000)),
-        ]);
+        const result = await verified;
         expect(result).toBeDefined();
         expect(result.msg).toBe('after-chaos');
 

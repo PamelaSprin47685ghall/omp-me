@@ -74,15 +74,20 @@ describe('WebSocket Integration', () => {
         await Promise.all([new Promise((r) => ws1.on('open', r)), new Promise((r) => ws2.on('open', r))]);
 
         const ws2Messages = [];
-        ws2.on('message', (data) => {
-            const msg = JSON.parse(data);
-            if (msg.type === 'custom:event') ws2Messages.push(msg);
+        const msgReceived = new Promise((resolve) => {
+            ws2.on('message', (data) => {
+                const msg = JSON.parse(data);
+                if (msg.type === 'custom:event') {
+                    ws2Messages.push(msg);
+                    resolve();
+                }
+            });
         });
 
         const eventBus = getGlobalEventBus();
         eventBus.emit('custom', 'event', { data: 'broadcast-test' });
 
-        await new Promise((r) => setTimeout(r, 200));
+        await msgReceived;
 
         expect(ws2Messages.length).toBe(1);
         expect(ws2Messages[0].payload.data).toBe('broadcast-test');
@@ -109,9 +114,14 @@ describe('WebSocket Integration', () => {
         await new Promise((r) => ws.on('open', r));
 
         const broadcastedMsgs = [];
-        ws.on('message', (data) => {
-            const msg = JSON.parse(data);
-            if (msg.type === 'session:message') broadcastedMsgs.push(msg);
+        const broadcastReceived = new Promise((resolve) => {
+            ws.on('message', (data) => {
+                const msg = JSON.parse(data);
+                if (msg.type === 'session:message') {
+                    broadcastedMsgs.push(msg);
+                    resolve();
+                }
+            });
         });
 
         ws.send(
@@ -121,7 +131,7 @@ describe('WebSocket Integration', () => {
             }),
         );
 
-        await new Promise((r) => setTimeout(r, 300));
+        await broadcastReceived;
 
         expect(sessionReceivedText).toBe(userText);
         expect(broadcastedMsgs.length).toBe(1);

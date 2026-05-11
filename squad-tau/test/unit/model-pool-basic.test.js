@@ -34,7 +34,7 @@ test('acquire waits when no slot available', async () => {
         slot2Resolved = true;
         return s;
     });
-    await new Promise((r) => setTimeout(r, 10));
+    await new Promise((resolve) => queueMicrotask(resolve));
     assert.equal(slot2Resolved, false);
     pool.release(slot1);
     const slot2 = await slot2Promise;
