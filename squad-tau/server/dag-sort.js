@@ -31,7 +31,7 @@ export function topologicalSort(nodes) {
     const processed = new Set();
 
     while (queue.length > 0) {
-        layers.push([...queue]);
+        layers.push(queue.map((id) => nodeMap.get(id)));
         const nextQueue = [];
 
         for (const nodeId of queue) {
@@ -53,5 +53,5 @@ export function topologicalSort(nodes) {
         throw new Error(`topologicalSort: cycle detected involving nodes: ${unprocessed.join(', ')}`);
     }
 
-    return { layers };
+    return layers;
 }

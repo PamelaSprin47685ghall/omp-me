@@ -3,12 +3,80 @@ export function stubPi() {
     const toolRegistry = [];
     const eventHandlers = new Map();
 
+    const piApi = {
+        _globalOnPrompt: null,
+        onPrompt(callback) {
+            this._globalOnPrompt = callback;
+        },
+        async createAgentSession(opts) {
+            const messages = [];
+            const subscribers = [];
+            const sessionFile =
+                opts.sessionManager?.getSessionFile?.() || `test-session-${Math.random().toString(36).slice(2)}`;
+
+            // Ensure sessionManager exists and has getSessionFile
+            if (!opts.sessionManager) {
+                opts.sessionManager = {
+                    getSessionFile: () => sessionFile,
+                    cwd: opts.cwd || '.',
+                };
+            } else if (!opts.sessionManager.getSessionFile) {
+                const originalGetSessionFile = opts.sessionManager.getSessionFile;
+                opts.sessionManager.getSessionFile = () =>
+                    originalGetSessionFile ? originalGetSessionFile() : sessionFile;
+            }
+
+            const session = {
+                sessionFile,
+                async prompt(text) {
+                    messages.push({ role: 'user', content: text });
+                    for (const sub of subscribers) {
+                        sub({ type: 'message', message: { role: 'user', content: text } });
+                    }
+                    // Try to find the callback from session or global
+                    const cb = session._localOnPrompt || piApi._globalOnPrompt;
+                    if (cb) {
+                        await cb(text, session);
+                    }
+                    return { success: true };
+                },
+                subscribe(callback) {
+                    subscribers.push(callback);
+                    return () => {
+                        const idx = subscribers.indexOf(callback);
+                        if (idx !== -1) subscribers.splice(idx, 1);
+                    };
+                },
+                getMessages() {
+                    return messages;
+                },
+                onPrompt(callback) {
+                    session._localOnPrompt = callback;
+                },
+                callTool: async (name, params) => {
+                    const tool = toolRegistry.find((t) => t.name === name);
+                    if (!tool) throw new Error(`Tool not found: ${name}`);
+                    const result = await tool.def.execute(params.id || 'test-call', params, null, () => {}, opts);
+                    for (const sub of subscribers) {
+                        sub({ type: 'tool_call', tool: name, params, result });
+                    }
+                    return result;
+                },
+            };
+            return { session, dispose: () => {} };
+        },
+    };
+
     return {
         registerCommand(name, opts) {
             commandRegistry.push({ name, opts });
         },
-        registerTool(name, def) {
-            toolRegistry.push({ name, def });
+        registerTool(nameOrDef, def) {
+            if (typeof nameOrDef === 'string') {
+                toolRegistry.push({ name: nameOrDef, def });
+            } else {
+                toolRegistry.push({ name: nameOrDef.name, def: nameOrDef });
+            }
         },
         on(event, handler) {
             if (!eventHandlers.has(event)) {
@@ -37,32 +105,12 @@ export function stubPi() {
         },
         setThinkingLevel() {},
         setStatus() {},
-        pi: {
-            async createAgentSession(opts) {
-                const messages = [];
-                const subscribers = [];
-                const session = {
-                    async prompt(text) {
-                        messages.push({ role: 'user', content: text });
-                        for (const sub of subscribers) {
-                            sub({ type: 'message', message: { role: 'user', content: text } });
-                        }
-                        return { success: true };
-                    },
-                    subscribe(callback) {
-                        subscribers.push(callback);
-                        return () => {
-                            const idx = subscribers.indexOf(callback);
-                            if (idx !== -1) subscribers.splice(idx, 1);
-                        };
-                    },
-                    getMessages() {
-                        return messages;
-                    },
-                };
-                return { session, dispose: () => {} };
-            },
+        invokeTool(name, params, ctx) {
+            const tool = toolRegistry.find((t) => t.name === name);
+            if (!tool) throw new Error(`Tool not found: ${name}`);
+            return tool.def.execute(params.id || 'test-call', params, null, () => {}, ctx);
         },
+        pi: piApi,
         _commandRegistry: commandRegistry,
         _toolRegistry: toolRegistry,
         _eventHandlers: eventHandlers,

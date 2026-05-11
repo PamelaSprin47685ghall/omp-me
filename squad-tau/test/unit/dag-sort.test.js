@@ -8,24 +8,30 @@ describe('topologicalSort', () => {
     });
 
     it('single node with no deps returns single layer', () => {
-        expect(topologicalSort([{ id: 'A' }])).toEqual({ layers: [['A']] });
+        expect(topologicalSort([{ id: 'A' }])).toEqual([[{ id: 'A' }]]);
     });
 
     it('multiple nodes with no deps return single layer', () => {
-        const { layers } = topologicalSort([{ id: 'A' }, { id: 'B' }, { id: 'C' }]);
+        const layers = topologicalSort([{ id: 'A' }, { id: 'B' }, { id: 'C' }]);
         expect(layers.length).toBe(1);
         expect(layers[0].length).toBe(3);
-        for (const id of ['A', 'B', 'C']) expect(layers[0].includes(id)).toBeTruthy();
+        const ids = layers[0].map((n) => n.id);
+        for (const id of ['A', 'B', 'C']) expect(ids.includes(id)).toBeTruthy();
     });
 
     it('A->B->C chain returns three layers', () => {
         const nodes = [{ id: 'A' }, { id: 'B', depends_on: ['A'] }, { id: 'C', depends_on: ['B'] }];
-        expect(topologicalSort(nodes)).toEqual({ layers: [['A'], ['B'], ['C']] });
+        expect(topologicalSort(nodes)).toEqual([
+            [{ id: 'A' }],
+            [{ id: 'B', depends_on: ['A'] }],
+            [{ id: 'C', depends_on: ['B'] }],
+        ]);
     });
 
     it('declaration order does not affect chain result', () => {
         const nodes = [{ id: 'C', depends_on: ['B'] }, { id: 'A' }, { id: 'B', depends_on: ['A'] }];
-        expect(topologicalSort(nodes)).toEqual({ layers: [['A'], ['B'], ['C']] });
+        const layers = topologicalSort(nodes);
+        expect(layers.map((l) => l.map((n) => n.id))).toEqual([['A'], ['B'], ['C']]);
     });
 
     it('diamond A->B, A->C, B->D, C->D returns [A], [B,C], [D]', () => {
@@ -35,12 +41,13 @@ describe('topologicalSort', () => {
             { id: 'C', depends_on: ['A'] },
             { id: 'D', depends_on: ['B', 'C'] },
         ];
-        const { layers } = topologicalSort(nodes);
+        const layers = topologicalSort(nodes);
         expect(layers.length).toBe(3);
-        expect(layers[0]).toEqual(['A']);
+        expect(layers[0].map((n) => n.id)).toEqual(['A']);
         expect(layers[1].length).toBe(2);
-        expect(layers[1].includes('B') && layers[1].includes('C')).toBeTruthy();
-        expect(layers[2]).toEqual(['D']);
+        const l1Ids = layers[1].map((n) => n.id);
+        expect(l1Ids.includes('B') && l1Ids.includes('C')).toBeTruthy();
+        expect(layers[2].map((n) => n.id)).toEqual(['D']);
     });
 
     it('handles mixed parallel and sequential dependencies', () => {
@@ -51,11 +58,11 @@ describe('topologicalSort', () => {
             { id: 'D', depends_on: ['A', 'B'] },
             { id: 'E', depends_on: ['C', 'D'] },
         ];
-        const { layers } = topologicalSort(nodes);
+        const layers = topologicalSort(nodes);
         expect(layers.length).toBe(3);
         expect(layers[0].length).toBe(2);
         expect(layers[1].length).toBe(2);
-        expect(layers[2]).toEqual(['E']);
+        expect(layers[2].map((n) => n.id)).toEqual(['E']);
     });
 
     it('throws on self-loop cycle', () => {
@@ -97,15 +104,15 @@ describe('topologicalSort', () => {
         const range = (n) => Array.from({ length: n }, (_, i) => i);
         const fanOut = [{ id: 'root' }, ...range(10).map((i) => ({ id: `c${i}`, depends_on: ['root'] }))];
         const out = topologicalSort(fanOut);
-        expect(out.layers.length).toBe(2);
-        expect(out.layers[1].length).toBe(10);
+        expect(out.length).toBe(2);
+        expect(out[1].length).toBe(10);
 
         const fanIn = [
             ...range(10).map((i) => ({ id: `s${i}` })),
             { id: 'sink', depends_on: range(10).map((i) => `s${i}`) },
         ];
         const inn = topologicalSort(fanIn);
-        expect(inn.layers.length).toBe(2);
-        expect(inn.layers[0].length).toBe(10);
+        expect(inn.length).toBe(2);
+        expect(inn[0].length).toBe(10);
     });
 });

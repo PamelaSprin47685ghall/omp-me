@@ -6,7 +6,13 @@ import { bridgeEventsToWebSocket } from './ws-events.js';
 import { routeMessage } from './ws-handler.js';
 import { createViteDevServer } from './vite-setup.js';
 import { ModelPool } from './model-pool.js';
-import { loadModelsConfig, saveModelsConfig, watchConfig, syncModelPoolFromConfig } from './model-pool-config.js';
+import {
+    loadModelsConfig,
+    saveModelsConfig,
+    watchConfig,
+    unwatchConfig,
+    syncModelPoolFromConfig,
+} from './model-pool-config.js';
 import { buildSnapshot } from './model-pool-events.js';
 import { getCurrentRun } from './plugin-state.js';
 
@@ -32,13 +38,6 @@ export async function startServer() {
 
     const wsResult = createWsServer(httpServerInstance, {
         onConnection: (ws) => {
-            ws.send(
-                JSON.stringify({
-                    type: 'connection:established',
-                    payload: { status: 'ok' },
-                    timestamp: Date.now(),
-                }),
-            );
             ws.send(
                 JSON.stringify({
                     type: 'model_pool:snapshot',
@@ -67,6 +66,35 @@ export async function startServer() {
     });
 
     return { port: serverPort };
+}
+
+export async function stopServer() {
+    if (heartbeatCleanup) {
+        heartbeatCleanup();
+        heartbeatCleanup = null;
+    }
+    if (bridgeCleanup) {
+        bridgeCleanup();
+        bridgeCleanup = null;
+    }
+    unwatchConfig();
+    if (wssInstance) {
+        for (const client of wssInstance.clients) {
+            client.terminate();
+        }
+        wssInstance.close();
+        wssInstance = null;
+    }
+    if (httpServerInstance) {
+        if (typeof httpServerInstance.closeAllConnections === 'function') {
+            httpServerInstance.closeAllConnections();
+        }
+        await new Promise((resolve) => httpServerInstance.close(() => resolve()));
+        httpServerInstance = null;
+    }
+    globalEventBus = null;
+    globalModelPool = null;
+    serverPort = null;
 }
 
 export function getGlobalEventBus() {

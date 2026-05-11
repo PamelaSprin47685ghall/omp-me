@@ -1,39 +1,146 @@
-/**
- * Squad flow integration tests.
- * @see PRD/08-testing.md §8.3
- */
-import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { createTestEnvironment } from './squad-flow-setup.js';
+import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { createTestEnvironment, setupSquadRun } from './squad-flow-setup.js';
+import { createDelegateHandler } from '../../server/submit-plan.js';
+import { buildGlobalReturnTool } from '../../server/lifecycle-tools.js';
+import { getCurrentRun, clearCurrentRun } from '../../server/plugin-state.js';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
 
 describe('Squad Flow - M mode', () => {
-    let env;
-
-    beforeAll(() => {
+    let env, planDir;
+    beforeEach(() => {
         env = createTestEnvironment();
+        env.pi.registerTool(buildGlobalReturnTool());
+        planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-m-'));
+    });
+    afterEach(() => {
+        fs.rmSync(planDir, { recursive: true, force: true });
+        clearCurrentRun();
     });
 
-    test('environment creates successfully', () => {
-        expect(env.pi).toBeDefined();
-        expect(env.eventBus).toBeDefined();
-        expect(env.modelPool).toBeDefined();
-        expect(env.squadFsm).toBeDefined();
-        expect(env.signal).toBeDefined();
-    });
-
-    test('squad FSM starts in idle state', () => {
-        expect(env.squadFsm.state).toBe('idle');
+    test('single node delegation', async () => {
+        const { pi, eventBus, squadFsm } = env;
+        setupSquadRun(env);
+        squadFsm.activate();
+        fs.writeFileSync(path.join(planDir, 'node1.toml'), 'task = "do work"');
+        let events = [];
+        eventBus.on('squad:*', (data, event) => events.push({ type: event.split(':')[1], data }));
+        pi.pi.onPrompt(async (text, session) => {
+            if (text.includes('## Worker Submission'))
+                await session.callTool('return', { status: 'ok', reason: 'app' });
+            else if (text.includes('## Task'))
+                await session.callTool('return', { status: 'ok', reason: 'work', affected_files: ['f1.js'] });
+            else if (text.includes('self-confirm')) await session.callTool('return', { status: 'ok', reason: 'conf' });
+            else if (text.includes('aggregated')) await session.callTool('return', { status: 'ok', reason: 'all' });
+        });
+        const res = await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        expect(res.success).toBe(true);
+        expect(squadFsm.state).toBe('idle');
+        expect(events.some((e) => e.type === 'init')).toBe(true);
+        expect(events.some((e) => e.type === 'complete')).toBe(true);
     });
 });
 
-describe('Squad Flow - L mode', () => {
-    let env;
-
-    beforeAll(() => {
+describe('Squad Flow - L mode Basic', () => {
+    let env, planDir;
+    beforeEach(() => {
         env = createTestEnvironment();
+        env.pi.registerTool(buildGlobalReturnTool());
+        planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-l-'));
+    });
+    afterEach(() => {
+        fs.rmSync(planDir, { recursive: true, force: true });
+        clearCurrentRun();
     });
 
-    test('model pool has worker and reviewer slots', () => {
-        expect(env.modelPool.workerSlots.length).toBeGreaterThan(0);
-        expect(env.modelPool.reviewerSlots.length).toBeGreaterThan(0);
+    test('2 parallel nodes', async () => {
+        const { pi, squadFsm } = env;
+        setupSquadRun(env);
+        squadFsm.activate();
+        fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "w1"');
+        fs.writeFileSync(path.join(planDir, 'n2.toml'), 'task = "w2"');
+        pi.pi.onPrompt(async (text, session) => {
+            if (text.includes('## Worker Submission') || text.includes('aggregated'))
+                await session.callTool('return', { status: 'ok', reason: 'ok' });
+            else if (text.includes('## Task') || text.includes('self-confirm'))
+                await session.callTool('return', { status: 'ok', reason: 'ok' });
+        });
+        const res = await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        expect(res.success).toBe(true);
+        expect(res.results.length).toBe(2);
+    });
+
+    test('node1 -> node2 chain', async () => {
+        const { pi, squadFsm, eventBus } = env;
+        setupSquadRun(env);
+        squadFsm.activate();
+        fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "w1"');
+        fs.writeFileSync(path.join(planDir, 'n2.toml'), 'task = "w2"\ndepends_on = ["n1"]');
+        let times = {};
+        eventBus.on('squad:*', (data, event) => {
+            const t = event.split(':')[1];
+            if (t === 'node_start') times[data.nodeId] = Date.now();
+            if (t === 'node_end') times[data.nodeId + '_e'] = Date.now();
+        });
+        pi.pi.onPrompt(async (text, session) => {
+            await session.callTool('return', { status: 'ok', reason: 'ok' });
+        });
+        await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        expect(times['n2']).toBeGreaterThanOrEqual(times['n1_e']);
+    });
+});
+
+describe('Squad Flow - Advanced', () => {
+    let env, planDir;
+    beforeEach(() => {
+        env = createTestEnvironment();
+        env.pi.registerTool(buildGlobalReturnTool());
+        planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-adv-'));
+    });
+    afterEach(() => {
+        fs.rmSync(planDir, { recursive: true, force: true });
+        clearCurrentRun();
+    });
+
+    test('diamond: A -> B,C -> D', async () => {
+        const { pi, eventBus, squadFsm } = env;
+        setupSquadRun(env);
+        squadFsm.activate();
+        fs.writeFileSync(path.join(planDir, 'A.toml'), 'task = "A"');
+        fs.writeFileSync(path.join(planDir, 'B.toml'), 'task = "B"\ndepends_on = ["A"]');
+        fs.writeFileSync(path.join(planDir, 'C.toml'), 'task = "C"\ndepends_on = ["A"]');
+        fs.writeFileSync(path.join(planDir, 'D.toml'), 'task = "D"\ndepends_on = ["B", "C"]');
+        let times = {};
+        eventBus.on('squad:*', (data, event) => {
+            const t = event.split(':')[1];
+            if (t === 'node_start') times[data.nodeId] = Date.now();
+            if (t === 'node_end') times[data.nodeId + '_e'] = Date.now();
+        });
+        pi.pi.onPrompt(async (t, s) => {
+            await s.callTool('return', { status: 'ok', reason: 'ok' });
+        });
+        await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        expect(times['B']).toBeGreaterThanOrEqual(times['A_e']);
+        expect(times['C']).toBeGreaterThanOrEqual(times['A_e']);
+        expect(times['D']).toBeGreaterThanOrEqual(times['B_e']);
+        expect(times['D']).toBeGreaterThanOrEqual(times['C_e']);
+    });
+
+    test('abort signal', async () => {
+        const { pi, squadFsm, abortController, signal } = env;
+        setupSquadRun(env);
+        squadFsm.activate();
+        fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "long"');
+        pi.pi.onPrompt(async (text, session) => {
+            if (text.includes('## Task')) abortController.abort();
+            try {
+                await session.callTool('return', { status: 'ok', reason: 'ok' });
+            } catch (e) {}
+        });
+        try {
+            await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        } catch (e) {}
+        expect(signal.aborted).toBe(true);
     });
 });

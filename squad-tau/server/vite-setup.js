@@ -5,6 +5,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export async function createViteDevServer() {
+    if (process.env.NODE_ENV === 'test' || process.env.SKIP_VITE === 'true') {
+        return (req, res, next) => next();
+    }
     let vite;
     try {
         vite = await import('vite');

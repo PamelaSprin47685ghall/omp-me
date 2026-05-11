@@ -65,6 +65,7 @@ async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, sig
                 phase = 1;
                 firstResolve({ reason: params.reason, affected_files: params.affected_files || [] });
             } else {
+                phase = 2;
                 finalResolve({ reason: params.reason, affected_files: params.affected_files || [] });
             }
         });

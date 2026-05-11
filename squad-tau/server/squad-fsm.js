@@ -26,6 +26,10 @@ class SquadFSM {
     isActive() {
         return this.state === SQUAD_STATES.ACTIVE;
     }
+
+    getState() {
+        return this.state;
+    }
 }
 
 export default SquadFSM;

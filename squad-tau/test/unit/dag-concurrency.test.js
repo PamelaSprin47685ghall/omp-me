@@ -10,9 +10,9 @@ import { STATUS } from '../../server/constants.js';
 describe('DAG topological sort integration', () => {
     test('single node produces one layer', () => {
         const nodes = [{ id: 'n1', task: 'T1', review_criteria: 'C1' }];
-        const { layers } = topologicalSort(nodes);
+        const layers = topologicalSort(nodes);
         expect(layers.length).toBe(1);
-        expect(layers[0]).toEqual(['n1']);
+        expect(layers[0].map((n) => n.id)).toEqual(['n1']);
     });
 
     test('chain dependency produces ordered layers', () => {
@@ -21,11 +21,11 @@ describe('DAG topological sort integration', () => {
             { id: 'n2', task: 'T2', review_criteria: 'C2', depends_on: ['n1'] },
             { id: 'n3', task: 'T3', review_criteria: 'C3', depends_on: ['n2'] },
         ];
-        const { layers } = topologicalSort(nodes);
+        const layers = topologicalSort(nodes);
         expect(layers.length).toBe(3);
-        expect(layers[0]).toEqual(['n1']);
-        expect(layers[1]).toEqual(['n2']);
-        expect(layers[2]).toEqual(['n3']);
+        expect(layers[0].map((n) => n.id)).toEqual(['n1']);
+        expect(layers[1].map((n) => n.id)).toEqual(['n2']);
+        expect(layers[2].map((n) => n.id)).toEqual(['n3']);
     });
 
     test('parallel nodes in same layer', () => {
@@ -34,9 +34,9 @@ describe('DAG topological sort integration', () => {
             { id: 'n2', task: 'T2', review_criteria: 'C2' },
             { id: 'n3', task: 'T3', review_criteria: 'C3' },
         ];
-        const { layers } = topologicalSort(nodes);
+        const layers = topologicalSort(nodes);
         expect(layers.length).toBe(1);
-        expect(layers[0].sort()).toEqual(['n1', 'n2', 'n3']);
+        expect(layers[0].map((n) => n.id).sort()).toEqual(['n1', 'n2', 'n3']);
     });
 
     test('diamond dependency resolves correctly', () => {
@@ -46,11 +46,11 @@ describe('DAG topological sort integration', () => {
             { id: 'right', task: 'Ri', review_criteria: 'C', depends_on: ['root'] },
             { id: 'leaf', task: 'Le', review_criteria: 'C', depends_on: ['left', 'right'] },
         ];
-        const { layers } = topologicalSort(nodes);
+        const layers = topologicalSort(nodes);
         expect(layers.length).toBe(3);
-        expect(layers[0]).toEqual(['root']);
-        expect(layers[1].sort()).toEqual(['left', 'right']);
-        expect(layers[2]).toEqual(['leaf']);
+        expect(layers[0].map((n) => n.id)).toEqual(['root']);
+        expect(layers[1].map((n) => n.id).sort()).toEqual(['left', 'right']);
+        expect(layers[2].map((n) => n.id)).toEqual(['leaf']);
     });
 });
 
@@ -96,7 +96,7 @@ describe('DAG blocked node propagation (executeDAG logic)', () => {
             { id: 'n3', task: 'T3', review_criteria: 'C3', depends_on: ['n2'] },
         ];
 
-        const { layers } = topologicalSort(nodes);
+        const layers = topologicalSort(nodes);
         expect(layers.length).toBe(3);
 
         // Simulate blocking propagation matching dag-execute.js logic:
@@ -104,17 +104,18 @@ describe('DAG blocked node propagation (executeDAG logic)', () => {
         const failedNodes = new Set(['n1']); // n1 failed
 
         for (const layer of layers) {
-            const blocked = layer.filter((nodeId) => {
-                const node = nodes.find((n) => n.id === nodeId);
-                return node.depends_on?.some((depId) => failedNodes.has(depId));
-            });
+            const blocked = layer
+                .filter((node) => {
+                    return node.depends_on?.some((depId) => failedNodes.has(depId));
+                })
+                .map((n) => n.id);
             // Add blocked nodes to failed set for downstream propagation
             for (const id of blocked) failedNodes.add(id);
 
-            if (layer[0] === 'n2') {
+            if (layer[0].id === 'n2') {
                 expect(blocked).toEqual(['n2']);
             }
-            if (layer[0] === 'n3') {
+            if (layer[0].id === 'n3') {
                 expect(blocked).toEqual(['n3']);
             }
         }
@@ -127,24 +128,26 @@ describe('DAG blocked node propagation (executeDAG logic)', () => {
             { id: 'n3', task: 'T3', review_criteria: 'C3', depends_on: ['n1'] },
         ];
 
-        const { layers } = topologicalSort(nodes);
-        expect(layers[0].sort()).toEqual(['n1', 'n2']);
-        expect(layers[1]).toEqual(['n3']);
+        const layers = topologicalSort(nodes);
+        expect(layers[0].map((n) => n.id).sort()).toEqual(['n1', 'n2']);
+        expect(layers[1].map((n) => n.id)).toEqual(['n3']);
 
         // n1 fails, n2 should still run (no dep), n3 should be blocked
         const failedNodes = new Set(['n1']);
 
-        const layer0Blocked = layers[0].filter((nodeId) => {
-            const node = nodes.find((n) => n.id === nodeId);
-            return node.depends_on?.some((depId) => failedNodes.has(depId));
-        });
+        const layer0Blocked = layers[0]
+            .filter((node) => {
+                return node.depends_on?.some((depId) => failedNodes.has(depId));
+            })
+            .map((n) => n.id);
         // n2 doesn't depend on n1, so it's not blocked
         expect(layer0Blocked).toEqual([]);
 
-        const layer1Blocked = layers[1].filter((nodeId) => {
-            const node = nodes.find((n) => n.id === nodeId);
-            return node.depends_on?.some((depId) => failedNodes.has(depId));
-        });
+        const layer1Blocked = layers[1]
+            .filter((node) => {
+                return node.depends_on?.some((depId) => failedNodes.has(depId));
+            })
+            .map((n) => n.id);
         // n3 depends on n1 which failed
         expect(layer1Blocked).toEqual(['n3']);
     });
