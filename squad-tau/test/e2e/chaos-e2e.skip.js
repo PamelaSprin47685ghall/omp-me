@@ -4,8 +4,7 @@
  * Zero timer — all waits are event-driven (counter + promise).
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { startServer, stopServer, getGlobalEventBus } from '../../server/server-lifecycle.js';
-import { setupBrowser, teardownBrowser } from '../helpers/puppeteer-setup.js';
+import { setupChaos, teardownChaos } from '../helpers/chaos-setup.js';
 
 function wsConnect(url) {
     return new Promise((resolve, reject) => {
@@ -16,22 +15,18 @@ function wsConnect(url) {
 }
 
 describe('Chaos E2E (PRD scenarios)', () => {
-    let port, browser, baseUrl, wsUrl, eb;
+    let browser, baseUrl, wsUrl, eb;
 
     beforeAll(async () => {
-        process.env.SQUAD_E2E = '1';
-        const result = await startServer();
-        port = result.port;
-        baseUrl = `http://127.0.0.1:${port}`;
-        wsUrl = `ws://127.0.0.1:${port}/ws`;
-        eb = getGlobalEventBus();
-        const b = await setupBrowser();
-        browser = b.browser;
+        const ctx = await setupChaos();
+        browser = ctx.browser;
+        baseUrl = ctx.baseUrl;
+        wsUrl = ctx.wsUrl;
+        eb = ctx.eb;
     }, 20000);
 
     afterAll(async () => {
-        if (browser) await teardownBrowser(browser);
-        await stopServer();
+        await teardownChaos(browser);
     });
 
     test('rapid session creation storm (resource exhaustion)', async () => {
