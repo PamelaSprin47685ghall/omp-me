@@ -36,8 +36,6 @@ async function executeOne(node, { signal, eventBus, ctx, pi, modelPool }) {
         return { nodeId: node.id, status: STATUS.FAILED, summary: 'Aborted', affectedFiles: [] };
     }
 
-    eventBus.emit('squad', 'node_start', { nodeId: node.id });
-
     try {
         const result = await runNode({
             node,
@@ -49,8 +47,6 @@ async function executeOne(node, { signal, eventBus, ctx, pi, modelPool }) {
             modelPool,
         });
 
-        eventBus.emit('squad', 'node_end', { nodeId: node.id, status: result.status });
-
         return {
             nodeId: node.id,
             status: result.status,
@@ -58,7 +54,6 @@ async function executeOne(node, { signal, eventBus, ctx, pi, modelPool }) {
             affectedFiles: result.affectedFiles || [],
         };
     } catch (error) {
-        eventBus.emit('squad', 'node_end', { nodeId: node.id, status: STATUS.FAILED, error: error.message });
         return { nodeId: node.id, status: STATUS.FAILED, summary: error.message, affectedFiles: [] };
     }
 }

@@ -55,6 +55,7 @@ export async function routeMessage(msg, modelPool, configModule, eventBus, ws) {
                 role: 'user',
                 content: [{ type: 'text', text }],
                 messageId: `user-${Date.now()}`,
+                parentId: msg.payload.parentId,
                 timestamp: Date.now(),
             });
 

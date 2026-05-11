@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { Button, Icon } from '@blueprintjs/core';
+import { Button, Icon, Card } from '@blueprintjs/core';
 import { IconNames } from '@blueprintjs/icons';
 import DAGView from './DAGView.jsx';
 import MessageItem from './MessageItem.jsx';
@@ -61,7 +61,7 @@ function useMessageDetails(activeMessages, activeSessionId) {
   }, [activeMessages, activeSessionId]);
 }
 
-function WelcomeOrErrorSection({ squadActive, onOpenModelPool, failedNodes }) {
+function WelcomeOrErrorSection({ squadActive, onOpenModelPool, failedNodes, results }) {
   if (!squadActive) {
     return (
       <div style={MAIN_STYLE}>
@@ -69,7 +69,20 @@ function WelcomeOrErrorSection({ squadActive, onOpenModelPool, failedNodes }) {
       </div>
     );
   }
-  return failedNodes.length > 0 ? <ErrorBanner nodes={failedNodes} /> : null;
+  if (failedNodes.length > 0) return <ErrorBanner nodes={failedNodes} />;
+  
+  if (results && results.length > 0) {
+    return (
+      <Card style={{ marginBottom: 12 }} elevation={2}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#0F9960' }}>
+          <Icon icon={IconNames.TICK_CIRCLE} size={20} />
+          <span style={{ fontWeight: 600 }}>Squad Completed Successfully</span>
+        </div>
+      </Card>
+    );
+  }
+  
+  return null;
 }
 
 function StatusBarSection({ activeSession }) {
@@ -101,8 +114,9 @@ function MessageListSection({ activeMessages, sessionRole, details }) {
 
 function InputSection({ activeSession, activeSessionId, send, onOptimisticMessage }) {
   if (!activeSession) return null;
-  const reason = ['completed', 'aborted', 'error'].includes(activeSession.status) 
-    ? activeSession.status 
+  const reason = (['completed', 'aborted', 'error'].includes(activeSession.status) || 
+                  ['completed', 'aborted', 'error'].includes(activeSession.phase))
+    ? (activeSession.status !== 'active' ? activeSession.status : activeSession.phase) 
     : null;
     
   return (
@@ -143,7 +157,7 @@ function DAGSection({ nodes, activeSession, dagCollapsed, onNodeClick, onToggleD
 export default function MainContent({
   squadActive, nodes, activeSessionId, sessions, messages,
   dagCollapsed, onToggleDAG, onNodeClick, onOpenModelPool,
-  onOptimisticMessage, send
+  onOptimisticMessage, send, results
 }) {
   const activeSession = sessions[activeSessionId];
   const activeMessages = messages[activeSessionId] || [];
@@ -157,7 +171,7 @@ export default function MainContent({
   
   return (
     <div style={MAIN_STYLE}>
-      <WelcomeOrErrorSection squadActive={true} failedNodes={failedNodes} />
+      <WelcomeOrErrorSection squadActive={true} failedNodes={failedNodes} results={results} />
       <DAGSection
         nodes={nodes} activeSession={activeSession}
         dagCollapsed={dagCollapsed} onNodeClick={onNodeClick}

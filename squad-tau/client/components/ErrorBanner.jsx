@@ -29,8 +29,10 @@ export default function ErrorBanner({ nodes }) {
   if (total === 0) return null;
 
   const reason = blocked.length > 0
-    ? blocked[0].error || 'Node blocked'
-    : failed[0].error || 'Node failed';
+    ? blocked[0].error || blocked[0].summary || 'Node blocked'
+    : failed.length > 0
+      ? failed[0].error || failed[0].summary || 'Node failed'
+      : 'Unknown error';
 
   return (
     <Callout

@@ -5,16 +5,26 @@ import { stubPi } from '../helpers/mock-pi.js';
 import { EventBus } from '../../server/event-bus.js';
 import { buildGlobalReturnTool } from '../../server/lifecycle-tools.js';
 
-mock.module('@oh-my-pi/resolve-pi', () => ({
-    getCodingAgentModule: async () => ({
-        SessionManager: {
-            create: (cwd) => {
-                const id = `test-session-${Math.random().toString(36).slice(2)}`;
-                return { cwd, getSessionFile: () => id };
-            },
+mock.module('@oh-my-pi/resolve-pi', () => {
+    const { createRequire } = require('module');
+    const { fileURLToPath } = require('url');
+    const { dirname, join } = require('path');
+
+    return {
+        requireScoped: (importMetaUrl) => {
+            const __filename = fileURLToPath(importMetaUrl);
+            return createRequire(join(dirname(__filename), 'noop.js'));
         },
-    }),
-}));
+        getCodingAgentModule: async () => ({
+            SessionManager: {
+                create: (cwd) => {
+                    const id = `test-session-${Math.random().toString(36).slice(2)}`;
+                    return { cwd, getSessionFile: () => id };
+                },
+            },
+        }),
+    };
+});
 
 function makeModelPool() {
     const slots = [];

@@ -31,6 +31,7 @@ function enrichNode(node, activeSessionId) {
 function getNodeAtPath(nodes, path) {
   let current = nodes[path[0]];
   for (let i = 1; i < path.length; i++) {
+    if (!current?.childNodes) return null;
     current = current.childNodes[path[i]];
   }
   return current;
@@ -50,13 +51,19 @@ function useTreeHandlers(nodes, activeSessionId, onNodeClick) {
     if (node.sessionId) onNodeClick(node.sessionId);
   }, [contents, onNodeClick]);
   
-  const updateNode = useCallback((nodePath, isExpanded) => {
-    setContents(curr => {
-      const updated = [...curr];
-      const node = getNodeAtPath(updated, nodePath);
-      if (node) node.isExpanded = isExpanded;
-      return updated;
+  const updateNodeAt = (nodes, path, isExpanded) => {
+    return nodes.map((node, i) => {
+      if (i !== path[0]) return node;
+      if (path.length === 1) return { ...node, isExpanded };
+      return {
+        ...node,
+        childNodes: updateNodeAt(node.childNodes || [], path.slice(1), isExpanded)
+      };
     });
+  };
+
+  const updateNode = useCallback((nodePath, isExpanded) => {
+    setContents(curr => updateNodeAt(curr, nodePath, isExpanded));
   }, []);
 
   return {

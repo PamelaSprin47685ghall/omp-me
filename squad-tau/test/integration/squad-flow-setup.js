@@ -6,21 +6,30 @@ import * as sessionRegistry from '../../server/session-registry.js';
 import { setCurrentRun, clearCurrentRun } from '../../server/plugin-state.js';
 import { executeDAG } from '../../server/dag-execute.js';
 import { mock } from 'bun:test';
+// Mock getCodingAgentModule while preserving other functionality
+mock.module('@oh-my-pi/resolve-pi', () => {
+    const { createRequire } = require('module');
+    const { fileURLToPath } = require('url');
+    const { dirname, join } = require('path');
 
-// Mock getCodingAgentModule
-mock.module('@oh-my-pi/resolve-pi', () => ({
-    getCodingAgentModule: async () => ({
-        SessionManager: {
-            create: (cwd) => {
-                const id = `test-session-${Math.random().toString(36).slice(2)}`;
-                return {
-                    cwd,
-                    getSessionFile: () => id,
-                };
-            },
+    return {
+        requireScoped: (importMetaUrl) => {
+            const __filename = fileURLToPath(importMetaUrl);
+            return createRequire(join(dirname(__filename), 'noop.js'));
         },
-    }),
-}));
+        getCodingAgentModule: async () => ({
+            SessionManager: {
+                create: (cwd) => {
+                    const id = `test-session-${Math.random().toString(36).slice(2)}`;
+                    return {
+                        cwd,
+                        getSessionFile: () => id,
+                    };
+                },
+            },
+        }),
+    };
+});
 
 export function createTestEnvironment() {
     const pi = stubPi();

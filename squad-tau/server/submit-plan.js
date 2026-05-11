@@ -75,7 +75,6 @@ async function runOuterReviewLoop({ nodeResults, originalTask, ctx, pi, signal, 
         }
         if (result.approved) return { done: false };
         const feedback = result.reason || 'Revise and resubmit.';
-        eventBus?.emit('squad', 'outer_review_result', { round: outerRound, verdict: 'rejected', feedback });
         return {
             done: true,
             payload: {
@@ -154,11 +153,35 @@ function createDelegateHandler(deps) {
 }
 
 async function runDelegate(deps) {
-    const { nodes, mode, executeDAG, ctx, pi, signal, eventBus, modelPool } = deps;
+    const { nodes, mode, executeDAG, ctx, pi, signal, eventBus, modelPool, fsm, startTime, onComplete } = deps;
     try {
         const results = await executeDAG({ nodes, ctx, pi, signal, eventBus, modelPool });
         return await finalize({ results, ...deps });
     } catch (error) {
+        const results = nodes.map((n) => ({
+            nodeId: n.id,
+            status: 'failed',
+            summary: error.message,
+            affectedFiles: [],
+        }));
+        const nodeResults = results.map((r) => ({
+            id: r.nodeId,
+            status: r.status,
+            summary: r.summary,
+            affectedFiles: r.affectedFiles,
+        }));
+
+        if (eventBus) {
+            eventBus.emit('squad', 'complete', {
+                success: false,
+                results: nodeResults,
+                message: `DAG execution failed: ${error.message}`,
+            });
+        }
+        fsm.deactivate();
+        const duration = Date.now() - startTime;
+        if (onComplete) onComplete({ results: nodeResults, mode, nodes, durationMs: duration });
+
         throw new Error(`DAG execution failed: ${error.message}`);
     }
 }

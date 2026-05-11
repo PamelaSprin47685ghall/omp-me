@@ -3,7 +3,13 @@ export function topologicalSort(nodes) {
         throw new Error('topologicalSort: nodes array cannot be empty');
     }
 
-    const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+    const nodeMap = new Map();
+    for (const node of nodes) {
+        if (nodeMap.has(node.id)) {
+            throw new Error(`topologicalSort: duplicate node ID found: ${node.id}`);
+        }
+        nodeMap.set(node.id, node);
+    }
     const inDegree = new Map();
     const adjList = new Map();
 

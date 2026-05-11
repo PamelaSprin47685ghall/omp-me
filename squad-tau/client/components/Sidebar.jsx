@@ -28,7 +28,8 @@ function getStatusIcon(status) {
     case 'pending': return IconNames.TIME;
     case 'authoring':
     case 'confirming':
-    case 'reviewing': return IconNames.REFRESH;
+    case 'reviewing':
+    case 'active': return IconNames.REFRESH;
     case 'failed':
     case 'blocked': return IconNames.BAN_CIRCLE;
     default: return IconNames.HELP;

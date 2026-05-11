@@ -1,13 +1,17 @@
 function subscribeToSessionEvents(session, eventBus, sessionId) {
     return session.subscribe((event) => {
-        if (event.type === 'message_update') {
-            handleMessageUpdate(event, eventBus, sessionId);
-        } else if (event.type === 'tool_execution_start') {
-            handleToolStart(event, eventBus, sessionId);
-        } else if (event.type === 'tool_execution_end') {
-            handleToolEnd(event, eventBus, sessionId);
-        } else if (event.type === 'message_end') {
-            handleMessageEnd(event, eventBus, sessionId);
+        try {
+            if (event.type === 'message_update') {
+                handleMessageUpdate(event, eventBus, sessionId);
+            } else if (event.type === 'tool_execution_start') {
+                handleToolStart(event, eventBus, sessionId);
+            } else if (event.type === 'tool_execution_end') {
+                handleToolEnd(event, eventBus, sessionId);
+            } else if (event.type === 'message_end') {
+                handleMessageEnd(event, eventBus, sessionId);
+            }
+        } catch (err) {
+            console.error(`[SessionEvents] Error handling event ${event.type} for ${sessionId}:`, err);
         }
     });
 }

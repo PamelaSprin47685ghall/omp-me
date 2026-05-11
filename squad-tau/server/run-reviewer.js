@@ -36,6 +36,7 @@ async function setupReviewerSession({ node, ctx, pi, modelSlot, eventBus, state 
             sessionId,
             nodeId: node.id,
             phase: 'reviewer',
+            retryCount: state.retryCount,
             model: options.model ? { provider: options.model.provider, id: options.model.id } : undefined,
         });
         eventBus.emit('session', 'state', { sessionId, phase: 'reviewing' });

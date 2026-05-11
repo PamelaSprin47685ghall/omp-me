@@ -75,6 +75,16 @@ export async function startServer() {
 }
 
 export async function stopServer() {
+    if (wssInstance) {
+        const closeMsg = JSON.stringify({
+            type: 'connection:close',
+            payload: { reason: 'server_stop' },
+            timestamp: Date.now(),
+        });
+        for (const client of wssInstance.clients) {
+            client.send(closeMsg);
+        }
+    }
     await closeViteServer();
     if (heartbeatCleanup) {
         heartbeatCleanup();

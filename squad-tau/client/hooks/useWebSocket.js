@@ -1,6 +1,7 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
 
 const BACKOFF_STEPS = [1000, 2000, 4000, 8000, 16000, 30000];
+const MAX_RECONNECT_ATTEMPTS = 50;
 const PING_INTERVAL = 30000;
 
 export function useWebSocket({ port, onEvent }) {
@@ -9,6 +10,7 @@ export function useWebSocket({ port, onEvent }) {
     const reconnectTimeoutRef = useRef(null);
     const pingIntervalRef = useRef(null);
     const backoffIndexRef = useRef(0);
+    const reconnectAttemptsRef = useRef(0);
     const onEventRef = useRef(onEvent);
     const [connected, setConnected] = useState(false);
 
@@ -52,6 +54,7 @@ export function useWebSocket({ port, onEvent }) {
             setConnected(true);
             if (typeof window !== 'undefined') window.__wsConnected = true;
             backoffIndexRef.current = 0;
+            reconnectAttemptsRef.current = 0;
             startPing();
         };
 
@@ -82,6 +85,12 @@ export function useWebSocket({ port, onEvent }) {
             clearInterval(pingIntervalRef.current);
             pingIntervalRef.current = null;
 
+            if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+                console.error(`[WebSocket] Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Stopping.`);
+                return;
+            }
+
+            reconnectAttemptsRef.current++;
             const delay = BACKOFF_STEPS[backoffIndexRef.current];
             if (backoffIndexRef.current < BACKOFF_STEPS.length - 1) {
                 backoffIndexRef.current++;

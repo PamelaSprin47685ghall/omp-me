@@ -78,10 +78,9 @@ describe('Squad Flow - L mode Basic', () => {
         fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "w1"');
         fs.writeFileSync(path.join(planDir, 'n2.toml'), 'task = "w2"\ndepends_on = ["n1"]');
         let times = {};
-        eventBus.on('squad:*', (data, event) => {
-            const t = event.split(':')[1];
-            if (t === 'node_start') times[data.nodeId] = Date.now();
-            if (t === 'node_end') times[data.nodeId + '_e'] = Date.now();
+        eventBus.on('squad:node_state', (data) => {
+            if (data.status === 'authoring' && !times[data.nodeId]) times[data.nodeId] = Date.now();
+            if (['approved', 'failed', 'blocked'].includes(data.status)) times[data.nodeId + '_e'] = Date.now();
         });
         pi.pi.onPrompt(async (text, session) => {
             await session.callTool('return', { status: 'ok', reason: 'ok' });
@@ -112,10 +111,9 @@ describe('Squad Flow - Advanced', () => {
         fs.writeFileSync(path.join(planDir, 'C.toml'), 'task = "C"\ndepends_on = ["A"]');
         fs.writeFileSync(path.join(planDir, 'D.toml'), 'task = "D"\ndepends_on = ["B", "C"]');
         let times = {};
-        eventBus.on('squad:*', (data, event) => {
-            const t = event.split(':')[1];
-            if (t === 'node_start') times[data.nodeId] = Date.now();
-            if (t === 'node_end') times[data.nodeId + '_e'] = Date.now();
+        eventBus.on('squad:node_state', (data) => {
+            if (data.status === 'authoring' && !times[data.nodeId]) times[data.nodeId] = Date.now();
+            if (['approved', 'failed', 'blocked'].includes(data.status)) times[data.nodeId + '_e'] = Date.now();
         });
         pi.pi.onPrompt(async (t, s) => {
             await s.callTool('return', { status: 'ok', reason: 'ok' });

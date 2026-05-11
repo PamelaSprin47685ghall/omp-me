@@ -67,21 +67,41 @@ function unwatchConfig() {
 
 function syncModelPoolFromConfig(modelPool, newConfig) {
     const oldSlots = modelPool.getSlots();
-    const oldMap = new Map(oldSlots.map((s) => [`${s.provider}|${s.modelId}|${s.role}`, s]));
-    const newKeys = new Set(newConfig.map((s) => `${s.provider}|${s.modelId}|${s.role}`));
+    // Use a frequency map for old slots
+    const oldCounts = new Map();
+    for (const s of oldSlots) {
+        const key = `${s.provider}|${s.modelId}|${s.role}`;
+        oldCounts.set(key, (oldCounts.get(key) || 0) + 1);
+    }
 
+    // Use a frequency map for new slots
+    const newCounts = new Map();
+    for (const s of newConfig) {
+        const key = `${s.provider}|${s.modelId}|${s.role}`;
+        newCounts.set(key, (newCounts.get(key) || 0) + 1);
+    }
+
+    // Add missing slots
     for (const entry of newConfig) {
         const key = `${entry.provider}|${entry.modelId}|${entry.role}`;
-        if (!oldMap.has(key)) {
+        const oldCount = oldCounts.get(key) || 0;
+        const newCount = newCounts.get(key);
+        if (oldCount < newCount) {
             modelPool.addSlot(entry);
+            oldCounts.set(key, oldCount + 1);
         }
     }
 
-    for (const [key, slot] of oldMap) {
-        if (!newKeys.has(key)) {
-            const allSlots = [...modelPool.workerSlots, ...modelPool.reviewerSlots];
-            const idx = allSlots.indexOf(slot);
-            if (idx !== -1) modelPool.removeSlot(idx);
+    // Remove extra slots
+    const currentSlots = modelPool.getSlots();
+    for (let i = currentSlots.length - 1; i >= 0; i--) {
+        const s = currentSlots[i];
+        const key = `${s.provider}|${s.modelId}|${s.role}`;
+        const targetCount = newCounts.get(key) || 0;
+        const currentCount = oldCounts.get(key) || 0;
+        if (currentCount > targetCount) {
+            modelPool.removeSlot(i);
+            oldCounts.set(key, currentCount - 1);
         }
     }
 }

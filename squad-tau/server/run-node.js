@@ -5,7 +5,7 @@ import { STATUS } from './constants.js';
 async function runWorkerPhase(args) {
     const { node, eventBus, modelPool, signal } = args;
     eventBus.emit('squad', 'node_state', {
-        nodeId: node.nodeId,
+        nodeId: node.id,
         status: STATUS.AUTHORING,
         retryCount: args.retryCount,
         timestamp: Date.now(),
@@ -49,12 +49,12 @@ async function runNode(args) {
 
             if (reviewResult.approved) {
                 eventBus.emit('squad', 'node_state', {
-                    nodeId: node.nodeId,
+                    nodeId: node.id,
                     status: STATUS.APPROVED,
                     timestamp: Date.now(),
                 });
                 return {
-                    nodeId: node.nodeId,
+                    nodeId: node.id,
                     status: STATUS.APPROVED,
                     summary: workerResult.reason,
                     affectedFiles: workerResult.affected_files,
@@ -68,7 +68,7 @@ async function runNode(args) {
             });
             reviewerFeedback = reviewResult.reason;
             eventBus.emit('squad', 'node_state', {
-                nodeId: node.nodeId,
+                nodeId: node.id,
                 status: STATUS.REJECTED,
                 retryCount,
                 timestamp: Date.now(),
@@ -76,7 +76,7 @@ async function runNode(args) {
         }
     } catch (error) {
         eventBus.emit('squad', 'node_state', {
-            nodeId: node.nodeId,
+            nodeId: node.id,
             status: STATUS.FAILED,
             error: error.message,
             timestamp: Date.now(),

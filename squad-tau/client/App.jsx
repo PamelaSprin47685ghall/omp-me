@@ -39,6 +39,10 @@ function useAppEventHandlers(squadDispatch, sessionDispatch, modelPoolDispatch) 
       sessionDispatch({ type: eventType, payload });
     } else if (type.startsWith('model_pool:')) {
       modelPoolDispatch({ type, payload });
+    } else if (type === 'error') {
+      // Handle generic error events (e.g., from ws-handler)
+      console.error('[App] Server Error:', payload.message);
+      // Optional: Add to a global toast or similar if needed
     }
   }, [squadDispatch, sessionDispatch, modelPoolDispatch]);
 }
@@ -46,7 +50,7 @@ function useAppEventHandlers(squadDispatch, sessionDispatch, modelPoolDispatch) 
 function MainLayoutContent({
   sessions, nodes, activeSessionId, setActiveSessionId,
   messages, dagCollapsed, onToggleDAG, handleNodeClick,
-  openModelPool, onOptimisticMessage, send, squadActive
+  openModelPool, onOptimisticMessage, send, squadActive, results
 }) {
   return (
     <div style={BODY_STYLE}>
@@ -68,6 +72,7 @@ function MainLayoutContent({
         onOpenModelPool={openModelPool}
         onOptimisticMessage={onOptimisticMessage}
         send={send}
+        results={results}
       />
     </div>
   );
@@ -77,7 +82,7 @@ function AppLayout({
   isDark, connected, dagCollapsed, onToggleDAG, openModelPool, closeModelPool, 
   squadActive, onAbort, sessions, nodes, activeSessionId, setActiveSessionId,
   messages, onOptimisticMessage, send, modelPoolOpen, slots, updateSlot,
-  handleNodeClick
+  handleNodeClick, results
 }) {
   return (
     <div style={APP_STYLE} className={isDark ? Classes.DARK : ''}>
@@ -102,6 +107,7 @@ function AppLayout({
         onOptimisticMessage={onOptimisticMessage}
         send={send}
         squadActive={squadActive}
+        results={results}
       />
       <ModelPoolDrawer
         isOpen={modelPoolOpen}
@@ -125,7 +131,7 @@ function useAppEffects(isDark, send, sendModelPoolUpdate) {
 
 export default function App() {
   const { isDark } = useDarkMode();
-  const { squad, nodes, dispatch: squadDispatch } = useSquadState();
+  const { squad, nodes, results, dispatch: squadDispatch } = useSquadState();
   const { sessions, messages, activeSessionId, setActiveSessionId, dispatch: sessionDispatch } = useSessionState();
   const { isOpen: modelPoolOpen, openDrawer: openModelPool, closeDrawer: closeModelPool, slots, updateSlot, sendModelPoolUpdate, dispatch: modelPoolDispatch } = useModelPool();
 
@@ -155,6 +161,7 @@ export default function App() {
       onOptimisticMessage={(msg) => sessionDispatch({ type: 'SESSION_MESSAGE', payload: msg })}
       send={send} modelPoolOpen={modelPoolOpen} slots={slots}
       updateSlot={updateSlot} handleNodeClick={handleNodeClick}
+      results={results}
     />
   );
 }

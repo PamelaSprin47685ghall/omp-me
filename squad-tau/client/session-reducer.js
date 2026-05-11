@@ -16,7 +16,10 @@ function handleSessionStateChange(state, payload) {
     const { sessionId, phase } = payload;
     const sessions = new Map(state.sessions);
     const session = sessions.get(sessionId);
-    if (session) sessions.set(sessionId, { ...session, phase });
+    if (session) {
+        const status = ['completed', 'aborted', 'error'].includes(phase) ? phase : session.status;
+        sessions.set(sessionId, { ...session, phase, status });
+    }
     return { ...state, sessions };
 }
 
@@ -24,9 +27,16 @@ function handleSessionMessage(state, payload) {
     const { sessionId, role, content, messageId, parentId } = payload;
     const messages = new Map(state.messages);
     const list = messages.get(sessionId) || [];
-    const existingIdx = list.findIndex((msg) => msg.messageId === messageId);
+
+    // Deduplicate by messageId or by parentId matching an optimistic message
+    const existingIdx = list.findIndex(
+        (msg) => msg.messageId === messageId || (parentId && msg.messageId === parentId),
+    );
+
     if (existingIdx !== -1) {
-        const updated = list.map((msg, i) => (i === existingIdx ? { ...msg, role, content, parentId } : msg));
+        const updated = list.map((msg, i) =>
+            i === existingIdx ? { ...msg, role, content, parentId, messageId } : msg,
+        );
         messages.set(sessionId, updated);
     } else {
         messages.set(sessionId, [...list, { role, content, messageId, parentId }]);

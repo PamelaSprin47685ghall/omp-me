@@ -72,7 +72,10 @@ class ModelPool {
         const queue = slot.role === 'worker' ? this.workerQueue : this.reviewerQueue;
 
         const targetSlot =
-            slot._slot || roleSlots.find((s) => s.provider === slot.provider && s.modelId === slot.modelId && s.inUse);
+            slot._slot ||
+            roleSlots.find(
+                (s) => s.provider === slot.provider && s.modelId === slot.modelId && s.inUse && !s.pendingDelete,
+            );
         if (!targetSlot) return;
 
         targetSlot.inUse = false;

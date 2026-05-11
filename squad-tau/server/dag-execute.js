@@ -4,7 +4,9 @@ import { executeLayer } from './dag-concurrency.js';
 import { STATUS } from './constants.js';
 
 async function executeDAG({ nodes, ctx, pi, signal, eventBus, modelPool }) {
-    validateNodes(nodes);
+    const { valid, errors } = validateNodes(nodes);
+    if (!valid) throw new Error(`Invalid plan: ${errors.join(', ')}`);
+
     const layers = topologicalSort(nodes);
     const allResults = [];
     const completedNodes = new Map();
@@ -44,7 +46,7 @@ function handleAbortedLayer(layer, completedNodes, allResults, eventBus) {
             };
             allResults.push(result);
             completedNodes.set(node.id, result);
-            eventBus.emit('squad', 'node_state', { nodeId: node.id, status: STATUS.FAILED });
+            eventBus.emit('squad', 'node_state', { nodeId: node.id, status: STATUS.FAILED, retryCount: 0 });
         }
     }
 }
@@ -77,7 +79,7 @@ function handleBlockedNodes(blockedNodes, allResults, completedNodes, failedNode
         allResults.push(result);
         completedNodes.set(node.id, result);
         failedNodes.add(node.id);
-        eventBus.emit('squad', 'node_state', { nodeId: node.id, status: STATUS.BLOCKED });
+        eventBus.emit('squad', 'node_state', { nodeId: node.id, status: STATUS.BLOCKED, retryCount: 0 });
     }
 }
 

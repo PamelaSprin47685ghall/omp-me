@@ -70,17 +70,12 @@ function buildWorkerPrompt(node, upstreamResults, iterationHistory) {
 
 function buildConfirmPrompt(node) {
     const task = typeof node === 'string' ? node : node.task;
-    const criteria = node?.review_criteria || [];
-
-    let criteriaSection = '';
-    if (criteria.length > 0) {
-        criteriaSection = '\n' + criteria.map((c) => `- ${c.name}: ${c.description}`).join('\n');
-    }
+    const criteriaText = formatReviewCriteria(node?.review_criteria);
+    const criteriaSection = criteriaText ? `\n评审标准:\n${criteriaText}` : '';
 
     return `你现在被 Squad-Tau 要求验证自己的交付质量。请使用原始任务描述来评审工作，不要依赖你自己之前提交的摘要，避免幻觉和遗漏。
 
-原始任务: ${task}
-评审标准:${criteriaSection}
+原始任务: ${task}${criteriaSection}
 
 审查维度:
 1. 代码质量 — 是否正确、清晰、符合惯例？

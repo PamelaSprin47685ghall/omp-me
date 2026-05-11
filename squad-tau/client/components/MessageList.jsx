@@ -53,7 +53,7 @@ const ScrollButton = ({ visible, onClick }) => {
 
 export default function MessageList({ messages, sessionRole, deltas = [], toolCalls = [], toolResults = [] }) {
   const containerRef = useRef(null);
-  const { isAtBottom, scrollToBottom } = useAutoScroll(containerRef, [messages, deltas]);
+  const { isAtBottom, scrollToBottom } = useAutoScroll(containerRef, messages, deltas);
 
   if (!messages?.length) {
     return (

@@ -15,6 +15,11 @@ export function useDarkMode() {
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
+        document.documentElement.classList.toggle(Classes.DARK, isDark);
+    }, [isDark]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
         let query;
         try {
             query = window.matchMedia('(prefers-color-scheme: dark)');
@@ -23,10 +28,12 @@ export function useDarkMode() {
         }
         const handler = (e) => {
             setIsDark(e.matches);
-            document.documentElement.classList.toggle(Classes.DARK, e.matches);
         };
         query.addEventListener('change', handler);
-        return () => query.removeEventListener('change', handler);
+        return () => {
+            query.removeEventListener('change', handler);
+            document.documentElement.classList.remove(Classes.DARK);
+        };
     }, []);
 
     return { isDark };

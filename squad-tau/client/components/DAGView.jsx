@@ -58,15 +58,15 @@ function buildDiagram(nodeList, activeNodeId) {
   return lines.join('\n');
 }
 
-function nodeStateKey(nodes) {
+function nodeStateKey(nodes, activeNodeId) {
   if (!nodes) return '';
-  return nodes.map(n => `${n.id}:${n.status}`).join('|');
+  return nodes.map(n => `${n.id}:${n.status}`).join('|') + `!!active:${activeNodeId}`;
 }
 
 function useMermaidRender(nodeList, activeNodeId, onNodeClick) {
   const containerRef = useRef(null);
   const renderedKeyRef = useRef(null);
-  const stateKey = nodeStateKey(nodeList);
+  const stateKey = nodeStateKey(nodeList, activeNodeId);
 
   const renderDiagram = useCallback(async (list) => {
     const el = containerRef.current;

@@ -28,7 +28,7 @@ async function setupWorkerSession({ node, ctx, pi, modelSlot, eventBus, state })
     setupWorkerReturnResolver(sessionId, state);
 
     if (eventBus) {
-        state.unsub = emitWorkerSessionStart(eventBus, sessionId, node.id, options, session);
+        state.unsub = emitWorkerSessionStart(eventBus, sessionId, node.id, options, session, state.retryCount);
     }
 
     return { session, sessionId };
@@ -51,19 +51,19 @@ function setupWorkerReturnResolver(sessionId, state) {
     });
 }
 
-function emitWorkerSessionStart(eventBus, sessionId, nodeId, options, session) {
+function emitWorkerSessionStart(eventBus, sessionId, nodeId, options, session, retryCount) {
     eventBus.emit('session', 'start', {
         sessionId,
         nodeId,
         phase: 'worker',
+        retryCount,
         model: options.model ? { provider: options.model.provider, id: options.model.id } : undefined,
     });
     eventBus.emit('session', 'state', { sessionId, phase: 'authoring' });
     return subscribeToSessionEvents(session, eventBus, sessionId);
 }
 
-async function runSessionLoop(session, state, targetPhase, emptyErrorMsg, childAbort) {
-    const emptyCounter = createCounter(MAX_EMPTY_TURNS);
+async function runSessionLoop(session, state, targetPhase, emptyErrorMsg, childAbort, emptyCounter) {
     while (state.phase === targetPhase) {
         if (state.redo) {
             state.redo = false;
@@ -81,8 +81,9 @@ async function runSessionLoop(session, state, targetPhase, emptyErrorMsg, childA
     }
 }
 
-async function handleFirstReturn(session, state, childAbort) {
+async function handleFirstReturn(session, state, childAbort, emptyCounter) {
     const history = state.iterationHistory || [];
+    if (childAbort.signal.aborted) return;
     await session.prompt(getWorkerPrompt(state.node, state.upstreamResults, history));
     await runSessionLoop(
         session,
@@ -90,11 +91,12 @@ async function handleFirstReturn(session, state, childAbort) {
         0,
         `Worker ended without return after ${MAX_EMPTY_TURNS} empty turns`,
         childAbort,
+        emptyCounter,
     );
     await state.firstPromise;
 }
 
-async function handleSecondReturn(session, state, childAbort) {
+async function handleSecondReturn(session, state, childAbort, emptyCounter) {
     if (state.eventBus) state.eventBus.emit('session', 'state', { sessionId: state.sessionId, phase: 'confirming' });
     await session.prompt(getConfirmPrompt(state.node));
     await runSessionLoop(
@@ -103,6 +105,7 @@ async function handleSecondReturn(session, state, childAbort) {
         1,
         `Self-confirm ended without return after ${MAX_EMPTY_TURNS} empty turns`,
         childAbort,
+        emptyCounter,
     );
 }
 
@@ -132,10 +135,11 @@ async function runWorker(args) {
         ({ session, sessionId } = await setupWorkerSession({ ...args, state }));
         state.sessionId = sessionId;
 
-        await handleFirstReturn(session, state, childAbort);
+        const emptyCounter = createCounter(MAX_EMPTY_TURNS);
+        await handleFirstReturn(session, state, childAbort, emptyCounter);
         if (childAbort.signal.aborted && signal?.aborted) return (emitEnd(eventBus, sessionId, 'aborted'), null);
 
-        await handleSecondReturn(session, state, childAbort);
+        await handleSecondReturn(session, state, childAbort, emptyCounter);
         if (childAbort.signal.aborted && signal?.aborted) return (emitEnd(eventBus, sessionId, 'aborted'), null);
 
         const finalResult = await finalPromise;

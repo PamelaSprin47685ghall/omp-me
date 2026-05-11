@@ -9,6 +9,10 @@ describe('model-pool-config', () => {
     let originalExists = false;
 
     beforeEach(() => {
+        const dir = path.dirname(CONFIG_PATH);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
+        }
         originalExists = fs.existsSync(CONFIG_PATH);
         if (originalExists) {
             originalContent = fs.readFileSync(CONFIG_PATH, 'utf8');

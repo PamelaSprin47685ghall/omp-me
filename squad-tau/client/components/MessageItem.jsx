@@ -35,7 +35,10 @@ const ASSISTANT_OUTER_STYLE = (borderColor) => ({
  */
 function AssistantMessage({ deltas, toolCalls, toolResults, message, borderColor }) {
   const msgDeltas = deltas.filter(d => d.messageId === message.messageId);
-  const thinkingContent = msgDeltas.filter(d => d.delta.type === 'thinking_delta').map(d => d.delta.text).join('');
+  const deltaThinking = msgDeltas.filter(d => d.delta.type === 'thinking_delta').map(d => d.delta.text).join('');
+  const contentThinking = message.content?.filter(b => b.type === 'thinking').map(b => b.text).join('') || '';
+  const thinkingContent = contentThinking + deltaThinking;
+  
   const deltaText = msgDeltas.filter(d => d.delta.type === 'text_delta').map(d => d.delta.text).join('');
   const textContent = extractText(message.content) + deltaText;
   const msgToolCalls = toolCalls.filter(tc => tc.messageId === message.messageId);

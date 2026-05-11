@@ -112,22 +112,37 @@ export function stubPi() {
                 if (idx !== -1) handlers.splice(idx, 1);
             };
         },
-        sendMessage() {},
-        sendUserMessage() {},
-        setModel() {},
+        _calls: [],
+        sendMessage(msg) {
+            this._calls.push({ method: 'sendMessage', args: [msg] });
+        },
+        sendUserMessage(text) {
+            this._calls.push({ method: 'sendUserMessage', args: [text] });
+        },
+        setModel(model) {
+            this._calls.push({ method: 'setModel', args: [model] });
+        },
         getActiveTools() {
             return [];
         },
-        setActiveTools() {},
+        setActiveTools(tools) {
+            this._calls.push({ method: 'setActiveTools', args: [tools] });
+        },
         getSessionName() {
             return 'main';
         },
-        setSessionName() {},
+        setSessionName(name) {
+            this._calls.push({ method: 'setSessionName', args: [name] });
+        },
         getThinkingLevel() {
             return null;
         },
-        setThinkingLevel() {},
-        setStatus() {},
+        setThinkingLevel(level) {
+            this._calls.push({ method: 'setThinkingLevel', args: [level] });
+        },
+        setStatus(status) {
+            this._calls.push({ method: 'setStatus', args: [status] });
+        },
         invokeTool(name, params, ctx) {
             const tool = toolRegistry.find((t) => t.name === name);
             if (!tool) throw new Error(`Tool not found: ${name}`);

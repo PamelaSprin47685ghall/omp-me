@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 
-export function useAutoScroll(containerRef, deps) {
+export function useAutoScroll(containerRef, messages, deltas) {
     const [isAtBottom, setIsAtBottom] = useState(true);
     const rafIdRef = useRef(null);
 
@@ -45,7 +45,7 @@ export function useAutoScroll(containerRef, deps) {
         if (isAtBottom) {
             scrollToBottom();
         }
-    }, [isAtBottom, scrollToBottom, ...deps]);
+    }, [isAtBottom, scrollToBottom, messages, deltas]);
 
     return { isAtBottom, scrollToBottom };
 }
