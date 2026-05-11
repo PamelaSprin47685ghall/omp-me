@@ -144,3 +144,104 @@ describe('Squad Flow - Advanced', () => {
         expect(signal.aborted).toBe(true);
     });
 });
+
+describe('Squad Flow - Reject Flow', () => {
+    let env, planDir;
+    beforeEach(() => {
+        env = createTestEnvironment();
+        env.pi.registerTool(buildGlobalReturnTool());
+        planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-rej-'));
+    });
+    afterEach(() => {
+        fs.rmSync(planDir, { recursive: true, force: true });
+        clearCurrentRun();
+    });
+
+    test('M mode: reject → retry → approve', async () => {
+        const { pi, eventBus, squadFsm } = env;
+        setupSquadRun(env);
+        squadFsm.activate();
+        fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "do work"');
+
+        let reviewerCalls = 0;
+        pi.pi.onPrompt(async (text, session) => {
+            // Outer review — approve
+            if (text.includes('最终审核者')) {
+                await session.callTool('return', { status: 'ok', reason: 'all good' });
+                return;
+            }
+            // Reviewer — reject first call, approve second
+            if (text.includes('审核专员')) {
+                reviewerCalls++;
+                if (reviewerCalls === 1) {
+                    await session.callTool('return', { status: 'error', reason: 'needs improvement' });
+                } else {
+                    await session.callTool('return', { status: 'ok', reason: 'approved' });
+                }
+                return;
+            }
+            // Worker / Self-confirm — always ok
+            await session.callTool('return', { status: 'ok', reason: 'done', affected_files: ['f.js'] });
+        });
+
+        const res = await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        expect(res.success).toBe(true);
+        expect(squadFsm.state).toBe('idle');
+        expect(reviewerCalls).toBe(2);
+    });
+});
+
+describe('Squad Flow - Outer Review', () => {
+    let env, planDir;
+    beforeEach(() => {
+        env = createTestEnvironment();
+        env.pi.registerTool(buildGlobalReturnTool());
+        planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-or-'));
+    });
+    afterEach(() => {
+        fs.rmSync(planDir, { recursive: true, force: true });
+        clearCurrentRun();
+    });
+
+    test('L mode: outer review reject → active', async () => {
+        const { pi, eventBus, squadFsm } = env;
+        setupSquadRun(env);
+        squadFsm.activate();
+        fs.writeFileSync(path.join(planDir, 'A.toml'), 'task = "task A"');
+        fs.writeFileSync(path.join(planDir, 'B.toml'), 'task = "task B"');
+
+        let outerReviewCalls = 0;
+        pi.pi.onPrompt(async (text, session) => {
+            // Outer review (最终审核者) — reject first time
+            if (text.includes('最终审核者')) {
+                outerReviewCalls++;
+                if (outerReviewCalls === 1) {
+                    await session.callTool('return', { status: 'error', reason: 'needs rework from outer review' });
+                } else {
+                    await session.callTool('return', { status: 'ok', reason: 'approved after rework' });
+                }
+                return;
+            }
+            // Reviewer (审核专员) — always approve
+            if (text.includes('审核专员')) {
+                await session.callTool('return', { status: 'ok', reason: 'good work' });
+                return;
+            }
+            // Worker / Self-confirm — always ok
+            await session.callTool('return', { status: 'ok', reason: 'done', affected_files: ['f.js'] });
+        });
+
+        // First delegation — outer review rejects
+        const res = await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        expect(res.success).toBe(true);
+        // After outer review reject, FSM should be in 'active' state
+        expect(squadFsm.state).toBe('active');
+        expect(outerReviewCalls).toBe(1);
+
+        // Re-delegate — outer review approves this time
+        const res2 = await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        expect(res2.success).toBe(true);
+        expect(squadFsm.state).toBe('idle');
+        expect(outerReviewCalls).toBe(2);
+    });
+});
