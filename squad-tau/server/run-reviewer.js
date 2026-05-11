@@ -1,8 +1,9 @@
 import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
+import { buildReturnTool } from './lifecycle-tools.js';
 import { buildReviewerPrompt as getReviewerPrompt } from './run-reviewer-prompt.js';
 import { REVIEWER_MAX_EMPTY, createCounter } from './empty-turns.js';
 import { buildBaseSessionOptions } from './session-options.js';
-import { register, unregister, setReturnResolver, clearReturnResolver } from './session-registry.js';
+import { register, unregister } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
 
 function emitSessionEnd(eventBus, sessionId, phase, reason, errorMessage) {
@@ -11,11 +12,19 @@ function emitSessionEnd(eventBus, sessionId, phase, reason, errorMessage) {
     eventBus.emit('session', 'end', { sessionId, reason, errorMessage });
 }
 
+function buildReviewerReturnTool(state) {
+    return buildReturnTool((params) => {
+        state.settled = true;
+        state.outcomeResolve({ approved: params.status === 'ok', reason: params.reason });
+    });
+}
+
 async function setupReviewerSession({ node, ctx, pi, modelSlot, eventBus, state }) {
     const { SessionManager } = await getCodingAgentModule();
     const options = buildBaseSessionOptions(ctx, pi, modelSlot);
-    options.toolNames = ['read', 'search', 'find', 'lsp', 'bash'];
-    const sessionOpts = { ...options, sessionManager: SessionManager.create(options.cwd) };
+    options.toolNames = ['read', 'search', 'find', 'lsp', 'bash', 'return'];
+    const returnTool = buildReviewerReturnTool(state);
+    const sessionOpts = { ...options, customTools: [returnTool], sessionManager: SessionManager.create(options.cwd) };
     const factoryResult = await pi.pi.createAgentSession(sessionOpts);
     const session = factoryResult.session;
     const sessionId = session.sessionFile;
@@ -24,11 +33,6 @@ async function setupReviewerSession({ node, ctx, pi, modelSlot, eventBus, state 
         sendUserMessage: (text) => session.prompt(text),
         session,
         status: 'reviewing',
-    });
-
-    setReturnResolver(sessionId, (params) => {
-        state.settled = true;
-        state.outcomeResolve({ approved: params.status === 'ok', reason: params.reason });
     });
 
     if (eventBus) {
@@ -104,7 +108,6 @@ async function runReviewer(args) {
         session?.abort?.();
         state.unsub?.();
         if (sessionId) {
-            clearReturnResolver(sessionId);
             unregister(sessionId);
         }
     }

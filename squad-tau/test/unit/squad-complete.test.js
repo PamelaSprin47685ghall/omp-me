@@ -6,8 +6,8 @@ import SquadFSM from '../../server/squad-fsm.js';
 describe('createOnCompleteHandler', () => {
     const baseDeps = {
         task: 'Build feature X',
-        ctx: { sendMessage: () => {} },
-        pi: {},
+        ctx: {},
+        pi: { sendMessage: () => {} },
         signal: new AbortController().signal,
         eventBus: new EventBus(),
         modelPool: {

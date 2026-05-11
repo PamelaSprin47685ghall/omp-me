@@ -1,7 +1,8 @@
 import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
+import { buildReturnTool } from './lifecycle-tools.js';
 import { OUTER_REVIEW_MAX_EMPTY, createCounter } from './empty-turns.js';
 import { buildBaseSessionOptions } from './session-options.js';
-import { register, unregister, setReturnResolver, clearReturnResolver } from './session-registry.js';
+import { register, unregister } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
 
 function buildOuterReviewPrompt(originalTask, nodeResults, round) {
@@ -39,6 +40,15 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
     if (eventBus) eventBus.emit('squad', 'outer_review_start', { round });
 
     const modelSlot = await modelPool.acquire('reviewer', signal);
+    const { promise: outcomePromise, resolve: outcomeResolve } = Promise.withResolvers();
+    const childAbort = new AbortController();
+    let settled = false;
+
+    const returnTool = buildReturnTool((params) => {
+        settled = true;
+        outcomeResolve({ approved: params.status === 'ok', reason: params.reason });
+    });
+
     const { sessionOpts, promptText } = await prepareReviewSession(
         nodeResults,
         originalTask,
@@ -46,10 +56,8 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
         ctx,
         pi,
         modelSlot,
+        returnTool,
     );
-    const { promise: outcomePromise, resolve: outcomeResolve } = Promise.withResolvers();
-    const childAbort = new AbortController();
-    let settled = false;
 
     if (signal)
         signal.addEventListener(
@@ -68,10 +76,6 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
         ({ session, sessionId, unsub } = await initOuterReviewSession(
             createAgentSession,
             sessionOpts,
-            outcomeResolve,
-            (val) => {
-                settled = val;
-            },
             eventBus,
             round,
         ));
@@ -92,11 +96,17 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
     }
 }
 
-async function initOuterReviewSession(createAgentSession, sessionOpts, outcomeResolve, setSettled, eventBus, round) {
+async function initOuterReviewSession(createAgentSession, sessionOpts, eventBus, round) {
     const factoryResult = await createAgentSession(sessionOpts);
     const session = factoryResult.session;
     const sessionId = session.sessionFile;
-    setupSession(sessionId, session, outcomeResolve, setSettled);
+
+    register(sessionId, {
+        sendUserMessage: (text) => session.prompt(text),
+        session,
+        status: 'outer_review',
+    });
+
     let unsub = null;
     if (eventBus) {
         emitSessionStart(eventBus, sessionId, round, sessionOpts);
@@ -116,26 +126,13 @@ async function executeOuterReviewLoop(session, promptText, childAbort, isSettled
     return await outcomePromise;
 }
 
-async function prepareReviewSession(nodeResults, originalTask, round, ctx, pi, modelSlot) {
+async function prepareReviewSession(nodeResults, originalTask, round, ctx, pi, modelSlot, returnTool) {
     const { SessionManager } = await getCodingAgentModule();
     const options = buildBaseSessionOptions(ctx, pi, modelSlot);
-    options.toolNames = ['read', 'search', 'find', 'lsp', 'bash'];
-    const sessionOpts = { ...options, sessionManager: SessionManager.create(options.cwd) };
+    options.toolNames = ['read', 'search', 'find', 'lsp', 'bash', 'return'];
+    const sessionOpts = { ...options, customTools: [returnTool], sessionManager: SessionManager.create(options.cwd) };
     const promptText = buildOuterReviewPrompt(originalTask, nodeResults, round);
     return { sessionOpts, promptText };
-}
-
-function setupSession(sessionId, session, outcomeResolve, setSettled) {
-    register(sessionId, {
-        sendUserMessage: (text) => session.prompt(text),
-        session,
-        status: 'outer_review',
-    });
-
-    setReturnResolver(sessionId, (params) => {
-        setSettled(true);
-        outcomeResolve({ approved: params.status === 'ok', reason: params.reason });
-    });
 }
 
 function emitSessionStart(eventBus, sessionId, round, options) {
@@ -190,7 +187,6 @@ function cleanupOuterReview(childAbort, session, unsub, sessionId) {
     session?.abort?.();
     unsub?.();
     if (sessionId) {
-        clearReturnResolver(sessionId);
         unregister(sessionId);
     }
 }

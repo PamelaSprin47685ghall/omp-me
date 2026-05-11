@@ -11,8 +11,27 @@ import { pathToFileURL } from 'node:url';
 import { join, dirname } from 'node:path';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 
-const BASE = join(homedir(), '.bun/install/global/node_modules/@oh-my-pi');
+// Detect correct bun install path
+function detectBunBase() {
+    const home = homedir();
+    const paths = [
+        join(home, '.cache/.bun/install/global/node_modules/@oh-my-pi'),
+        join(home, '.bun/install/global/node_modules/@oh-my-pi'),
+    ];
+
+    for (const path of paths) {
+        if (existsSync(path)) {
+            return path;
+        }
+    }
+
+    // Fallback to .cache path if neither exists
+    return paths[0];
+}
+
+const BASE = detectBunBase();
 
 export function getPiBase() {
     return BASE;

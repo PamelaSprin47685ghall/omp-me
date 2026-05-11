@@ -1,6 +1,6 @@
 import { runWorker } from './run-worker.js';
 import { runReviewer } from './run-reviewer.js';
-import { STATUS } from './constants.js';
+import { STATUS, DEFAULTS } from './constants.js';
 
 async function runWorkerPhase(args) {
     const { node, eventBus, modelPool, signal } = args;
@@ -42,6 +42,7 @@ async function runNode(args) {
     let retryCount = 0;
     const iterationHistory = [];
 
+    const maxRetries = DEFAULTS.MAX_RETRIES;
     try {
         while (true) {
             const workerResult = await runWorkerPhase({ ...args, reviewerFeedback, retryCount, iterationHistory });
@@ -62,6 +63,11 @@ async function runNode(args) {
             }
 
             retryCount++;
+            if (retryCount > maxRetries) {
+                throw new Error(
+                    `Max retries (${maxRetries}) exceeded for node ${node.id}. Last feedback: ${reviewResult.reason}`,
+                );
+            }
             iterationHistory.push({
                 workRecord: { reason: workerResult.reason, affected_files: workerResult.affected_files },
                 feedback: reviewResult.reason,

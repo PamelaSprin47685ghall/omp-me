@@ -38,7 +38,7 @@ describe('session-options', () => {
 
     it('builds worker options and filters delegate tool', () => {
         const opts = buildWorkerSessionOptions(mockCtx, null, null);
-        expect(opts.toolNames).toEqual(['read', 'write']);
+        expect(opts.toolNames).toEqual(['read', 'write', 'return']);
         expect(opts.toolNames).not.toContain('delegate');
     });
 

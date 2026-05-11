@@ -3,7 +3,6 @@ import { runWorker } from '../../server/run-worker.js';
 import { runReviewer } from '../../server/run-reviewer.js';
 import { stubPi } from '../helpers/mock-pi.js';
 import { EventBus } from '../../server/event-bus.js';
-import { buildGlobalReturnTool } from '../../server/lifecycle-tools.js';
 
 mock.module('@oh-my-pi/resolve-pi', () => {
     const { createRequire } = require('module');
@@ -53,7 +52,7 @@ function instrumentSession(pi) {
 
 test('runWorker uses waitForIdle after each prompt (no isStreaming polling)', async () => {
     const pi = stubPi();
-    pi.registerTool(buildGlobalReturnTool());
+
     const waitForIdleCalls = instrumentSession(pi);
     const eventBus = new EventBus();
 
@@ -84,7 +83,7 @@ test('runWorker uses waitForIdle after each prompt (no isStreaming polling)', as
 
 test('runReviewer uses waitForIdle (no isStreaming polling)', async () => {
     const pi = stubPi();
-    pi.registerTool(buildGlobalReturnTool());
+
     const waitForIdleCalls = instrumentSession(pi);
     const eventBus = new EventBus();
 

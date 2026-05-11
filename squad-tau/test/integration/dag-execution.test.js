@@ -8,7 +8,6 @@ import { EventBus } from '../../server/event-bus.js';
 import { ModelPool } from '../../server/model-pool.js';
 import { createTestEnvironment, setupSquadRun } from './squad-flow-setup.js';
 import { createDelegateHandler } from '../../server/submit-plan.js';
-import { buildGlobalReturnTool } from '../../server/lifecycle-tools.js';
 import { getCurrentRun, clearCurrentRun } from '../../server/plugin-state.js';
 import fs from 'fs';
 import path from 'path';
@@ -18,7 +17,6 @@ describe('dag-execution with mock createAgentSession', () => {
     let env, planDir;
     beforeEach(() => {
         env = createTestEnvironment();
-        env.pi.registerTool(buildGlobalReturnTool());
         planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dag-exec-'));
         // Register the return tool on the mock pi
     });

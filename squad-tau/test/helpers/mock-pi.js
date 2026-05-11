@@ -77,7 +77,11 @@ export function stubPi() {
                     session._localOnPrompt = callback;
                 },
                 callTool: async (name, params) => {
-                    const tool = toolRegistry.find((t) => t.name === name);
+                    let tool = toolRegistry.find((t) => t.name === name);
+                    if (!tool && opts.customTools) {
+                        tool = opts.customTools.find((t) => t.name === name);
+                        if (tool) tool = { name: tool.name, def: tool };
+                    }
                     if (!tool) throw new Error(`Tool not found: ${name}`);
                     const result = await tool.def.execute(params.id || 'test-call', params, null, () => {}, opts);
                     for (const sub of subscribers) {

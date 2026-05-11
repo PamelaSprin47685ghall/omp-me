@@ -51,6 +51,7 @@ const DEFAULTS = Object.freeze({
     MAX_PORT_ATTEMPTS: 10,
     HEARTBEAT_INTERVAL: 30000,
     HEARTBEAT_TIMEOUT: 60000,
+    MAX_RETRIES: 3,
 });
 
 const SESSION_PHASES = Object.freeze(['worker', 'reviewer', 'outer_review', 'main']);

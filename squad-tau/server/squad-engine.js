@@ -2,7 +2,6 @@ import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
 import { createDelegateHandler } from './submit-plan.js';
 import { executeDAG } from './dag-execute.js';
 import { createOnCompleteHandler } from './squad-complete.js';
-import { buildGlobalReturnTool } from './lifecycle-tools.js';
 import SquadFSM from './squad-fsm.js';
 import { register, unregister } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
@@ -13,7 +12,6 @@ import fs from 'fs';
 
 export default function squadPlugin(pi) {
     const serverPromise = startServer();
-    pi.registerTool(buildGlobalReturnTool());
 
     registerDelegateTool(pi);
     registerSquadCommand(pi, serverPromise);
@@ -36,7 +34,8 @@ function registerDelegateTool(pi) {
             const run = getCurrentRun();
             if (!run) throw new Error('No active squad run');
             const handler = createDelegateHandler(run);
-            return await handler.handler(params);
+            const result = await handler.handler(params);
+            return { content: [{ type: 'text', text: result.message || 'Delegated' }], display: false };
         },
     });
 }
@@ -63,7 +62,7 @@ function registerSquadCommand(pi, serverPromise) {
 
             ctx.ui?.notify(`Squad UI: http://127.0.0.1:${port}`, 'info');
 
-            const onComplete = createOnCompleteHandler({ ctx, fsm, eventBus });
+            const onComplete = createOnCompleteHandler({ pi, fsm, eventBus });
 
             setupCurrentRun({
                 fsm,

@@ -37,7 +37,9 @@ function buildWorkerSessionOptions(ctx, pi, modelSlot) {
     const activeTools = (ctx?.session?.getActiveToolNames?.() ?? pi?.getActiveTools?.())?.filter(
         (t) => t !== 'delegate',
     );
-    if (activeTools?.length > 0) options.toolNames = activeTools;
+    if (activeTools?.length > 0) {
+        options.toolNames = activeTools.includes('return') ? activeTools : [...activeTools, 'return'];
+    }
 
     return options;
 }

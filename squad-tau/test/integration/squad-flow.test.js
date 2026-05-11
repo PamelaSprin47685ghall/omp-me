@@ -1,7 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { createTestEnvironment, setupSquadRun } from './squad-flow-setup.js';
 import { createDelegateHandler } from '../../server/submit-plan.js';
-import { buildGlobalReturnTool } from '../../server/lifecycle-tools.js';
 import { getCurrentRun, clearCurrentRun } from '../../server/plugin-state.js';
 import fs from 'fs';
 import path from 'path';
@@ -11,7 +10,6 @@ describe('Squad Flow - M mode', () => {
     let env, planDir;
     beforeEach(() => {
         env = createTestEnvironment();
-        env.pi.registerTool(buildGlobalReturnTool());
         planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-m-'));
     });
     afterEach(() => {
@@ -46,7 +44,6 @@ describe('Squad Flow - L mode Basic', () => {
     let env, planDir;
     beforeEach(() => {
         env = createTestEnvironment();
-        env.pi.registerTool(buildGlobalReturnTool());
         planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-l-'));
     });
     afterEach(() => {
@@ -94,7 +91,6 @@ describe('Squad Flow - Advanced', () => {
     let env, planDir;
     beforeEach(() => {
         env = createTestEnvironment();
-        env.pi.registerTool(buildGlobalReturnTool());
         planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-adv-'));
     });
     afterEach(() => {
@@ -147,7 +143,6 @@ describe('Squad Flow - Reject Flow', () => {
     let env, planDir;
     beforeEach(() => {
         env = createTestEnvironment();
-        env.pi.registerTool(buildGlobalReturnTool());
         planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-rej-'));
     });
     afterEach(() => {
@@ -193,7 +188,6 @@ describe('Squad Flow - Outer Review', () => {
     let env, planDir;
     beforeEach(() => {
         env = createTestEnvironment();
-        env.pi.registerTool(buildGlobalReturnTool());
         planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-or-'));
     });
     afterEach(() => {

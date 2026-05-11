@@ -1,7 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { createTestEnvironment, setupSquadRun } from './squad-flow-setup.js';
 import { createDelegateHandler } from '../../server/submit-plan.js';
-import { buildGlobalReturnTool } from '../../server/lifecycle-tools.js';
 import { getCurrentRun, clearCurrentRun } from '../../server/plugin-state.js';
 import fs from 'fs';
 import path from 'path';
@@ -12,7 +11,6 @@ describe('Run Node Flow Lifecycle', () => {
 
     beforeEach(() => {
         env = createTestEnvironment();
-        env.pi.registerTool(buildGlobalReturnTool());
         planDir = fs.mkdtempSync(path.join(os.tmpdir(), 'run-node-flow-'));
     });
 

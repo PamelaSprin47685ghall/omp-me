@@ -30,7 +30,8 @@
     "test:client": "PORT=0 bun test test/client/",
     "test:integration": "PORT=0 bun test test/integration/",
     "test:e2e": "PORT=0 bun test test/e2e/ --max-concurrency=1 --parallel=1",
-    "test:all": "PORT=0 bun test"
+    "test:all": "PORT=0 bun test test/unit/ test/integration/ test/e2e/ test/client/ --max-concurrency=1 --parallel=1",
+    "test:real-env": "PORT=0 bun test test/real-env/ --max-concurrency=1 --parallel=1"
   },
   "test": {
     "timeout": 10000

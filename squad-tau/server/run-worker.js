@@ -1,8 +1,9 @@
 import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
+import { buildReturnTool } from './lifecycle-tools.js';
 import { buildWorkerPrompt as getWorkerPrompt, buildConfirmPrompt as getConfirmPrompt } from './run-worker-prompt.js';
 import { MAX_EMPTY_TURNS, createCounter } from './empty-turns.js';
 import { buildWorkerSessionOptions } from './session-options.js';
-import { register, unregister, setReturnResolver, clearReturnResolver } from './session-registry.js';
+import { register, unregister } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
 
 function emitEnd(eventBus, sessionId, reason, errorMessage) {
@@ -11,31 +12,8 @@ function emitEnd(eventBus, sessionId, reason, errorMessage) {
     eventBus.emit('session', 'end', { sessionId, reason, errorMessage });
 }
 
-async function setupWorkerSession({ node, ctx, pi, modelSlot, eventBus, state }) {
-    const { SessionManager } = await getCodingAgentModule();
-    const options = buildWorkerSessionOptions(ctx, pi, modelSlot);
-    const sessionOpts = { ...options, sessionManager: SessionManager.create(options.cwd) };
-    const factoryResult = await pi.pi.createAgentSession(sessionOpts);
-    const session = factoryResult.session;
-    const sessionId = session.sessionFile;
-
-    register(sessionId, {
-        sendUserMessage: (text) => session.prompt(text),
-        session,
-        status: 'authoring',
-    });
-
-    setupWorkerReturnResolver(sessionId, state);
-
-    if (eventBus) {
-        state.unsub = emitWorkerSessionStart(eventBus, sessionId, node.id, options, session, state.retryCount);
-    }
-
-    return { session, sessionId };
-}
-
-function setupWorkerReturnResolver(sessionId, state) {
-    setReturnResolver(sessionId, (params) => {
+function buildWorkerReturnTool(state) {
+    return buildReturnTool((params) => {
         if (params.status === 'error') {
             state.redo = true;
             state.redoReason = params.reason || '';
@@ -49,6 +27,28 @@ function setupWorkerReturnResolver(sessionId, state) {
             state.finalResolve({ reason: params.reason, affected_files: params.affected_files || [] });
         }
     });
+}
+
+async function setupWorkerSession({ node, ctx, pi, modelSlot, eventBus, state }) {
+    const { SessionManager } = await getCodingAgentModule();
+    const options = buildWorkerSessionOptions(ctx, pi, modelSlot);
+    const returnTool = buildWorkerReturnTool(state);
+    const sessionOpts = { ...options, customTools: [returnTool], sessionManager: SessionManager.create(options.cwd) };
+    const factoryResult = await pi.pi.createAgentSession(sessionOpts);
+    const session = factoryResult.session;
+    const sessionId = session.sessionFile;
+
+    register(sessionId, {
+        sendUserMessage: (text) => session.prompt(text),
+        session,
+        status: 'authoring',
+    });
+
+    if (eventBus) {
+        state.unsub = emitWorkerSessionStart(eventBus, sessionId, node.id, options, session, state.retryCount);
+    }
+
+    return { session, sessionId };
 }
 
 function emitWorkerSessionStart(eventBus, sessionId, nodeId, options, session, retryCount) {
@@ -69,7 +69,7 @@ async function runSessionLoop(session, state, targetPhase, emptyErrorMsg, childA
             state.redo = false;
             if (targetPhase === 1) state.phase = 0;
             await session.prompt(`${state.redoReason}\nContinue working and call return when ready.`);
-            if (targetPhase === 1) return; // Exit loop if we reverted to phase 0
+            if (targetPhase === 1) return;
             continue;
         }
         if (childAbort.signal.aborted) break;
@@ -159,7 +159,6 @@ async function runWorker(args) {
         session?.abort?.();
         state.unsub?.();
         if (sessionId) {
-            clearReturnResolver(sessionId);
             unregister(sessionId);
         }
     }

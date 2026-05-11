@@ -1,4 +1,6 @@
-export function createOnCompleteHandler({ ctx, fsm, eventBus }) {
+import { getCurrentRun } from './plugin-state.js';
+
+export function createOnCompleteHandler({ pi, fsm, eventBus }) {
     return ({ results, mode, nodes, durationMs }) => {
         const nodeResults = results.map((r) => ({
             id: r.id || r.nodeId,
@@ -12,6 +14,19 @@ export function createOnCompleteHandler({ ctx, fsm, eventBus }) {
         }
 
         fsm.deactivate();
-        ctx.sendMessage(`Squad completed successfully in ${(durationMs / 1000).toFixed(1)}s`);
+        pi.sendMessage(`Squad completed successfully in ${(durationMs / 1000).toFixed(1)}s`);
+
+        const run = getCurrentRun();
+        if (run?.ctx?.cwd) {
+            try {
+                const markerPath = `${run.ctx.cwd}/.squad-complete`;
+                const marker = JSON.stringify(
+                    { completedAt: Date.now(), durationMs, nodes: nodeResults.length },
+                    null,
+                    2,
+                );
+                require('fs').writeFileSync(markerPath, marker, 'utf8');
+            } catch {}
+        }
     };
 }
