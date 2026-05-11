@@ -43,19 +43,19 @@ waiting_deps → pending → authoring → confirming → reviewing → approved
 
 ## 组件架构
 
-### 服务端 (37 文件)
+### 服务端 (35 文件)
 
 | 模块 | 文件 | 职责 |
 |------|------|------|
 | 状态机 | `state-machine.js` | 纯函数节点状态转换 |
 | 事件总线 | `event-bus.js` | 命名空间+通配符事件 |
 | DAG 引擎 | `dag-*.js` (4) | 验证/排序/执行/并发 |
-| 节点执行 | `run-*.js` (7) | Worker/Confirm/Reviewer |
+| 节点执行 | `run-*.js` (5) | Worker/Confirm/Reviewer |
 | 模型池 | `model-pool*.js` (3) | 配置/队列/事件 |
 | 网络 | `ws-*.js` (4) | WS 服务器/路由/心跳/广播 |
 | 引擎 | `squad-engine.js` | 命令注册/FSM |
 
-### 前端 (30 文件)
+### 前端 (32 文件)
 
 | 模块 | 组件 | 职责 |
 |------|------|------|
@@ -70,7 +70,7 @@ waiting_deps → pending → authoring → confirming → reviewing → approved
 
 ### 模型池
 
-- 配置文件：`~/.omp/squad/models.json`
+- 配置文件：`{cwd}/.omp/models.toml`
 - Worker/Reviewer 独立队列
 - 池空时回落到当前会话模型
 - 使用中槽位删除 → `pending_delete` 标记

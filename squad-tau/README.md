@@ -41,7 +41,7 @@ User → /squad command → Squad Engine → DAG Executor → Worker/Reviewer Ag
 squad-tau/
 ├── index.js              # 插件入口
 ├── shim.mjs              # Shim 导出
-├── server/               # 服务端 (37 个 JS)
+├── server/               # 服务端 (38+ 个 JS)
 │   ├── squad-engine.js   # 命令注册与 FSM 编排
 │   ├── dag-*.js          # DAG 验证/排序/执行/并发
 │   ├── run-*.js          # Worker/Confirm/Reviewer 执行器
@@ -52,15 +52,15 @@ squad-tau/
 │   ├── components/       # 14 个 React 组件
 │   ├── hooks/            # 6 个自定义 Hook
 │   └── session-reducer.js# 纯函数状态管理
-└── test/                 # 266 个测试用例
+└── test/                 # 340+ 个测试用例
 ```
 
 ## 测试
 
 ```bash
-bun test test/unit/          # 单元测试 (253 用例)
-bun test test/integration/   # 集成测试 (13 用例)
-bun test                     # 全部测试 (266 用例)
+bun test test/unit/          # 单元测试 (300+ 用例)
+bun test test/integration/   # 集成测试 (22+ 用例)
+bun test                     # 全部测试 (340+ 用例)
 ```
 
 ## 依赖
