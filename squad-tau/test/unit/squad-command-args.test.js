@@ -16,26 +16,27 @@ describe('squad command args handling', () => {
         squadPlugin(pi);
     });
 
-    it('should not throw when ctx.args is undefined', async () => {
+    it('should handle empty args without crashing', async () => {
         const squadCmd = pi._commandRegistry.find((c) => c.name === 'squad');
-        const ctx = {
-            args: undefined,
-            sendMessage: vi.fn(),
-        };
+        const args = [];
+        const ctx = { model: 'test-model', cwd: '.' };
 
-        await squadCmd.opts.handler(ctx);
+        const sendMessageSpy = vi.spyOn(pi, 'sendMessage');
 
-        expect(ctx.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Usage: /squad'));
+        await squadCmd.opts.handler(args, ctx);
+
+        expect(sendMessageSpy).toHaveBeenCalledWith(expect.stringContaining('Usage: /squad'));
     });
 
-    it('should not throw when ctx.args is an empty array', async () => {
+    it('should handle undefined args without crashing', async () => {
         const squadCmd = pi._commandRegistry.find((c) => c.name === 'squad');
-        const ctx = {
-            args: [],
-            sendMessage: vi.fn(),
-        };
+        const args = undefined;
+        const ctx = { model: 'test-model', cwd: '.' };
 
-        await squadCmd.opts.handler(ctx);
-        expect(ctx.sendMessage).toHaveBeenCalledWith(expect.stringContaining('Usage: /squad'));
+        const sendMessageSpy = vi.spyOn(pi, 'sendMessage');
+
+        await squadCmd.opts.handler(args, ctx);
+
+        expect(sendMessageSpy).toHaveBeenCalledWith(expect.stringContaining('Usage: /squad'));
     });
 });

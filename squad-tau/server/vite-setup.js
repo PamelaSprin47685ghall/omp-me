@@ -24,6 +24,7 @@ export async function createViteDevServer() {
         server: {
             middlewareMode: true,
             hmr: false,
+            ws: false,
         },
         esbuild: {
             jsxFactory: 'React.createElement',

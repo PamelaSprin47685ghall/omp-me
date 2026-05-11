@@ -44,9 +44,9 @@ function registerDelegateTool(pi) {
 function registerSquadCommand(pi, serverPromise) {
     pi.registerCommand('squad', {
         description: 'Start a squad task with multi-agent orchestration',
-        async handler(ctx) {
-            const task = (ctx.args || []).join(' ').trim();
-            if (!task) return ctx.sendMessage('Usage: /squad <task description>');
+        async handler(args, ctx) {
+            const task = (args || []).join(' ').trim();
+            if (!task) return pi.sendMessage('Usage: /squad <task description>');
 
             await serverPromise;
             const port = getServerPort();
@@ -58,7 +58,7 @@ function registerSquadCommand(pi, serverPromise) {
             const { signal } = abortController;
             const startTime = Date.now();
 
-            ctx.sendMessage(`Squad UI: http://127.0.0.1:${port}`);
+            pi.sendMessage(`Squad UI: http://127.0.0.1:${port}`);
 
             const onComplete = createOnCompleteHandler({ ctx, fsm, eventBus });
 
@@ -192,9 +192,9 @@ ${task}`;
 }
 
 function handleSquadError(ctx, err) {
-    if (err.name === 'AbortError') ctx.sendMessage('Squad aborted by user');
+    if (err.name === 'AbortError') getCodingAgentModule().then((m) => m.pi.sendMessage('Squad aborted by user'));
     else {
-        ctx.sendMessage(`Squad error: ${err.message}`);
+        getCodingAgentModule().then((m) => m.pi.sendMessage(`Squad error: ${err.message}`));
         throw err;
     }
 }
@@ -209,15 +209,15 @@ function cleanupSquadSession(unsub, sessionId, fsm) {
 function registerSquadModelsCommand(pi) {
     pi.registerCommand('squad-models', {
         description: 'Generate initial model pool configuration',
-        async handler(ctx) {
+        async handler(args, ctx) {
             const configPath = path.join(ctx.cwd, '.omp', 'models.toml');
             const configDir = path.dirname(configPath);
             if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
-            if (fs.existsSync(configPath)) return ctx.sendMessage(`Config already exists at ${configPath}`);
+            if (fs.existsSync(configPath)) return pi.sendMessage(`Config already exists at ${configPath}`);
 
             const defaultConfig = `[[slot]]\nprovider = "anthropic"\nmodel_id = "claude-3-5-sonnet-20241022"\nrole = "worker"\n\n[[slot]]\nprovider = "anthropic"\nmodel_id = "claude-3-5-sonnet-20241022"\nrole = "reviewer"\n`;
             fs.writeFileSync(configPath, defaultConfig, 'utf8');
-            ctx.sendMessage(`Created default model pool config at ${configPath}`);
+            pi.sendMessage(`Created default model pool config at ${configPath}`);
         },
     });
 }
