@@ -23,6 +23,7 @@ export async function createViteDevServer() {
         root: join(__dirname, '../client'),
         server: {
             middlewareMode: true,
+            hmr: false,
         },
         esbuild: {
             jsxFactory: 'React.createElement',

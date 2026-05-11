@@ -45,7 +45,7 @@ function registerSquadCommand(pi, serverPromise) {
     pi.registerCommand('squad', {
         description: 'Start a squad task with multi-agent orchestration',
         async handler(ctx) {
-            const task = ctx.args.join(' ').trim();
+            const task = (ctx.args || []).join(' ').trim();
             if (!task) return ctx.sendMessage('Usage: /squad <task description>');
 
             await serverPromise;

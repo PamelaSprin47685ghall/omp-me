@@ -1,7 +1,7 @@
 import { createServer } from 'http';
 import { DEFAULTS } from './constants.js';
 
-export async function createHttpServer({ viteMiddlewares }) {
+export async function createHttpServer({ viteMiddlewares, port: preferredPort }) {
     const app = createBasicApp();
 
     app.get('/api/status', (req, res) => {
@@ -20,7 +20,7 @@ export async function createHttpServer({ viteMiddlewares }) {
     }
 
     const server = createServer(app);
-    const port = await allocatePort(server);
+    const port = await allocatePort(server, preferredPort);
     app.port = port;
 
     return {
@@ -88,16 +88,15 @@ function tryListen(server, port) {
     });
 }
 
-async function allocatePort(server) {
-    const preferredPort = DEFAULTS.PORT;
+async function allocatePort(server, preferredPort) {
+    const portToTry = preferredPort !== undefined ? preferredPort : DEFAULTS.PORT;
     try {
-        await tryListen(server, preferredPort);
-        return preferredPort;
+        await tryListen(server, portToTry);
+        return server.address().port;
     } catch (err) {
-        if (err.code !== 'EADDRINUSE') throw err;
+        if (err.code !== 'EADDRINUSE' || preferredPort !== undefined) throw err;
         // Preferred port busy — let OS assign any available port
         await tryListen(server, 0);
-        const addr = server.address();
-        return addr.port;
+        return server.address().port;
     }
 }

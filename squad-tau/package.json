@@ -26,11 +26,11 @@
     "dev": "vite client",
     "build": "vite build client",
     "preview": "vite preview client",
-    "test": "bun test test/unit/",
-    "test:client": "bun test test/client/",
-    "test:integration": "bun test test/integration/",
-    "test:e2e": "bun test test/e2e/ --max-concurrency=1 --parallel=1",
-    "test:all": "bun test"
+    "test": "PORT=0 bun test test/unit/",
+    "test:client": "PORT=0 bun test test/client/",
+    "test:integration": "PORT=0 bun test test/integration/",
+    "test:e2e": "PORT=0 bun test test/e2e/ --max-concurrency=1 --parallel=1",
+    "test:all": "PORT=0 bun test"
   },
   "test": {
     "timeout": 10000
