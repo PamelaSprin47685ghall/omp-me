@@ -4,7 +4,17 @@
  * @see PRD/07-architecture.md §7.2.1
  */
 
-import { WebSocket } from 'ws';
+import { requireScoped } from '@oh-my-pi/resolve-pi';
+
+let WsClass;
+
+function getWs() {
+    if (!WsClass) {
+        const require = requireScoped(import.meta.url);
+        WsClass = require('ws').WebSocket;
+    }
+    return WsClass;
+}
 
 const PING_INTERVAL = 30000;
 const PONG_TIMEOUT = 60000;
@@ -16,6 +26,8 @@ const PONG_TIMEOUT = 60000;
  * @returns {() => void} Cleanup function to clear interval
  */
 export function startHeartbeat(clients) {
+    const WebSocket = getWs();
+
     const interval = setInterval(() => {
         const now = Date.now();
         for (const ws of clients) {

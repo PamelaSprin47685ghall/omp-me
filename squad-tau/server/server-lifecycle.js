@@ -4,7 +4,7 @@ import { createWsServer } from './ws-server.js';
 import { startHeartbeat } from './ws-heartbeat.js';
 import { bridgeEventsToWebSocket } from './ws-events.js';
 import { routeMessage } from './ws-handler.js';
-import { createViteDevServer } from './vite-setup.js';
+import { createViteDevServer, closeViteServer } from './vite-setup.js';
 import { ModelPool } from './model-pool.js';
 import {
     loadModelsConfig,
@@ -69,6 +69,7 @@ export async function startServer() {
 }
 
 export async function stopServer() {
+    await closeViteServer();
     if (heartbeatCleanup) {
         heartbeatCleanup();
         heartbeatCleanup = null;

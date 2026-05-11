@@ -1,9 +1,19 @@
-import { WebSocketServer, WebSocket } from 'ws';
+import { requireScoped } from '@oh-my-pi/resolve-pi';
+
+let WebSocketServer;
+
+function getWs() {
+    if (!WebSocketServer) {
+        const require = requireScoped(import.meta.url);
+        WebSocketServer = require('ws').WebSocketServer;
+    }
+    return WebSocketServer;
+}
 
 let nextConnId = 1;
 
 export function createWsServer(httpServer, { onConnection, onMessage } = {}) {
-    const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
+    const wss = new (getWs())({ server: httpServer, path: '/ws' });
 
     wss.on('connection', (ws) => {
         ws._connId = nextConnId++;

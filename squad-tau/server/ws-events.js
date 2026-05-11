@@ -4,7 +4,17 @@
  * @see PRD/07-architecture.md §7.2.2
  */
 
-import { WebSocket } from 'ws';
+import { requireScoped } from '@oh-my-pi/resolve-pi';
+
+let WsClass;
+
+function getWs() {
+    if (!WsClass) {
+        const require = requireScoped(import.meta.url);
+        WsClass = require('ws').WebSocket;
+    }
+    return WsClass;
+}
 
 /**
  * Subscribes to all eventBus events and broadcasts to WebSocket clients.
@@ -12,6 +22,8 @@ import { WebSocket } from 'ws';
  * @param {Set<import('ws').WebSocket>} clients - Set of connected WebSocket clients
  */
 export function bridgeEventsToWebSocket(eventBus, clients) {
+    const WebSocket = getWs();
+
     eventBus.on('*', (payload, type) => {
         const message = JSON.stringify({
             type,

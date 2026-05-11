@@ -29,7 +29,6 @@
     "@mariozechner/pi-coding-agent": "file:shim-packages/pi-coding-agent",
     "@mariozechner/pi-tui": "file:shim-packages/pi-tui",
     "@oh-my-pi/resolve-pi": "file:shim-packages/pi-resolve",
-    "@oh-my-pi/shim": "file:shim-packages/pi-shim",
     "@sinclair/typebox": "^0.34.49",
     "tau-mirror": "^1.0.7",
     "typebox": "file:shim-packages/typebox"

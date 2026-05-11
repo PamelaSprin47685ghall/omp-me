@@ -7,14 +7,23 @@ import { startServer, getGlobalEventBus, stopServer } from '../../server/server-
 import { setupBrowser, teardownBrowser } from './puppeteer-setup.js';
 
 let started = false;
+let cleanupRegistered = false;
+
+async function cleanup() {
+    try {
+        await stopServer();
+    } catch {}
+}
 
 export async function setupChaos() {
     process.env.SQUAD_E2E = '1';
     const r = await startServer();
     if (!started) {
         started = true;
-        process.on('beforeExit', async () => {
-            await stopServer();
+        // Use beforeExit + exit to catch both clean and forced exits
+        process.on('beforeExit', cleanup);
+        process.on('exit', () => {
+            stopServer().catch(() => {});
         });
     }
     const { browser, page } = await setupBrowser();
@@ -29,5 +38,14 @@ export async function setupChaos() {
 }
 
 export async function teardownChaos(browser) {
-    if (browser) await teardownBrowser(browser);
+    // Close all pages first, then the browser
+    if (browser) {
+        const pages = await browser.pages();
+        for (const p of pages) {
+            try {
+                await p.close();
+            } catch {}
+        }
+        await teardownBrowser(browser);
+    }
 }

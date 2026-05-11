@@ -40,7 +40,6 @@ User → /squad command → Squad Engine → DAG Executor → Worker/Reviewer Ag
 ```
 squad-tau/
 ├── index.js              # 插件入口
-├── shim.mjs              # Shim 导出
 ├── server/               # 服务端 (38+ 个 JS)
 │   ├── squad-engine.js   # 命令注册与 FSM 编排
 │   ├── dag-*.js          # DAG 验证/排序/执行/并发
