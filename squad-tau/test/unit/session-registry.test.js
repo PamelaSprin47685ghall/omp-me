@@ -1,6 +1,14 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { register, unregister, get, isActive } from '../../server/session-registry.js';
+import {
+    register,
+    unregister,
+    get,
+    isActive,
+    setReturnResolver,
+    getReturnResolver,
+    clearReturnResolver,
+} from '../../server/session-registry.js';
 
 describe('session-registry', () => {
     const entry = (status) => ({ status, sendUserMessage: () => {} });
@@ -11,6 +19,21 @@ describe('session-registry', () => {
         assert.strictEqual(get('t1'), e);
         unregister('t1');
         assert.strictEqual(get('t1'), undefined);
+    });
+
+    it('return resolver management', () => {
+        const e = entry('active');
+        register('r1', e);
+        const resolver = () => {};
+        setReturnResolver('r1', resolver);
+        assert.strictEqual(getReturnResolver('r1'), resolver);
+        clearReturnResolver('r1');
+        assert.strictEqual(getReturnResolver('r1'), undefined);
+        unregister('r1');
+    });
+
+    it('setReturnResolver throws if session missing', () => {
+        assert.throws(() => setReturnResolver('missing', () => {}), /not found/);
     });
 
     it('unregister unknown id does not throw', () => {

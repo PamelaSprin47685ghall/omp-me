@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test';
-import buildConfirmPrompt from '../../server/run-confirm-prompt.js';
+import { buildConfirmPrompt } from '../../server/run-worker-prompt.js';
 import path from 'path';
 import fs from 'fs/promises';
 import os from 'os';

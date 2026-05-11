@@ -1,8 +1,7 @@
 import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
 import { OUTER_REVIEW_MAX_EMPTY, createCounter } from './empty-turns.js';
-import { buildReturnTool } from './lifecycle-tools.js';
 import { buildBaseSessionOptions } from './session-options.js';
-import { register, unregister } from './session-registry.js';
+import { register, unregister, setReturnResolver, clearReturnResolver } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
 
 function buildOuterReviewPrompt(originalTask, nodeResults, round) {
@@ -57,11 +56,6 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
     const childAbort = new AbortController();
     let settled = false;
 
-    const reviewerTools = buildReturnTool((params) => {
-        settled = true;
-        outcomeResolve({ approved: params.status === 'ok', reason: params.reason });
-    });
-
     if (signal) {
         signal.addEventListener(
             'abort',
@@ -79,7 +73,6 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
     try {
         const sessionOpts = {
             ...options,
-            customTools: reviewerTools,
             sessionManager: SessionManager.create(options.cwd),
         };
 
@@ -91,6 +84,11 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
             sendUserMessage: (text) => session.prompt(text),
             session,
             status: 'outer_review',
+        });
+
+        setReturnResolver(sessionId, (params) => {
+            settled = true;
+            outcomeResolve({ approved: params.status === 'ok', reason: params.reason });
         });
 
         if (eventBus) {
@@ -167,6 +165,7 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
         session?.abort?.();
         unsub?.();
         if (sessionId) {
+            clearReturnResolver(sessionId);
             unregister(sessionId);
         }
     }

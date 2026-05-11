@@ -27,4 +27,21 @@ function isActive(sessionId) {
     return !inactive.includes(entry.status);
 }
 
-export { register, unregister, get, isActive };
+function setReturnResolver(sessionId, resolve) {
+    const entry = registry.get(sessionId);
+    if (!entry) throw new Error(`Session ${sessionId} not found`);
+    entry.returnResolver = resolve;
+}
+
+function getReturnResolver(sessionId) {
+    return registry.get(sessionId)?.returnResolver;
+}
+
+function clearReturnResolver(sessionId) {
+    const entry = registry.get(sessionId);
+    if (entry) {
+        delete entry.returnResolver;
+    }
+}
+
+export { register, unregister, get, isActive, setReturnResolver, getReturnResolver, clearReturnResolver };

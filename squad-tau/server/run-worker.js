@@ -1,9 +1,8 @@
 import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
-import { buildWorkerPrompt } from './run-worker-prompt.js';
+import { buildWorkerPrompt, buildConfirmPrompt } from './run-worker-prompt.js';
 import { MAX_EMPTY_TURNS, createCounter } from './empty-turns.js';
-import { buildReturnTool } from './lifecycle-tools.js';
 import { buildWorkerSessionOptions } from './session-options.js';
-import { register, unregister } from './session-registry.js';
+import { register, unregister, setReturnResolver, clearReturnResolver } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
 
 function emitEnd(eventBus, sessionId, reason, errorMessage) {
@@ -29,20 +28,6 @@ async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, sig
     let phase = 0;
     let redo = false;
     let redoReason = '';
-    const returnTool = buildReturnTool((params) => {
-        if (params.status === 'error') {
-            redo = true;
-            redoReason = params.reason || '';
-            return;
-        }
-
-        if (phase === 0) {
-            phase = 1;
-            firstResolve({ reason: params.reason, affected_files: params.affected_files || [] });
-        } else {
-            finalResolve({ reason: params.reason, affected_files: params.affected_files || [] });
-        }
-    });
 
     const childAbort = new AbortController();
     if (signal) {
@@ -56,7 +41,6 @@ async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, sig
     try {
         const sessionOpts = {
             ...options,
-            customTools: [returnTool],
             sessionManager: SessionManager.create(options.cwd),
         };
 
@@ -68,6 +52,21 @@ async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, sig
             sendUserMessage: (text) => session.prompt(text),
             session,
             status: 'authoring',
+        });
+
+        setReturnResolver(sessionId, (params) => {
+            if (params.status === 'error') {
+                redo = true;
+                redoReason = params.reason || '';
+                return;
+            }
+
+            if (phase === 0) {
+                phase = 1;
+                firstResolve({ reason: params.reason, affected_files: params.affected_files || [] });
+            } else {
+                finalResolve({ reason: params.reason, affected_files: params.affected_files || [] });
+            }
         });
 
         if (eventBus) {
@@ -116,7 +115,6 @@ async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, sig
             eventBus.emit('session', 'state', { sessionId, phase: 'confirming' });
         }
 
-        const { buildConfirmPrompt } = await import('./run-confirm-prompt.js');
         await session.prompt(buildConfirmPrompt(node));
 
         const confirmCounter = createCounter(MAX_EMPTY_TURNS);
@@ -169,7 +167,10 @@ async function runWorker({ node, upstreamResults, reviewerFeedback, ctx, pi, sig
         childAbort.abort();
         session?.abort?.();
         unsub?.();
-        if (sessionId) unregister(sessionId);
+        if (sessionId) {
+            clearReturnResolver(sessionId);
+            unregister(sessionId);
+        }
     }
 }
 

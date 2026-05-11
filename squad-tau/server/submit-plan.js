@@ -69,7 +69,6 @@ async function runOuterReviewLoop({ nodeResults, originalTask, ctx, pi, signal, 
             return { done: true, payload: { success: false, message: 'Outer review was aborted.' } };
         }
         if (result.approved) return { done: false };
-        fsm.revise();
         const feedback = result.reason || 'Revise and resubmit.';
         eventBus?.emit('squad', 'outer_review_result', { round: outerRound, verdict: 'rejected', feedback });
         return {
@@ -148,8 +147,8 @@ function createDelegateHandler({
         },
         handler: async ({ plan_dir }) => {
             const currentState = fsm.getState();
-            if (currentState !== 'active' && currentState !== 'revising') {
-                throw new Error(`Cannot delegate in state: ${currentState}. Must be active or revising.`);
+            if (currentState !== 'active') {
+                throw new Error(`Cannot delegate in state: ${currentState}. Must be active.`);
             }
             const { nodes, mode } = readNodesFromDir(plan_dir);
             validatePlan({ mode, nodes });

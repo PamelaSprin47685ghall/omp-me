@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import buildConfirmPrompt from '../../server/run-confirm-prompt.js';
+import { buildConfirmPrompt } from '../../server/run-worker-prompt.js';
 
 test('buildConfirmPrompt uses original task not worker summary', () => {
     const originalTask = 'Implement user authentication with JWT tokens';

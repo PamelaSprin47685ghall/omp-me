@@ -29,9 +29,9 @@ describe('Vite middleware integration', () => {
         assert.ok(src.includes('middleware(req, res, next)'), 'http-server calls middleware as function');
     });
 
-    it('squad-engine passes createViteDevServer result directly to http-server', async () => {
+    it('server-lifecycle passes createViteDevServer result directly to http-server', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/squad-engine.js', 'utf8');
+        const src = fs.readFileSync('server/server-lifecycle.js', 'utf8');
         // Verify the handoff: createViteDevServer() result → createHttpServer
         const match = src.match(/createViteDevServer\(\).*createHttpServer/s);
         if (!match) {

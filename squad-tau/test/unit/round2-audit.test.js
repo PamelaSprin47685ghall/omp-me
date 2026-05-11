@@ -9,7 +9,7 @@ import assert from 'node:assert/strict';
 describe('model-pool-config watchConfig incremental update', () => {
     it('watchConfig handler delegates to syncModelPoolFromConfig', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync('server/squad-engine.js', 'utf8');
+        const src = fs.readFileSync('server/server-lifecycle.js', 'utf8');
 
         // Find the watchConfig callback section
         const watchIdx = src.indexOf('watchConfig(() =>');

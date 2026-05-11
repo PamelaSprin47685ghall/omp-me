@@ -1,9 +1,8 @@
 import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
 import { buildReviewerPrompt } from './run-reviewer-prompt.js';
 import { REVIEWER_MAX_EMPTY, createCounter } from './empty-turns.js';
-import { buildReturnTool } from './lifecycle-tools.js';
 import { buildBaseSessionOptions } from './session-options.js';
-import { register, unregister } from './session-registry.js';
+import { register, unregister, setReturnResolver, clearReturnResolver } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
 
 function emitSessionEnd(eventBus, sessionId, phase, reason, errorMessage) {
@@ -30,11 +29,6 @@ async function runReviewer({ node, workerResult, ctx, pi, signal, eventBus, mode
     const childAbort = new AbortController();
     let settled = false;
 
-    const reviewerTools = buildReturnTool((params) => {
-        settled = true;
-        outcomeResolve({ approved: params.status === 'ok', reason: params.reason });
-    });
-
     if (signal) {
         signal.addEventListener(
             'abort',
@@ -52,7 +46,6 @@ async function runReviewer({ node, workerResult, ctx, pi, signal, eventBus, mode
     try {
         const sessionOpts = {
             ...options,
-            customTools: reviewerTools,
             sessionManager: SessionManager.create(options.cwd),
         };
 
@@ -64,6 +57,11 @@ async function runReviewer({ node, workerResult, ctx, pi, signal, eventBus, mode
             sendUserMessage: (text) => session.prompt(text),
             session,
             status: 'reviewing',
+        });
+
+        setReturnResolver(sessionId, (params) => {
+            settled = true;
+            outcomeResolve({ approved: params.status === 'ok', reason: params.reason });
         });
 
         if (eventBus) {
@@ -128,6 +126,7 @@ async function runReviewer({ node, workerResult, ctx, pi, signal, eventBus, mode
         session?.abort?.();
         unsub?.();
         if (sessionId) {
+            clearReturnResolver(sessionId);
             unregister(sessionId);
         }
     }

@@ -2,7 +2,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 
 let nextConnId = 1;
 
-export function createWsServer(httpServer) {
+export function createWsServer(httpServer, { onConnection, onMessage } = {}) {
     const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
     wss.on('connection', (ws) => {
@@ -15,6 +15,22 @@ export function createWsServer(httpServer) {
                 timestamp: Date.now(),
             }),
         );
+
+        onConnection?.(ws);
+
+        ws.on('message', async (data) => {
+            try {
+                const msg = JSON.parse(data);
+                await onMessage?.(msg, ws);
+            } catch (err) {
+                ws.send(
+                    JSON.stringify({
+                        type: 'error',
+                        payload: { message: err.message },
+                    }),
+                );
+            }
+        });
     });
 
     return { wss };

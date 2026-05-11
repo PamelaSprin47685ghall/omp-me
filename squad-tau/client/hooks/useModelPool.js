@@ -1,6 +1,6 @@
 import { useReducer, useCallback, useRef } from 'react';
 
-const INITIAL_STATE = {
+export const INITIAL_STATE = {
     slots: [],
     isOpen: false,
 };
