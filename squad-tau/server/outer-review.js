@@ -51,7 +51,15 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
     const childAbort = new AbortController();
     let settled = false;
 
-    if (signal) signal.addEventListener('abort', () => childAbort.abort(), { once: true });
+    if (signal)
+        signal.addEventListener(
+            'abort',
+            () => {
+                childAbort.abort();
+                session?.abort?.();
+            },
+            { once: true },
+        );
 
     let session = null,
         unsub = null,
@@ -144,10 +152,7 @@ async function runOuterReviewSessionLoop(session, childAbort, isSettled) {
     const emptyCounter = createCounter(OUTER_REVIEW_MAX_EMPTY);
     while (!isSettled()) {
         if (childAbort.signal.aborted) break;
-        while (session.isStreaming) {
-            await new Promise((r) => setTimeout(r, 200));
-            if (isSettled() || childAbort.signal.aborted) break;
-        }
+        await session.waitForIdle();
         if (isSettled() || childAbort.signal.aborted) break;
 
         emptyCounter.increment();

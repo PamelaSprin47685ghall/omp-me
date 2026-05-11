@@ -28,15 +28,38 @@ export function stubPi() {
 
             const session = {
                 sessionFile,
+                _pendingCb: null,
+                _pendingText: null,
+                isStreaming: false,
+                async waitForIdle() {
+                    // Execute the deferred prompt callback now.
+                    // Models production: session.prompt() starts LLM streaming and returns
+                    // immediately; the caller then await waitForIdle() for completion.
+                    if (session._pendingCb) {
+                        const cb = session._pendingCb;
+                        const text = session._pendingText;
+                        session._pendingCb = null;
+                        session._pendingText = null;
+                        await cb(text, session);
+                    }
+                },
+                abort() {
+                    // Drop any pending callback
+                    session._pendingCb = null;
+                    session._pendingText = null;
+                },
                 async prompt(text) {
                     messages.push({ role: 'user', content: text });
                     for (const sub of subscribers) {
                         sub({ type: 'message', message: { role: 'user', content: text } });
                     }
-                    // Try to find the callback from session or global
+                    // Store callback for deferred execution by waitForIdle().
+                    // In production, prompt() initiates streaming and returns immediately;
+                    // isStreaming is true until the LLM finishes.
                     const cb = session._localOnPrompt || piApi._globalOnPrompt;
                     if (cb) {
-                        await cb(text, session);
+                        session._pendingCb = cb;
+                        session._pendingText = text;
                     }
                     return { success: true };
                 },

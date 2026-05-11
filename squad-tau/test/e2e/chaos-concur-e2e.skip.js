@@ -68,19 +68,18 @@ describe('Chaos: Browser concurrency path', () => {
      */
     test('multiple tabs — both show same node ID', async () => {
         const tab1 = await browser.newPage();
-        const tab2 = await browser.newPage();
         await tab1.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
+        const tab2 = await browser.newPage();
         await tab2.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
         await Promise.all([
             tab1.waitForSelector('#root', { timeout: 3000 }),
             tab2.waitForSelector('#root', { timeout: 3000 }),
         ]);
 
-        // Wait for WS connection on both tabs
-        const portStr = String(baseUrl).replace('http://127.0.0.1:', '');
+        // Confirm WS connected on both tabs before emitting
         await Promise.all([
-            tab1.waitForFunction((p) => document.body.innerText.includes(p), { timeout: 5000 }, portStr),
-            tab2.waitForFunction((p) => document.body.innerText.includes(p), { timeout: 5000 }, portStr),
+            tab1.waitForFunction(() => window.__wsConnected, { timeout: 8000 }),
+            tab2.waitForFunction(() => window.__wsConnected, { timeout: 8000 }),
         ]);
 
         eb.emit('squad', 'init', {
@@ -89,17 +88,25 @@ describe('Chaos: Browser concurrency path', () => {
             originalTask: 'multi tab',
         });
 
-        // Both tabs must show the same node ID
-        await Promise.all([
-            tab1.waitForFunction(() => document.body.innerText.includes('MultiTabN'), { timeout: 8000 }),
-            tab2.waitForFunction(() => document.body.innerText.includes('MultiTabN'), { timeout: 8000 }),
-        ]);
+        // Wait for text content on both tabs via MutationObserver (event-driven, no polling)
+        const waitForText = (tab, text) =>
+            Promise.race([
+                tab.evaluate((searchText) => {
+                    if (document.body.textContent.includes(searchText)) return Promise.resolve(true);
+                    return new Promise((resolve) => {
+                        const observer = new MutationObserver(() => {
+                            if (document.body.textContent.includes(searchText)) {
+                                observer.disconnect();
+                                resolve(true);
+                            }
+                        });
+                        observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+                    });
+                }, text),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout waiting for ' + text)), 8000)),
+            ]);
 
-        // Verify exact content equality
-        const text1 = await tab1.evaluate(() => document.body.innerText);
-        const text2 = await tab2.evaluate(() => document.body.innerText);
-        expect(text1.includes('MultiTabN')).toBe(true);
-        expect(text2.includes('MultiTabN')).toBe(true);
+        await Promise.all([waitForText(tab1, 'MultiTabN'), waitForText(tab2, 'MultiTabN')]);
 
         await tab1.close();
         await tab2.close();

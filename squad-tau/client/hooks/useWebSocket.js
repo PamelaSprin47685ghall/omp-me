@@ -50,6 +50,7 @@ export function useWebSocket({ port, onEvent }) {
 
         ws.onopen = () => {
             setConnected(true);
+            if (typeof window !== 'undefined') window.__wsConnected = true;
             backoffIndexRef.current = 0;
             startPing();
         };
@@ -72,10 +73,12 @@ export function useWebSocket({ port, onEvent }) {
 
         ws.onerror = () => {
             setConnected(false);
+            if (typeof window !== 'undefined') window.__wsConnected = false;
         };
 
         ws.onclose = () => {
             setConnected(false);
+            if (typeof window !== 'undefined') window.__wsConnected = false;
             clearInterval(pingIntervalRef.current);
             pingIntervalRef.current = null;
 

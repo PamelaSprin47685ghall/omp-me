@@ -78,29 +78,26 @@ function setupAppMethods(app, middlewares) {
     };
 }
 
+function tryListen(server, port) {
+    return new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(port, '127.0.0.1', () => {
+            server.removeListener('error', reject);
+            resolve();
+        });
+    });
+}
+
 async function allocatePort(server) {
-    let port = DEFAULTS.PORT;
-    let attempts = 0;
-
-    while (attempts < DEFAULTS.MAX_PORT_ATTEMPTS) {
-        try {
-            await new Promise((resolve, reject) => {
-                server.once('error', reject);
-                server.listen(port, '127.0.0.1', () => {
-                    server.removeListener('error', reject);
-                    resolve();
-                });
-            });
-            return port;
-        } catch (err) {
-            if (err.code === 'EADDRINUSE') {
-                port++;
-                attempts++;
-            } else {
-                throw err;
-            }
-        }
+    const preferredPort = DEFAULTS.PORT;
+    try {
+        await tryListen(server, preferredPort);
+        return preferredPort;
+    } catch (err) {
+        if (err.code !== 'EADDRINUSE') throw err;
+        // Preferred port busy — let OS assign any available port
+        await tryListen(server, 0);
+        const addr = server.address();
+        return addr.port;
     }
-
-    throw new Error(`Failed to allocate port after ${DEFAULTS.MAX_PORT_ATTEMPTS} attempts`);
 }

@@ -73,10 +73,7 @@ async function runSessionLoop(session, state, targetPhase, emptyErrorMsg, childA
             continue;
         }
         if (childAbort.signal.aborted) break;
-        while (session.isStreaming) {
-            await new Promise((r) => setTimeout(r, 200));
-            if (state.phase !== targetPhase || childAbort.signal.aborted) break;
-        }
+        await session.waitForIdle();
         if (state.phase !== targetPhase || childAbort.signal.aborted) break;
         emptyCounter.increment();
         if (emptyCounter.exceeded()) throw new Error(emptyErrorMsg);
@@ -119,7 +116,15 @@ async function runWorker(args) {
     Object.assign(state, { firstPromise, finalPromise, firstResolve, finalResolve });
 
     const childAbort = new AbortController();
-    if (signal) signal.addEventListener('abort', () => childAbort.abort(), { once: true });
+    if (signal)
+        signal.addEventListener(
+            'abort',
+            () => {
+                childAbort.abort();
+                session?.abort?.();
+            },
+            { once: true },
+        );
 
     let session = null,
         sessionId = null;

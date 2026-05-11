@@ -102,6 +102,36 @@ describe('bash command stripping', () => {
         assert.equal(input.command, 'git log');
     });
 
+    it('strips | tail -N short form without -n flag', async () => {
+        const s = stubPi();
+        await blockHeadTailExtension(s.pi);
+
+        const input = { command: 'dmesg | tail -3' };
+        await s.events['tool_call'][0]({ toolName: 'bash', input }, { ui: s.pi.ui });
+
+        assert.equal(input.command, 'dmesg');
+    });
+
+    it('strips | head -N short form without -n flag', async () => {
+        const s = stubPi();
+        await blockHeadTailExtension(s.pi);
+
+        const input = { command: 'cat file | head -5' };
+        await s.events['tool_call'][0]({ toolName: 'bash', input }, { ui: s.pi.ui });
+
+        assert.equal(input.command, 'cat file');
+    });
+
+    it('strips short form with multi-digit number', async () => {
+        const s = stubPi();
+        await blockHeadTailExtension(s.pi);
+
+        const input = { command: 'journalctl -u nginx | tail -100' };
+        await s.events['tool_call'][0]({ toolName: 'bash', input }, { ui: s.pi.ui });
+
+        assert.equal(input.command, 'journalctl -u nginx');
+    });
+
     it('does not modify command without head/tail pipe', async () => {
         const s = stubPi();
         await blockHeadTailExtension(s.pi);
@@ -218,6 +248,30 @@ describe('bash command stripping', () => {
         assert.ok(s.notifies[0].msg.includes('| tail -n 10'), 'notification should show tail pipe');
         assert.ok(s.notifies[0].msg.includes('original: cat big.log | head -n 100 | tail -n 10'));
         assert.ok(s.notifies[0].msg.includes('modified: cat big.log'));
+    });
+
+    it('notifies with correct number for short -N form', async () => {
+        const s = stubPi();
+        await blockHeadTailExtension(s.pi);
+
+        const input = { command: 'dmesg | tail -3' };
+        await s.events['tool_call'][0]({ toolName: 'bash', input }, { ui: s.pi.ui });
+
+        assert.equal(s.notifies.length, 1);
+        assert.ok(s.notifies[0].msg.includes('| tail -n 3'), 'notification should show 3 lines');
+        assert.ok(s.notifies[0].msg.includes('original: dmesg | tail -3'));
+        assert.ok(s.notifies[0].msg.includes('modified: dmesg'));
+    });
+
+    it('notifies for head short form', async () => {
+        const s = stubPi();
+        await blockHeadTailExtension(s.pi);
+
+        const input = { command: 'cat log | head -20' };
+        await s.events['tool_call'][0]({ toolName: 'bash', input }, { ui: s.pi.ui });
+
+        assert.equal(s.notifies.length, 1);
+        assert.ok(s.notifies[0].msg.includes('| head -n 20'), 'notification should show 20 lines');
     });
 
     it('does not notify when no modification occurs', async () => {

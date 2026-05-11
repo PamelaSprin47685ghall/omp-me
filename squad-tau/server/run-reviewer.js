@@ -48,10 +48,7 @@ async function pollReviewerSettled(session, state, childAbort) {
     const emptyCounter = createCounter(REVIEWER_MAX_EMPTY);
     while (!state.settled) {
         if (childAbort.signal.aborted) break;
-        while (session.isStreaming) {
-            await new Promise((r) => setTimeout(r, 200));
-            if (state.settled || childAbort.signal.aborted) break;
-        }
+        await session.waitForIdle();
         if (state.settled || childAbort.signal.aborted) break;
         emptyCounter.increment();
         if (emptyCounter.exceeded()) {
@@ -73,7 +70,15 @@ async function runReviewer(args) {
     state.outcomeResolve = outcomeResolve;
 
     const childAbort = new AbortController();
-    if (signal) signal.addEventListener('abort', () => childAbort.abort(), { once: true });
+    if (signal)
+        signal.addEventListener(
+            'abort',
+            () => {
+                childAbort.abort();
+                session?.abort?.();
+            },
+            { once: true },
+        );
 
     let session = null,
         sessionId = null;

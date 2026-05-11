@@ -13,7 +13,7 @@ Version: `1.0.0`.
 ## Regex contract
 
 ```
-/\s*\|\s*(head|tail)\s+-n\s*\d+\s*/g
+/\s*\|\s*(head|tail)\s+(?:-n\s*|-)\d+\s*/g
 ```
 
 | Component | Matches |
@@ -21,8 +21,9 @@ Version: `1.0.0`.
 | `\s*\|` | Pipe with optional leading whitespace |
 | `\s*` | Whitespace after pipe |
 | `(head\|tail)` | Literal command name (lowercase only) |
-| `\s+-n\s*` | `-n` flag with flexible spacing |
-| `\d+` | One or more digits |
+| `\s+` | Whitespace between command and flag |
+| `(?:-n\s*\|-)?` | Optional `-n` flag (with flexible spacing) or bare `-` |
+| `\d+` | One or more digits (line count) |
 | `\s*` | Trailing whitespace |
 | `g` | Global — removes all occurrences |
 
@@ -40,6 +41,9 @@ Version: `1.0.0`.
 | `head -n 5 file.txt` | No pipe — unchanged |
 | `grep -n pattern file` | `-n` is a flag, not `head\|tail` — unchanged |
 | `cat file \| Head -n 50` | Case-sensitive, `Head` ≠ `head` — unchanged |
+| `cat file \| tail -3` | Short form (no `-n`) — stripped → `cat file` |
+| `dmesg \| tail -20` | Short form with multiple digits — stripped → `dmesg` |
+| `cat file \| head -5` | Short form of head — stripped → `cat file` |
 | Non-string `command` (null, undefined, number) | Silently returns |
 | Non-bash tool call | Skipped |
 

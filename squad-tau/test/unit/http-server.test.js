@@ -1,50 +1,52 @@
-import { test } from 'bun:test';
-import assert from 'node:assert/strict';
+import { test, expect } from 'bun:test';
 import { createServer } from 'http';
 import { createHttpServer } from '../../server/http-server.js';
+import { DEFAULTS } from '../../server/constants.js';
 
-test('server starts on port 9527', async () => {
+test('server starts on default port when available', async () => {
     const { server, port, close } = await createHttpServer({});
 
-    assert.equal(port, 9527);
-    assert.ok(server.listening);
+    expect(port).toBe(DEFAULTS.PORT);
+    expect(server.listening).toBe(true);
 
     await close();
 });
 
-test('GET /api/status returns JSON', async () => {
+test('fallback to OS-assigned port when default is busy', async () => {
+    const blocker = createServer();
+    await new Promise((resolve) => blocker.listen(DEFAULTS.PORT, '127.0.0.1', resolve));
+
+    const { port, close } = await createHttpServer({});
+
+    expect(port).not.toBe(DEFAULTS.PORT);
+    expect(typeof port).toBe('number');
+    expect(port).toBeGreaterThan(0);
+
+    await close();
+    await new Promise((resolve) => blocker.close(resolve));
+});
+
+test('GET /api/status returns JSON with correct port', async () => {
     const { port, close } = await createHttpServer({});
 
     const response = await fetch(`http://127.0.0.1:${port}/api/status`);
     const data = await response.json();
 
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get('content-type'), 'application/json');
-    assert.equal(data.status, 'ok');
-    assert.equal(data.port, port);
-    assert.ok(typeof data.uptime === 'number');
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('application/json');
+    expect(data.status).toBe('ok');
+    expect(data.port).toBe(port);
+    expect(typeof data.uptime).toBe('number');
 
     await close();
-});
-
-test('port increment on conflict', async () => {
-    const blocker = createServer();
-    await new Promise((resolve) => blocker.listen(9527, '127.0.0.1', resolve));
-
-    const { port, close } = await createHttpServer({});
-
-    assert.equal(port, 9528);
-
-    await close();
-    await new Promise((resolve) => blocker.close(resolve));
 });
 
 test('127.0.0.1 binding', async () => {
     const { server, close } = await createHttpServer({});
 
     const address = server.address();
-    assert.equal(address.address, '127.0.0.1');
-    assert.equal(address.family, 'IPv4');
+    expect(address.address).toBe('127.0.0.1');
+    expect(address.family).toBe('IPv4');
 
     await close();
 });

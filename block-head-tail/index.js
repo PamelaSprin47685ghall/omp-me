@@ -4,7 +4,7 @@
  * causing the agent to miss important output.
  */
 
-const HEAD_TAIL_PIPE = /\s*\|\s*(head|tail)\s+-n\s*\d+\s*/g;
+const HEAD_TAIL_PIPE = /\s*\|\s*(head|tail)\s+(?:-n\s*|-)\d+\s*/g;
 
 const registered = new WeakSet();
 
@@ -21,7 +21,7 @@ export default async function blockHeadTailExtension(pi) {
         const stripped = [];
 
         const cleaned = cmd.replace(HEAD_TAIL_PIPE, (m, tool) => {
-            const num = m.match(/-n\s*(\d+)/)?.[1] ?? '?';
+            const num = m.match(/\d+/)?.[0] ?? '?';
             stripped.push(`| ${tool} -n ${num}`);
             return '';
         });

@@ -1,22 +1,25 @@
+/**
+ * WebSocket server — single owner of ws lifecycle and broadcast.
+ * Subscribes directly to the event bus; no cross-module client Set passing.
+ */
 import { requireScoped } from '@oh-my-pi/resolve-pi';
 
-let WebSocketServer;
-
-function getWs() {
-    if (!WebSocketServer) {
-        const require = requireScoped(import.meta.url);
-        WebSocketServer = require('ws').WebSocketServer;
-    }
-    return WebSocketServer;
-}
+const require = requireScoped(import.meta.url);
+const { WebSocketServer } = require('ws');
 
 let nextConnId = 1;
 
-export function createWsServer(httpServer, { onConnection, onMessage } = {}) {
-    const wss = new (getWs())({ server: httpServer, path: '/ws' });
+export function createWsServer(httpServer, eventBus, { onConnection, onMessage } = {}) {
+    const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
     wss.on('connection', (ws) => {
         ws._connId = nextConnId++;
+
+        // Enable heartbeat ping-pong
+        ws.isAlive = true;
+        ws.on('pong', () => {
+            ws.isAlive = true;
+        });
 
         ws.send(
             JSON.stringify({
@@ -25,23 +28,31 @@ export function createWsServer(httpServer, { onConnection, onMessage } = {}) {
                 timestamp: Date.now(),
             }),
         );
-
         onConnection?.(ws);
 
         ws.on('message', async (data) => {
             try {
-                const msg = JSON.parse(data);
-                await onMessage?.(msg, ws);
+                await onMessage?.(JSON.parse(data), ws);
             } catch (err) {
-                ws.send(
-                    JSON.stringify({
-                        type: 'error',
-                        payload: { message: err.message },
-                    }),
-                );
+                ws.send(JSON.stringify({ type: 'error', payload: { message: err.message } }));
             }
         });
     });
 
-    return { wss };
+    // Broadcast all eventBus events to every connected client
+    let unsub = () => {};
+    if (eventBus) {
+        unsub = eventBus.on('*', (payload, type) => {
+            const msg = JSON.stringify({ type, payload, timestamp: Date.now() });
+            for (const ws of wss.clients) {
+                try {
+                    if (ws.readyState === 1) ws.send(msg);
+                } catch {
+                    /* skip dead */
+                }
+            }
+        });
+    }
+
+    return { wss, unsub };
 }

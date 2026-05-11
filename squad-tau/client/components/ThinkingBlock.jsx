@@ -61,8 +61,12 @@ function useRafState(content) {
  */
 export default function ThinkingBlock({ content, isStreaming = false, messageId }) {
   const [isOpen, setIsOpen] = useState(() => {
-    const pref = localStorage.getItem('thinking_user_preference');
-    return pref === 'expanded';
+    try {
+      const pref = localStorage.getItem('thinking_user_preference');
+      return pref === 'expanded';
+    } catch {
+      return true;
+    }
   });
   const displayContent = useRafState(content);
 

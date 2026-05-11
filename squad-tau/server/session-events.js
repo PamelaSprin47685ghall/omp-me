@@ -14,6 +14,7 @@ function subscribeToSessionEvents(session, eventBus, sessionId) {
 
 function handleMessageUpdate(event, eventBus, sessionId) {
     const assistantEvent = event.assistantMessageEvent;
+    if (!assistantEvent) return;
     if (assistantEvent.type === 'text_delta') {
         eventBus.emit('session', 'message_delta', {
             sessionId,

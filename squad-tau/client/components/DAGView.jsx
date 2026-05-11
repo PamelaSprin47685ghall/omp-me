@@ -69,12 +69,13 @@ function useMermaidRender(nodeList, activeNodeId, onNodeClick) {
   const stateKey = nodeStateKey(nodeList);
 
   const renderDiagram = useCallback(async (list) => {
-    if (!containerRef.current) return;
+    const el = containerRef.current;
+    if (!el) return;
     const diagram = buildDiagram(list, activeNodeId);
     const id = `d-${Date.now()}`;
     try {
       const { svg } = await mermaid.render(id, diagram);
-      containerRef.current.innerHTML = svg;
+      if (containerRef.current) containerRef.current.innerHTML = svg;
     } catch (err) {
       console.error('[DAGView] mermaid render error:', err);
     }
@@ -87,8 +88,7 @@ function useMermaidRender(nodeList, activeNodeId, onNodeClick) {
   }, [stateKey, nodeList, renderDiagram]);
 
   useEffect(() => {
-    if (!containerRef.current) return;
-    const el = containerRef.current.querySelector('svg');
+    const el = containerRef.current?.querySelector('svg');
     if (!el) return;
     el.style.maxWidth = '100%';
     el.querySelectorAll('g.node').forEach(g => {
@@ -98,7 +98,7 @@ function useMermaidRender(nodeList, activeNodeId, onNodeClick) {
       const nodeId = label?.textContent?.replace(/[()[\]]/g, '') ?? '';
       g.onclick = () => nodeId && onNodeClick?.(nodeId);
     });
-  });
+  }, [nodeList, onNodeClick]);
 
   return containerRef;
 }

@@ -8,5 +8,8 @@ globalThis.Node = win.Node;
 globalThis.Event = win.Event;
 globalThis.KeyboardEvent = win.KeyboardEvent;
 globalThis.MouseEvent = win.MouseEvent;
-globalThis.requestAnimationFrame = (cb) => setTimeout(cb, 0);
-globalThis.cancelAnimationFrame = clearTimeout;
+globalThis.requestAnimationFrame = (cb) => {
+    queueMicrotask(() => cb(Date.now()));
+    return 0;
+};
+globalThis.cancelAnimationFrame = () => {};

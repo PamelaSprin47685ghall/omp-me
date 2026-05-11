@@ -42,8 +42,7 @@ function registerDelegateTool(pi) {
 }
 
 function registerSquadCommand(pi, serverPromise) {
-    pi.registerCommand({
-        name: 'squad',
+    pi.registerCommand('squad', {
         description: 'Start a squad task with multi-agent orchestration',
         async handler(ctx) {
             const task = ctx.args.join(' ').trim();
@@ -181,16 +180,15 @@ description = "[此处省略 300 字]"
 ${task}`;
 
     await session.prompt(architectPrompt);
+    await session.waitForIdle();
 
     while (fsm.isActive()) {
-        while (session.isStreaming) await new Promise((r) => setTimeout(r, 200));
-        if (session.settled) break;
         if (fsm.isIdle()) break;
         await session.prompt(
             '错误：必须先调用 delegate 工具提交计划，不能直接结束。请调用 delegate({ plan_dir: "/tmp/squad-xxx" }) 提交计划。',
         );
+        await session.waitForIdle();
     }
-    await session.settled;
 }
 
 function handleSquadError(ctx, err) {
@@ -209,8 +207,7 @@ function cleanupSquadSession(unsub, sessionId, fsm) {
 }
 
 function registerSquadModelsCommand(pi) {
-    pi.registerCommand({
-        name: 'squad-models',
+    pi.registerCommand('squad-models', {
         description: 'Generate initial model pool configuration',
         async handler(ctx) {
             const configPath = path.join(ctx.cwd, '.omp', 'models.toml');
