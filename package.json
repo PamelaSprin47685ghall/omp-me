@@ -3,10 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun run test:squad && bun run test:tau && bun run test:advisor && bun run test:s2u && bun run test:head && bun run test:search",
+    "test": "bun run test:squad && bun run test:tau && bun run test:deep-think && bun run test:s2u && bun run test:head && bun run test:search",
     "test:squad": "bun test squad/",
     "test:tau": "bun test oh-tau-mirror/",
-    "test:advisor": "bun test oh-rpiv-advisor/",
+    "test:deep-think": "bun test deep-think/",
     "test:s2u": "bun test degrade/",
     "test:head": "bun test block-head-tail/",
     "test:search": "bun test ollama-search/",
