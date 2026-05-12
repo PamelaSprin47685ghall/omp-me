@@ -9,7 +9,12 @@ let debounceTimer = null;
 function loadModelsConfig() {
     try {
         const content = fs.readFileSync(CONFIG_PATH, 'utf8');
-        const parsed = Bun.TOML.parse(content);
+        const parsed =
+            typeof Bun !== 'undefined' && Bun.TOML
+                ? Bun.TOML.parse(content)
+                : (() => {
+                      throw new Error('TOML parsing requires Bun runtime');
+                  })();
         const slots = parsed.slot || [];
         return slots.map((s) => ({
             provider: s.provider,

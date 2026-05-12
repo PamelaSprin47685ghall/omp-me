@@ -63,7 +63,7 @@ async function runNode(args) {
             }
 
             retryCount++;
-            if (retryCount > maxRetries) {
+            if (retryCount >= maxRetries) {
                 throw new Error(
                     `Max retries (${maxRetries}) exceeded for node ${node.id}. Last feedback: ${reviewResult.reason}`,
                 );

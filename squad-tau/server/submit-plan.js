@@ -34,7 +34,12 @@ function parseTomlNode(plan_dir, file) {
     }
     let parsed;
     try {
-        parsed = Bun.TOML.parse(content);
+        parsed =
+            typeof Bun !== 'undefined' && Bun.TOML
+                ? Bun.TOML.parse(content)
+                : (() => {
+                      throw new Error('TOML parsing requires Bun runtime');
+                  })();
     } catch (err) {
         throw new Error(`Invalid TOML in ${file}: ${err.message}`);
     }
@@ -55,37 +60,24 @@ function buildNodeResults(results) {
     }));
 }
 
-async function runOuterReviewLoop({ nodeResults, originalTask, ctx, pi, signal, eventBus, modelPool, startTime, fsm }) {
-    let outerRound = 1;
-    while (true) {
-        const result = await runOuterReview(
-            nodeResults,
-            originalTask,
-            outerRound,
-            ctx,
-            pi,
-            signal,
-            eventBus,
-            modelPool,
-            startTime,
-        );
-        if (!result) {
-            eventBus?.emit('squad', 'abort', { reason: 'Outer review aborted' });
-            return { done: true, payload: { success: false, message: 'Outer review was aborted.' } };
-        }
-        if (result.approved) return { done: false };
-        const feedback = result.reason || 'Revise and resubmit.';
-        return {
-            done: true,
-            payload: {
-                success: true,
-                outerReviewRejected: true,
-                outerRound,
-                feedback,
-                message: `Outer review rejected (round ${outerRound}). Feedback: ${feedback}`,
-            },
-        };
+async function runOuterReviewLoop({ nodeResults, originalTask, ctx, pi, signal, eventBus, modelPool, fsm }) {
+    const result = await runOuterReview(nodeResults, originalTask, 1, ctx, pi, signal, eventBus, modelPool);
+    if (!result) {
+        eventBus?.emit('squad', 'abort', { reason: 'Outer review aborted' });
+        return { done: true, payload: { success: false, message: 'Outer review was aborted.' } };
     }
+    if (result.approved) return { done: false };
+    const feedback = result.reason || 'Revise and resubmit.';
+    return {
+        done: true,
+        payload: {
+            success: true,
+            outerReviewRejected: true,
+            outerRound: 1,
+            feedback,
+            message: `Outer review rejected. Feedback: ${feedback}`,
+        },
+    };
 }
 
 async function finalize({
@@ -112,7 +104,6 @@ async function finalize({
             signal,
             eventBus,
             modelPool,
-            startTime,
             fsm,
         });
         if (review.done) return review.payload;

@@ -32,7 +32,7 @@ function emitSessionEnd(eventBus, sessionId, phase, reason, errorMessage) {
     eventBus.emit('session', 'end', { sessionId, reason, errorMessage });
 }
 
-async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal, eventBus, modelPool, startTime) {
+async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal, eventBus, modelPool) {
     const createAgentSession = pi?.pi?.createAgentSession;
     if (!createAgentSession) throw new Error('squad: createAgentSession unavailable');
 
@@ -64,9 +64,10 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
 
     let session = null,
         unsub = null,
-        sessionId = null;
+        sessionId = null,
+        factoryResult = null;
     try {
-        ({ session, sessionId, unsub } = await initOuterReviewSession(
+        ({ session, sessionId, unsub, factoryResult } = await initOuterReviewSession(
             createAgentSession,
             sessionOpts,
             eventBus,
@@ -90,7 +91,7 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
     } catch (err) {
         return handleOuterReviewError(err, childAbort, signal, eventBus, sessionId, modelPool, modelSlot);
     } finally {
-        cleanupOuterReview(childAbort, session, unsub, sessionId);
+        cleanupOuterReview(childAbort, session, unsub, sessionId, factoryResult);
     }
 }
 
@@ -98,6 +99,7 @@ async function initOuterReviewSession(createAgentSession, sessionOpts, eventBus,
     const factoryResult = await createAgentSession(sessionOpts);
     const session = factoryResult.session;
     const sessionId = session.sessionFile;
+    const disposeResult = factoryResult;
 
     register(sessionId, {
         sendUserMessage: (text) => session.prompt(text),
@@ -110,7 +112,7 @@ async function initOuterReviewSession(createAgentSession, sessionOpts, eventBus,
         emitSessionStart(eventBus, sessionId, round, sessionOpts);
         unsub = subscribeToSessionEvents(session, eventBus, sessionId);
     }
-    return { session, sessionId, unsub };
+    return { session, sessionId, unsub, factoryResult };
 }
 
 async function executeOuterReviewLoop(session, promptText, childAbort, isSettled, outcomePromise) {
@@ -180,10 +182,11 @@ function handleOuterReviewError(err, childAbort, signal, eventBus, sessionId, mo
     throw err;
 }
 
-function cleanupOuterReview(childAbort, session, unsub, sessionId) {
+function cleanupOuterReview(childAbort, session, unsub, sessionId, factoryResult) {
     childAbort.abort();
     session?.abort?.();
     unsub?.();
+    factoryResult?.dispose?.();
     if (sessionId) {
         unregister(sessionId);
     }

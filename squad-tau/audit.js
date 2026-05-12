@@ -4,7 +4,7 @@ const path = require('path');
 
 const out = fs.createWriteStream('audit.txt');
 const exts = ['.js', '.jsx', '.md', '.html', '.css', '.json', '.toml'];
-const skip = new Set(['node_modules', '.git', 'audit.txt', 'bun.lock', 'audit.sh']);
+const skip = new Set(['node_modules', '.git', 'dist', 'audit.txt', 'bun.lock', 'audit.sh']);
 
 function walk(dir) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {

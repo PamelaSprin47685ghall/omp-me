@@ -56,18 +56,18 @@ function AddSlotForm({ onAdd }) {
   );
 }
 
-function SlotActions({ index, onEdit, onDelete, disabled }) {
+function SlotActions({ slotId, onEdit, onDelete, disabled }) {
   return (
     <td>
-      <Button icon={IconNames.EDIT} small minimal onClick={() => onEdit(index)} disabled={disabled} />
-      <Button icon={IconNames.TRASH} small minimal intent="danger" onClick={() => onDelete(index)} />
+      <Button icon={IconNames.EDIT} small minimal onClick={() => onEdit(slotId)} disabled={disabled} />
+      <Button icon={IconNames.TRASH} small minimal intent="danger" onClick={() => onDelete(slotId)} />
     </td>
   );
 }
 
-function SlotRow({ slot, index, isEditing, editingLevel, setEditingLevel, onSave, onCancel, onEdit, onDelete }) {
+function SlotRow({ slot, isEditing, editingLevel, setEditingLevel, onSave, onCancel, onEdit, onDelete }) {
   return (
-    <tr key={index}>
+    <tr key={slot.slotId}>
       <td>{slot.provider}</td>
       <td>{slot.modelId}</td>
       <td>{slot.role}</td>
@@ -79,18 +79,18 @@ function SlotRow({ slot, index, isEditing, editingLevel, setEditingLevel, onSave
               onChange={(e) => setEditingLevel(e.target.value)}
               options={THINKING_LEVELS.map(t => ({ label: t, value: t }))}
             />
-            <Button icon={IconNames.TICK} small intent="success" onClick={() => onSave(index)} />
+            <Button icon={IconNames.TICK} small intent="success" onClick={() => onSave(slot.slotId)} />
             <Button icon={IconNames.CROSS} small onClick={onCancel} />
           </div>
         ) : slot.thinkingLevel}
       </td>
       <td>{slot.inUse ? '✓' : '✗'}</td>
-      <SlotActions index={index} onEdit={onEdit} onDelete={onDelete} disabled={isEditing} />
+      <SlotActions slotId={slot.slotId} onEdit={onEdit} onDelete={onDelete} disabled={isEditing} />
     </tr>
   );
 }
 
-function SlotTable({ slots, editingIndex, editingLevel, setEditingLevel, onSave, onCancel, onEdit, onDelete }) {
+function SlotTable({ slots, editingSlotId, editingLevel, setEditingLevel, onSave, onCancel, onEdit, onDelete }) {
   if (slots.length === 0) {
     return <div style={EMPTY_STYLE}>No models configured. Add one above.</div>;
   }
@@ -104,13 +104,13 @@ function SlotTable({ slots, editingIndex, editingLevel, setEditingLevel, onSave,
           </tr>
         </thead>
         <tbody>
-          {slots.map((slot, index) => (
+          {slots.map(slot => (
             <SlotRow
-              key={index} slot={slot} index={index}
-              isEditing={editingIndex === index}
+              key={slot.slotId} slot={slot}
+              isEditing={editingSlotId === slot.slotId}
               editingLevel={editingLevel} setEditingLevel={setEditingLevel}
               onSave={onSave} onCancel={onCancel}
-              onEdit={() => onEdit(index, slot.thinkingLevel)} onDelete={onDelete}
+              onEdit={() => onEdit(slot.slotId, slot.thinkingLevel)} onDelete={onDelete}
             />
           ))}
         </tbody>
@@ -119,10 +119,10 @@ function SlotTable({ slots, editingIndex, editingLevel, setEditingLevel, onSave,
   );
 }
 
-function DeleteAlert({ index, onClose, onConfirm }) {
+function DeleteAlert({ slotId, onClose, onConfirm }) {
   return (
     <Alert
-      isOpen={index !== null} onClose={onClose} onConfirm={onConfirm}
+      isOpen={slotId !== null} onClose={onClose} onConfirm={onConfirm}
       intent="danger" icon={IconNames.TRASH}
       confirmButtonText="Delete" cancelButtonText="Cancel"
     >
@@ -132,18 +132,20 @@ function DeleteAlert({ index, onClose, onConfirm }) {
 }
 
 export default function ModelPoolDrawer({ isOpen, onClose, slots, onUpdateSlot }) {
-  const [editingIndex, setEditingIndex] = useState(null);
+  const [editingSlotId, setEditingSlotId] = useState(null);
   const [editingThinkingLevel, setEditingThinkingLevel] = useState('');
-  const [deleteIndex, setDeleteIndex] = useState(null);
+  const [deleteSlotId, setDeleteSlotId] = useState(null);
 
-  const handleEditSave = (index) => {
-    onUpdateSlot('edit', { ...slots[index], thinkingLevel: editingThinkingLevel }, index);
-    setEditingIndex(null);
+  const handleEditSave = (slotId) => {
+    const slot = slots.find(s => s.slotId === slotId);
+    if (!slot) return;
+    onUpdateSlot('edit', { ...slot, thinkingLevel: editingThinkingLevel }, slotId);
+    setEditingSlotId(null);
   };
 
   const handleDeleteConfirm = () => {
-    onUpdateSlot('remove', null, deleteIndex);
-    setDeleteIndex(null);
+    onUpdateSlot('remove', null, deleteSlotId);
+    setDeleteSlotId(null);
   };
 
   return (
@@ -152,15 +154,15 @@ export default function ModelPoolDrawer({ isOpen, onClose, slots, onUpdateSlot }
         <div style={{ padding: '16px' }}>
           <AddSlotForm onAdd={(data) => onUpdateSlot('add', data)} />
           <SlotTable
-            slots={slots} editingIndex={editingIndex}
+            slots={slots} editingSlotId={editingSlotId}
             editingLevel={editingThinkingLevel} setEditingLevel={setEditingThinkingLevel}
-            onSave={handleEditSave} onCancel={() => setEditingIndex(null)}
-            onEdit={(idx, lvl) => { setEditingIndex(idx); setEditingThinkingLevel(lvl); }}
-            onDelete={setDeleteIndex}
+            onSave={handleEditSave} onCancel={() => setEditingSlotId(null)}
+            onEdit={(slotId, lvl) => { setEditingSlotId(slotId); setEditingThinkingLevel(lvl); }}
+            onDelete={setDeleteSlotId}
           />
         </div>
       </Drawer>
-      <DeleteAlert index={deleteIndex} onClose={() => setDeleteIndex(null)} onConfirm={handleDeleteConfirm} />
+      <DeleteAlert slotId={deleteSlotId} onClose={() => setDeleteSlotId(null)} onConfirm={handleDeleteConfirm} />
     </>
   );
 }

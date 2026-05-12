@@ -31,14 +31,14 @@ export function useModelPool() {
         dispatch({ type: 'drawer:close' });
     }, []);
 
-    const updateSlot = useCallback((action, slot, index) => {
+    const updateSlot = useCallback((action, slot, slotId) => {
         if (!sendRef.current) {
             console.warn('WebSocket send not wired, cannot update model pool');
             return;
         }
         sendRef.current({
             type: 'model_pool:update',
-            payload: { action, slot, index },
+            payload: { action, slot, slotId },
         });
     }, []);
 

@@ -7,6 +7,7 @@ class ModelPool {
 
         for (const entry of config) {
             const slot = {
+                slotId: crypto.randomUUID(),
                 provider: entry.provider,
                 modelId: entry.modelId,
                 role: entry.role,
@@ -103,6 +104,7 @@ class ModelPool {
 
     addSlot(config) {
         const slot = {
+            slotId: config.slotId || crypto.randomUUID(),
             provider: config.provider,
             modelId: config.modelId,
             role: config.role,
@@ -130,11 +132,11 @@ class ModelPool {
         }
     }
 
-    removeSlot(index) {
+    removeSlot(slotId) {
         const allSlots = [...this.workerSlots, ...this.reviewerSlots];
-        if (index < 0 || index >= allSlots.length) return;
+        const targetSlot = allSlots.find((s) => s.slotId === slotId);
+        if (!targetSlot) return;
 
-        const targetSlot = allSlots[index];
         const roleSlots = targetSlot.role === 'worker' ? this.workerSlots : this.reviewerSlots;
         const slotIndex = roleSlots.indexOf(targetSlot);
 
@@ -145,10 +147,11 @@ class ModelPool {
         }
     }
 
-    updateSlotThinkingLevel(index, thinkingLevel) {
+    updateSlotThinkingLevel(slotId, thinkingLevel) {
         const allSlots = [...this.workerSlots, ...this.reviewerSlots];
-        if (index < 0 || index >= allSlots.length) return;
-        allSlots[index].thinkingLevel = thinkingLevel;
+        const targetSlot = allSlots.find((s) => s.slotId === slotId);
+        if (!targetSlot) return;
+        targetSlot.thinkingLevel = thinkingLevel;
     }
 
     getSlots() {

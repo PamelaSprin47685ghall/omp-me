@@ -40,8 +40,9 @@ test('removeSlot marks inUse slot as pendingDelete', () => {
         { provider: 'anthropic', modelId: 'reviewer-1', role: 'reviewer' },
     ];
     const pool = new ModelPool(config);
+    const slotId = pool.workerSlots[0].slotId;
     pool.workerSlots[0].inUse = true;
-    pool.removeSlot(0);
+    pool.removeSlot(slotId);
     assert.equal(pool.workerSlots[0].pendingDelete, true);
     assert.equal(pool.workerSlots.length, 1);
 });
@@ -52,7 +53,8 @@ test('removeSlot removes free slot immediately', () => {
         { provider: 'anthropic', modelId: 'reviewer-1', role: 'reviewer' },
     ];
     const pool = new ModelPool(config);
-    pool.removeSlot(0);
+    const slotId = pool.workerSlots[0].slotId;
+    pool.removeSlot(slotId);
     assert.equal(pool.workerSlots.length, 0);
     assert.equal(pool.reviewerSlots.length, 1);
 });
@@ -61,7 +63,7 @@ test('release removes pendingDelete slot', async () => {
     const config = [{ provider: 'anthropic', modelId: 'worker-1', role: 'worker' }];
     const pool = new ModelPool(config);
     const slot = await pool.acquire('worker');
-    pool.removeSlot(0);
+    pool.removeSlot(slot._slot.slotId);
     assert.equal(pool.workerSlots.length, 1);
     assert.equal(pool.workerSlots[0].pendingDelete, true);
     pool.release(slot);

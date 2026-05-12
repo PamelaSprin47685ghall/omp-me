@@ -22,7 +22,17 @@ const STYLE = {
 };
 
 export default function StatusBar({ nodeId, retryCount, phase, status, mode, currentLayer, totalLayers }) {
-  if (!nodeId) return null;
+  if (!nodeId && status !== 'reviewing') return null;
+  if (!nodeId) {
+    // Outer review session — show a generic status
+    return (
+      <div style={STYLE}>
+        <Tag intent={Intent.WARNING} icon={<Icon icon={IconNames.EYE_OPEN} />}>
+          Outer Review · {phase}
+        </Tag>
+      </div>
+    );
+  }
   const [intent, iconName] = STATUS_MAP[status] || [Intent.NONE, IconNames.DOT];
 
   return (

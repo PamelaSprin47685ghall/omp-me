@@ -12,15 +12,16 @@ import path from 'path';
 import fs from 'fs';
 
 export default function squadPlugin(pi) {
-    let server = null;
-
     pi.registerTool(delegateTool);
     pi.registerTool(returnTool);
 
-    registerSquadCommand(pi, () => {
-        if (!server) server = startServer();
-        return server;
+    // Start HTTP+WebSocket server immediately on plugin load (PRD §7.2.1)
+    const serverPromise = startServer().catch((err) => {
+        console.error('[squad] Failed to start server:', err);
+        return null;
     });
+
+    registerSquadCommand(pi, () => serverPromise);
     registerSquadModelsCommand(pi);
 }
 
@@ -34,7 +35,12 @@ function registerSquadCommand(pi, getServer) {
                 return;
             }
 
-            const { port, eventBus, modelPool } = await getServer();
+            const serverResult = await getServer();
+            if (!serverResult) {
+                pi.sendMessage('Failed to start squad server — check console for errors');
+                return;
+            }
+            const { port, eventBus, modelPool } = serverResult;
             const fsm = new SquadFSM();
             const abortController = new AbortController();
             const { signal } = abortController;
@@ -172,8 +178,16 @@ ${task}`;
     await session.prompt(architectPrompt);
     await session.waitForIdle();
 
+    let promptCount = 0;
+    const MAX_ARCHITECT_PROMPTS = 3;
     while (fsm.isActive()) {
         if (fsm.isIdle()) break;
+        promptCount++;
+        if (promptCount > MAX_ARCHITECT_PROMPTS) {
+            console.warn('[squad] Architect exceeded max prompt attempts, deactivating');
+            fsm.deactivate();
+            break;
+        }
         await session.prompt(
             '错误：必须先调用 delegate 工具提交计划，不能直接结束。请调用 delegate({ plan_dir: "/tmp/squad-xxx" }) 提交计划。',
         );

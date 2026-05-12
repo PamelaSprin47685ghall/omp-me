@@ -5,7 +5,7 @@
  */
 
 /**
- * @param {{action:string, slot?:object, index?:number, thinkingLevel?:string}} msg
+ * @param {{action:string, slot?:object, slotId?:string, thinkingLevel?:string}} msg
  * @param {import('./model-pool.js').ModelPool} modelPool
  * @param {object} configModule
  * @param {object} configModule
@@ -13,19 +13,19 @@
  * @param {Function} configModule.loadModelsConfig
  */
 export async function handleModelPoolMessage(msg, modelPool, configModule, eventBus) {
-    const { action, slot, index, thinkingLevel } = msg;
+    const { action, slot, slotId, thinkingLevel } = msg;
     switch (action) {
         case 'add':
             modelPool.addSlot(slot);
             await configModule.saveModelsConfig(modelPool.getSlots());
             break;
         case 'remove':
-            modelPool.removeSlot(index);
+            modelPool.removeSlot(slotId);
             await configModule.saveModelsConfig(modelPool.getSlots());
             break;
         case 'edit':
-            if (index === undefined || thinkingLevel === undefined) break;
-            modelPool.updateSlotThinkingLevel(index, thinkingLevel);
+            if (!slotId || thinkingLevel === undefined) break;
+            modelPool.updateSlotThinkingLevel(slotId, thinkingLevel);
             await configModule.saveModelsConfig(modelPool.getSlots());
             break;
     }
@@ -41,6 +41,7 @@ export async function handleModelPoolMessage(msg, modelPool, configModule, event
 export function buildSnapshot(modelPool) {
     return {
         slots: modelPool.getSlots().map((s) => ({
+            slotId: s.slotId,
             provider: s.provider,
             modelId: s.modelId,
             role: s.role,

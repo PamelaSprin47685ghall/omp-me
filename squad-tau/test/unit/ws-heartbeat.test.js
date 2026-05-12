@@ -21,22 +21,20 @@ describe('ws-heartbeat', () => {
 
         const clients = new Set([mockWs1, mockWs2, mockWs3]);
 
-        // Mock setInterval to trigger immediately or control time
-        // But since we can't easily mock global setInterval in bun without more effort,
-        // we can test the logic if we export the inner function,
-        // but it's not exported.
-        // Let's mock global.setInterval
+        // startHeartbeat now creates two intervals (pingTimer + timeoutTimer).
+        // We collect both callbacks and trigger the ping timer.
         const originalSetInterval = global.setInterval;
-        let intervalCb;
+        const intervalCbs = [];
         global.setInterval = (cb) => {
-            intervalCb = cb;
+            intervalCbs.push(cb);
             return 123;
         };
 
         const stop = startHeartbeat(clients);
 
-        expect(intervalCb).toBeDefined();
-        intervalCb(); // Trigger heartbeat check
+        expect(intervalCbs.length).toBe(2);
+        const pingCb = intervalCbs[0]; // first interval is the ping timer
+        pingCb(); // Trigger heartbeat check
 
         expect(mockWs1.isAlive).toBe(false);
         expect(mockWs1.ping).toHaveBeenCalled();

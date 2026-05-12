@@ -148,12 +148,15 @@ export default function App() {
   }, [handleEvent, setActiveSessionId]);
 
   const handleNodeClick = (nodeId) => {
-    const nodeSession = Object.values(sessions).find(s => s.nodeId === nodeId);
-    if (nodeSession) setActiveSessionId(nodeSession.sessionId);
+    // Find the LATEST session for this node (last in insertion order)
+    const sessionsForNode = Object.values(sessions).filter(s => s.nodeId === nodeId);
+    if (sessionsForNode.length > 0) {
+      setActiveSessionId(sessionsForNode[sessionsForNode.length - 1].sessionId);
+    }
   };
   
   const sessionList = Object.values(sessions).sort((a, b) => 
-    parseInt(a.sessionId) - parseInt(b.sessionId)
+    String(a.sessionId).localeCompare(String(b.sessionId))
   );
 
   return (

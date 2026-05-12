@@ -38,15 +38,15 @@ function handleToolStart(event, eventBus, sessionId) {
     eventBus.emit('session', 'tool_call', {
         sessionId,
         toolName: event.toolName,
-        toolId: event.toolCallId,
-        params: event.args,
+        toolId: event.toolId,
+        params: event.input,
     });
 }
 
 function handleToolEnd(event, eventBus, sessionId) {
     eventBus.emit('session', 'tool_result', {
         sessionId,
-        toolId: event.toolCallId,
+        toolId: event.toolId,
         result: event.result,
         isError: event.isError || false,
     });

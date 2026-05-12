@@ -72,7 +72,16 @@ function attachClickHandlers(container, onNodeClickRef) {
     g.style.cursor = 'pointer';
     const label = g.querySelector('text');
     if (label) label.style.fontFamily = 'inherit';
-    const nodeId = label?.textContent?.replace(/[()\[\]]/g, '') ?? '';
+    // Extract node ID from g.id (Mermaid format: "flowchart-{id}-{suffix}")
+    // Fallback to text content parsing for robustness
+    let nodeId = '';
+    if (g.id) {
+      const match = g.id.match(/^[^-]+-(.+)-\d+$/);
+      if (match) nodeId = match[1];
+    }
+    if (!nodeId && label) {
+      nodeId = label.textContent?.replace(/[()\[\]\s]/g, '').trim() ?? '';
+    }
     g.onclick = () => nodeId && onNodeClickRef.current?.(nodeId);
   });
 }
@@ -81,16 +90,18 @@ function useMermaidRender(nodeList, activeNodeId, onNodeClick) {
   const onNodeClickRef = useRef(onNodeClick);
   onNodeClickRef.current = onNodeClick;
   const containerRef = useRef(null);
-  const renderedKeyRef = useRef(null);
+  const renderKeyRef = useRef(0);
   const stateKey = nodeStateKey(nodeList, activeNodeId);
 
-  const renderDiagram = useCallback(async (list) => {
+  const renderDiagram = useCallback(async (list, key) => {
     const el = containerRef.current;
     if (!el) return;
     const diagram = buildDiagram(list, activeNodeId);
     const id = `d-${Date.now()}`;
     try {
       const { svg } = await mermaid.render(id, diagram);
+      // Discard stale results if a newer render was requested
+      if (key !== renderKeyRef.current) return;
       if (containerRef.current) containerRef.current.innerHTML = svg;
       attachClickHandlers(containerRef.current, onNodeClickRef);
     } catch (err) {
@@ -99,8 +110,9 @@ function useMermaidRender(nodeList, activeNodeId, onNodeClick) {
   }, [activeNodeId]);
 
   useEffect(() => {
-    renderedKeyRef.current = stateKey;
-    renderDiagram(nodeList);
+    renderKeyRef.current++;
+    const key = renderKeyRef.current;
+    renderDiagram(nodeList, key);
   }, [stateKey, nodeList, renderDiagram]);
 
   return containerRef;

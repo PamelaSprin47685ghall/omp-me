@@ -35,6 +35,12 @@ function useMessageDetails(activeMessages, activeSessionId) {
     activeMessages.forEach(msg => {
       if (!msg.content || !Array.isArray(msg.content)) return;
       
+      // If message is still streaming, add a synthetic delta so children
+      // see isStreaming=true for ThinkingBlock breathing animation.
+      if (msg.streaming) {
+        deltas.push({ messageId: msg.messageId, delta: { type: 'thinking_delta', text: '' } });
+      }
+      
       msg.content.forEach(block => {
         if (block.type === 'tool_call') {
           toolCalls.push({
@@ -61,16 +67,11 @@ function useMessageDetails(activeMessages, activeSessionId) {
   }, [activeMessages, activeSessionId]);
 }
 
-function WelcomeOrErrorSection({ squadActive, onOpenModelPool, failedNodes, results }) {
-  if (!squadActive) {
-    return (
-      <div style={MAIN_STYLE}>
-        <WelcomeView onOpenModelPool={onOpenModelPool} />
-      </div>
-    );
-  }
+function WelcomeOrErrorSection({ squadActive, onOpenModelPool, failedNodes, results, nodes }) {
+  // Show ErrorBanner even when squad is completed but has failures
   if (failedNodes.length > 0) return <ErrorBanner nodes={failedNodes} />;
   
+  // Show success banner when squad completed successfully (results present, no failures)
   if (results && results.length > 0) {
     return (
       <Card style={{ marginBottom: 12 }} elevation={2}>
@@ -79,6 +80,15 @@ function WelcomeOrErrorSection({ squadActive, onOpenModelPool, failedNodes, resu
           <span style={{ fontWeight: 600 }}>Squad Completed Successfully</span>
         </div>
       </Card>
+    );
+  }
+  
+  // Welcome view when not active and no results
+  if (!squadActive) {
+    return (
+      <div style={MAIN_STYLE}>
+        <WelcomeView onOpenModelPool={onOpenModelPool} />
+      </div>
     );
   }
   
@@ -171,7 +181,7 @@ export default function MainContent({
   
   return (
     <div style={MAIN_STYLE}>
-      <WelcomeOrErrorSection squadActive={true} failedNodes={failedNodes} results={results} />
+      <WelcomeOrErrorSection squadActive={true} failedNodes={failedNodes} results={results} nodes={nodes} />
       <DAGSection
         nodes={nodes} activeSession={activeSession}
         dagCollapsed={dagCollapsed} onNodeClick={onNodeClick}

@@ -18,6 +18,7 @@ async function setupWorkerSession({ node, ctx, pi, modelSlot, eventBus, state })
     const factoryResult = await pi.pi.createAgentSession(sessionOpts);
     const session = factoryResult.session;
     const sessionId = session.sessionFile;
+    state.factoryResult = factoryResult;
 
     register(sessionId, {
         sendUserMessage: (text) => session.prompt(text),
@@ -34,17 +35,18 @@ async function setupWorkerSession({ node, ctx, pi, modelSlot, eventBus, state })
         if (state.phase === 0) {
             state.phase = 1;
             state.firstResolve({ reason: params.reason, affected_files: params.affected_files || [] });
-        } else {
+        } else if (state.phase === 1) {
             state.phase = 2;
             state.finalResolve({ reason: params.reason, affected_files: params.affected_files || [] });
         }
+        // Ignore unexpected phase transitions
     });
 
     if (eventBus) {
         state.unsub = emitWorkerSessionStart(eventBus, sessionId, node.id, options, session, state.retryCount);
     }
 
-    return { session, sessionId };
+    return { session, sessionId, factoryResult };
 }
 
 function emitWorkerSessionStart(eventBus, sessionId, nodeId, options, session, retryCount) {
@@ -63,9 +65,11 @@ async function runSessionLoop(session, state, targetPhase, emptyErrorMsg, childA
     while (state.phase === targetPhase) {
         if (state.redo) {
             state.redo = false;
-            if (targetPhase === 1) state.phase = 0;
+            if (targetPhase === 1) {
+                state.phase = 0;
+                return; // return without extra prompt; outer loop re-enters handleFirstReturn
+            }
             await session.prompt(`${state.redoReason}\nContinue working and call return when ready.`);
-            if (targetPhase === 1) return;
             continue;
         }
         if (childAbort.signal.aborted) break;
@@ -126,17 +130,26 @@ async function runWorker(args) {
         );
 
     let session = null,
-        sessionId = null;
+        sessionId = null,
+        factoryResult = null;
     try {
-        ({ session, sessionId } = await setupWorkerSession({ ...args, state }));
+        ({ session, sessionId, factoryResult } = await setupWorkerSession({ ...args, state }));
         state.sessionId = sessionId;
 
         const emptyCounter = createCounter(MAX_EMPTY_TURNS);
-        await handleFirstReturn(session, state, childAbort, emptyCounter);
-        if (childAbort.signal.aborted && signal?.aborted) return (emitEnd(eventBus, sessionId, 'aborted'), null);
 
-        await handleSecondReturn(session, state, childAbort, emptyCounter);
-        if (childAbort.signal.aborted && signal?.aborted) return (emitEnd(eventBus, sessionId, 'aborted'), null);
+        // Outer loop: handle redo from self-confirm (phase 1 redo resets phase to 0)
+        while (true) {
+            await handleFirstReturn(session, state, childAbort, emptyCounter);
+            if (childAbort.signal.aborted && signal?.aborted) return (emitEnd(eventBus, sessionId, 'aborted'), null);
+
+            await handleSecondReturn(session, state, childAbort, emptyCounter);
+            if (childAbort.signal.aborted && signal?.aborted) return (emitEnd(eventBus, sessionId, 'aborted'), null);
+
+            // If self-confirm redo reset phase to 0, loop back to worker phase
+            if (state.phase === 0) continue;
+            break;
+        }
 
         const finalResult = await finalPromise;
         emitEnd(eventBus, sessionId, 'completed');
@@ -153,6 +166,7 @@ async function runWorker(args) {
     } finally {
         childAbort.abort();
         session?.abort?.();
+        factoryResult?.dispose?.();
         state.unsub?.();
         if (sessionId) {
             unregister(sessionId);

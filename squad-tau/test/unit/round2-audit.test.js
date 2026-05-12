@@ -66,8 +66,9 @@ describe('model-pool-config watchConfig incremental update', () => {
         ]);
 
         const slot = await pool.acquire('worker');
-        // Remove index 0 (the worker slot, which is in-use)
-        pool.removeSlot(0);
+        const slotId = pool.workerSlots[0].slotId;
+        // Remove by slotId (the worker slot, which is in-use)
+        pool.removeSlot(slotId);
 
         // Slot should still be in the pool (pending_delete)
         assert.strictEqual(pool.workerSlots.length, 1);

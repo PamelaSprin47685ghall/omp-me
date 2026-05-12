@@ -19,6 +19,7 @@ async function setupReviewerSession({ node, ctx, pi, modelSlot, eventBus, state 
     const factoryResult = await pi.pi.createAgentSession(sessionOpts);
     const session = factoryResult.session;
     const sessionId = session.sessionFile;
+    state.factoryResult = factoryResult;
 
     register(sessionId, {
         sendUserMessage: (text) => session.prompt(text),
@@ -42,7 +43,7 @@ async function setupReviewerSession({ node, ctx, pi, modelSlot, eventBus, state 
         eventBus.emit('session', 'state', { sessionId, phase: 'reviewing' });
         state.unsub = subscribeToSessionEvents(session, eventBus, sessionId);
     }
-    return { session, sessionId };
+    return { session, sessionId, factoryResult };
 }
 
 async function pollReviewerSettled(session, state, childAbort) {
@@ -82,9 +83,10 @@ async function runReviewer(args) {
         );
 
     let session = null,
-        sessionId = null;
+        sessionId = null,
+        factoryResult = null;
     try {
-        ({ session, sessionId } = await setupReviewerSession({ ...args, state }));
+        ({ session, sessionId, factoryResult } = await setupReviewerSession({ ...args, state }));
         await buildReviewerPrompt(session, node, workerResult, iterationHistory);
         await pollReviewerSettled(session, state, childAbort);
         if (!state.settled) return null;
@@ -102,6 +104,7 @@ async function runReviewer(args) {
     } finally {
         childAbort.abort();
         session?.abort?.();
+        factoryResult?.dispose?.();
         state.unsub?.();
         if (sessionId) {
             unregister(sessionId);

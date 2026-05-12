@@ -16,8 +16,10 @@ export function createWsServer(httpServer, eventBus, { onConnection, onMessage }
 
         // Enable heartbeat ping-pong
         ws.isAlive = true;
+        ws._lastPong = Date.now();
         ws.on('pong', () => {
             ws.isAlive = true;
+            ws._lastPong = Date.now();
         });
 
         ws.send(

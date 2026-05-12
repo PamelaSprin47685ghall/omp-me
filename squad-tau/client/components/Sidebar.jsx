@@ -38,12 +38,12 @@ function getStatusIcon(status) {
 
 function sortTreeNodes(nodeMap) {
   const sortedNodes = Array.from(nodeMap.values()).sort((a, b) => 
-    parseInt(a.firstSessionId) - parseInt(b.firstSessionId)
+    String(a.firstSessionId).localeCompare(String(b.firstSessionId))
   );
   
   sortedNodes.forEach(node => {
     node.childNodes.sort((a, b) => 
-      parseInt(a.sessionId) - parseInt(b.sessionId)
+      String(a.sessionId).localeCompare(String(b.sessionId))
     );
   });
   
@@ -52,10 +52,23 @@ function sortTreeNodes(nodeMap) {
 
 function buildTreeNodes(sessions, nodes) {
   const nodeMap = new Map();
+  const topLevelNodes = [];
   
   sessions.forEach(session => {
     const { sessionId, nodeId, phase, retryCount, status } = session;
-    if (!nodeId) return;
+    
+    if (!nodeId) {
+      // Main/architect and outer_review sessions have no nodeId — show as top-level
+      topLevelNodes.push({
+        id: sessionId,
+        label: phase === 'outer_review' ? 'Outer Review' : 'Architect',
+        icon: getStatusIcon(status || 'pending'),
+        isExpanded: true,
+        childNodes: [],
+        sessionId
+      });
+      return;
+    }
     
     if (!nodeMap.has(nodeId)) {
       const nodeInfo = nodes.get(nodeId);
@@ -77,7 +90,8 @@ function buildTreeNodes(sessions, nodes) {
     });
   });
   
-  return sortTreeNodes(nodeMap);
+  const sortedNodes = sortTreeNodes(nodeMap);
+  return [...sortedNodes, ...topLevelNodes];
 }
 
 function useAutoSelectSession(sessions, activeSessionId, onSelectSession, locked) {

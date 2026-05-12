@@ -7,7 +7,7 @@ export function useAutoScroll(containerRef, messages, deltas) {
     const checkIfAtBottom = useCallback(() => {
         if (!containerRef.current) return false;
         const { scrollTop, clientHeight, scrollHeight } = containerRef.current;
-        return scrollTop + clientHeight >= scrollHeight - 100;
+        return scrollTop + clientHeight >= scrollHeight - 40;
     }, [containerRef]);
 
     const scrollToBottom = useCallback(() => {

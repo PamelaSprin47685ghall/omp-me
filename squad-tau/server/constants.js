@@ -49,7 +49,7 @@ const DEFAULTS = Object.freeze({
     CONFIRM_MAX_EMPTY: 5,
     HEARTBEAT_INTERVAL: 30000,
     HEARTBEAT_TIMEOUT: 60000,
-    MAX_RETRIES: 3,
+    MAX_RETRIES: Infinity,
 });
 
 const SESSION_PHASES = Object.freeze(['worker', 'reviewer', 'outer_review', 'main']);

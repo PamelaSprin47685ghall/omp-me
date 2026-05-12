@@ -54,6 +54,9 @@ async function executeOne(node, { signal, eventBus, ctx, pi, modelPool }) {
             affectedFiles: result.affectedFiles || [],
         };
     } catch (error) {
+        if (signal.aborted) {
+            return { nodeId: node.id, status: STATUS.FAILED, summary: 'Aborted by signal', affectedFiles: [] };
+        }
         return { nodeId: node.id, status: STATUS.FAILED, summary: error.message, affectedFiles: [] };
     }
 }

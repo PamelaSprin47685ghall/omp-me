@@ -5,7 +5,7 @@ const MAX_RECONNECT_ATTEMPTS = 50;
 const PING_INTERVAL = 30000;
 
 export function useWebSocket({ port, onEvent }) {
-    const resolvedPort = port || (typeof window !== 'undefined' ? window.location.port : 9527);
+    const resolvedPort = port != null ? port : typeof window !== 'undefined' ? window.location.port : 9527;
     const wsRef = useRef(null);
     const reconnectTimeoutRef = useRef(null);
     const pingIntervalRef = useRef(null);

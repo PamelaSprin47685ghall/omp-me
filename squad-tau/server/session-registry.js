@@ -13,6 +13,10 @@ function register(sessionId, entry) {
 }
 
 function unregister(sessionId) {
+    const entry = registry.get(sessionId);
+    if (entry) {
+        delete entry.returnResolver;
+    }
     registry.delete(sessionId);
 }
 
@@ -23,7 +27,7 @@ function get(sessionId) {
 function isActive(sessionId) {
     const entry = registry.get(sessionId);
     if (!entry) return false;
-    const inactive = ['completed', 'aborted', 'error'];
+    const inactive = ['completed', 'aborted', 'error', 'failed'];
     return !inactive.includes(entry.status);
 }
 

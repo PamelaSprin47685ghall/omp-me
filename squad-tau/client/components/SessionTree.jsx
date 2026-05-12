@@ -42,13 +42,31 @@ function useTreeHandlers(nodes, activeSessionId, onNodeClick) {
     nodes.map(n => enrichNode(n, activeSessionId))
   );
   
+  // Merge new node data while preserving expansion state
   React.useEffect(() => {
-    setContents(nodes.map(n => enrichNode(n, activeSessionId)));
+    setContents(prev => {
+      const prevExpanded = new Map();
+      const walk = (list) => {
+        list.forEach(n => {
+          prevExpanded.set(n.id, n.isExpanded);
+          if (n.childNodes) walk(n.childNodes);
+        });
+      };
+      walk(prev);
+
+      const merge = (list) => list.map(n => ({
+        ...n,
+        isExpanded: prevExpanded.has(n.id) ? prevExpanded.get(n.id) : n.isExpanded,
+        childNodes: n.childNodes ? merge(n.childNodes) : n.childNodes,
+      }));
+
+      return merge(nodes.map(n => enrichNode(n, activeSessionId)));
+    });
   }, [nodes, activeSessionId]);
   
   const handleNodeClick = useCallback((nodeData, nodePath) => {
     const node = getNodeAtPath(contents, nodePath);
-    if (node.sessionId) onNodeClick(node.sessionId);
+    if (node?.sessionId) onNodeClick(node.sessionId);
   }, [contents, onNodeClick]);
   
   const updateNodeAt = (nodes, path, isExpanded) => {

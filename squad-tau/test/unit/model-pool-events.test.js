@@ -68,7 +68,12 @@ describe('handleModelPoolMessage', () => {
             loadModelsConfig: () => [],
         };
 
-        await handleModelPoolMessage({ action: 'remove', index: 0 }, pool, localConfig, eventBus);
+        await handleModelPoolMessage(
+            { action: 'remove', slotId: pool.getSlots()[0].slotId },
+            pool,
+            localConfig,
+            eventBus,
+        );
 
         expect(pool.getSlots().length).toBe(1);
         expect(saved.length).toBe(1);
@@ -81,7 +86,12 @@ describe('handleModelPoolMessage', () => {
             loadModelsConfig: () => [],
         };
 
-        await handleModelPoolMessage({ action: 'edit', index: 0, thinkingLevel: 'high' }, pool, localConfig, eventBus);
+        await handleModelPoolMessage(
+            { action: 'edit', slotId: pool.getSlots()[0].slotId, thinkingLevel: 'high' },
+            pool,
+            localConfig,
+            eventBus,
+        );
 
         expect(pool.getSlots()[0].thinkingLevel).toBe('high');
         expect(saved.length).toBe(1);
@@ -114,14 +124,14 @@ describe('handleModelPoolMessage', () => {
         expect(pool.getSlots().length).toBe(3);
     });
 
-    test('edit without index does nothing', async () => {
+    test('edit without slotId does nothing', async () => {
         await handleModelPoolMessage({ action: 'edit', thinkingLevel: 'high' }, pool, configModule, eventBus);
         expect(pool.getSlots()[0].thinkingLevel).toBe('medium');
     });
 
-    test('remove invalid index does nothing', async () => {
+    test('remove invalid slotId does nothing', async () => {
         const originalLength = pool.getSlots().length;
-        await handleModelPoolMessage({ action: 'remove', index: 99 }, pool, configModule, eventBus);
+        await handleModelPoolMessage({ action: 'remove', slotId: 'nonexistent' }, pool, configModule, eventBus);
         expect(pool.getSlots().length).toBe(originalLength);
     });
 });

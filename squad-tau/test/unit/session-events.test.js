@@ -72,8 +72,8 @@ describe('subscribeToSessionEvents', () => {
         session.emit({
             type: 'tool_execution_start',
             toolName: 'read',
-            toolCallId: 'call-1',
-            args: { path: 'file.js' },
+            toolId: 'call-1',
+            input: { path: 'file.js' },
         });
 
         expect(events.length).toBe(1);
@@ -93,7 +93,7 @@ describe('subscribeToSessionEvents', () => {
 
         session.emit({
             type: 'tool_execution_end',
-            toolCallId: 'call-2',
+            toolId: 'call-2',
             result: { content: 'file contents' },
             isError: false,
         });
