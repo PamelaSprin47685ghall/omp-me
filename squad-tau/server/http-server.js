@@ -15,6 +15,7 @@ export function createApp() {
             if (err) return handleError(res, err);
             if (i >= stack.length) return handleNotFound(res);
             const mw = stack[i++];
+
             // If it's an API route that didn't match any handler, don't fall through to Vite/SPA
             if (req.url.startsWith('/api/') && mw._isVite) {
                 return handleNotFound(res);
@@ -28,6 +29,7 @@ export function createApp() {
         if (opts.isVite) mw._isVite = true;
         stack.push(mw);
     };
+
     app.get = (path, handler) =>
         stack.push((req, res, next) => {
             req.method === 'GET' && req.url === path ? handler(req, res) : next();

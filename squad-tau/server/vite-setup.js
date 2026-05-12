@@ -10,9 +10,9 @@ let startPromise = null;
 /**
  * Create a lazy Vite dev server middleware.
  * Vite is initialized on the first request, not eagerly.
- * Optionally accepts an http.Server instance for Vite to attach its WebSocket to.
+ * HMR is disabled to avoid WebSocket conflict with the ws server.
  */
-export async function createViteDevServer({ httpServer } = {}) {
+export async function createViteDevServer() {
     const shouldSkip = (process.env.NODE_ENV === 'test' && !process.env.SQUAD_E2E) || process.env.SKIP_VITE === 'true';
     if (shouldSkip) return (req, res, next) => next();
 
@@ -22,7 +22,7 @@ export async function createViteDevServer({ httpServer } = {}) {
 
         // Kick off Vite creation once, share across concurrent first requests.
         if (!startPromise) {
-            startPromise = startVite(httpServer).then((mw) => {
+            startPromise = startVite().then((mw) => {
                 realMiddleware = mw;
                 return mw;
             });
@@ -32,17 +32,14 @@ export async function createViteDevServer({ httpServer } = {}) {
     };
 }
 
-async function startVite(httpServer) {
+async function startVite(_httpServer) {
     const { importNodeModule } = await import('@oh-my-pi/resolve-pi');
     const { createServer } = await importNodeModule('vite');
-    const serverOpts = { middlewareMode: true, appType: 'spa' };
-    if (httpServer) {
-        serverOpts.hmr = { server: httpServer };
-    }
 
     viteServer = await createServer({
         root: CLIENT_ROOT,
-        server: serverOpts,
+        server: { middlewareMode: true, appType: 'spa' },
+        hmr: false,
         clearScreen: false,
         esbuild: {
             jsxFactory: 'React.createElement',

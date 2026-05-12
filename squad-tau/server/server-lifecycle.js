@@ -31,8 +31,8 @@ export async function startServer() {
     // 1. Create the raw HTTP server first (before binding, no request handler yet).
     const rawServer = createServer();
 
-    // 2. Pass it to Vite so Vite attaches its WS to our server (not a new one).
-    const viteMiddlewares = await createViteDevServer({ httpServer: rawServer });
+    // 2. Create Vite dev server middleware (HMR disabled; no WS conflict).
+    const viteMiddlewares = await createViteDevServer();
 
     // 3. Create the WS server on the same raw server.
     const { wss, unsub } = createWsServer(rawServer, eventBus, {
