@@ -4,7 +4,9 @@
   "type": "module",
   "scripts": {
     "test": "bun run test:squad && bun run test:tau && bun run test:deep-think && bun run test:s2u && bun run test:head && bun run test:search",
-    "test:squad": "bun test squad/",
+    "test:squad": "PORT=0 bun test squad-tau/test/unit/ squad-tau/test/integration/",
+    "test:squad:e2e": "PORT=0 bun test squad-tau/test/e2e/",
+    "test:squad:all": "PORT=0 bun test squad-tau/test/",
     "test:tau": "bun test oh-tau-mirror/",
     "test:deep-think": "bun test deep-think/",
     "test:s2u": "bun test degrade/",
