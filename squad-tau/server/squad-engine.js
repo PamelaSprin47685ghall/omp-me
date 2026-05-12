@@ -2,6 +2,7 @@ import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
 import { createDelegateHandler } from './submit-plan.js';
 import { executeDAG } from './dag-execute.js';
 import { createOnCompleteHandler } from './squad-complete.js';
+import { createViewManager } from './view-manager.js';
 import SquadFSM from './squad-fsm.js';
 import { register, unregister } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
@@ -61,9 +62,13 @@ function registerSquadCommand(pi, getServer) {
 
             ctx.ui?.notify(`Squad UI: http://127.0.0.1:${port}`, 'info');
 
+            const viewManager = createViewManager(eventBus, ctx);
+            viewManager.start();
+
             const onComplete = createOnCompleteHandler({ pi, fsm, eventBus });
 
             setupCurrentRun({
+                viewManager,
                 fsm,
                 ctx,
                 pi,
@@ -77,7 +82,11 @@ function registerSquadCommand(pi, getServer) {
             });
 
             fsm.activate();
-            await runSquadSession(pi, ctx, task, fsm, eventBus);
+            try {
+                await runSquadSession(pi, ctx, task, fsm, eventBus);
+            } finally {
+                viewManager.cleanup();
+            }
         },
     });
 }
