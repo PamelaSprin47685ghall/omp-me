@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { createTestEnvironment, setupSquadRun } from './squad-flow-setup.js';
-import { createDelegateHandler } from '../../server/submit-plan.js';
+import { processDelegate } from '../../server/submit-plan.js';
 import { getCurrentRun, clearCurrentRun } from '../../server/plugin-state.js';
 import fs from 'fs';
 import path from 'path';
@@ -32,7 +32,7 @@ describe('Squad Flow - M mode', () => {
                 await session.callTool('return', { status: 'ok', reason: 'conf' });
             else if (text.includes('最终审核者')) await session.callTool('return', { status: 'ok', reason: 'all' });
         });
-        const res = await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        const res = await processDelegate({ plan_dir: planDir }, getCurrentRun());
         expect(res.success).toBe(true);
         expect(squadFsm.state).toBe('idle');
         expect(events.some((e) => e.type === 'init')).toBe(true);
@@ -63,7 +63,7 @@ describe('Squad Flow - L mode Basic', () => {
             else if (text.includes('你的任务:') || text.includes('验证自己的交付质量'))
                 await session.callTool('return', { status: 'ok', reason: 'ok' });
         });
-        const res = await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        const res = await processDelegate({ plan_dir: planDir }, getCurrentRun());
         expect(res.success).toBe(true);
         expect(res.results.length).toBe(2);
     });
@@ -82,7 +82,7 @@ describe('Squad Flow - L mode Basic', () => {
         pi.pi.onPrompt(async (text, session) => {
             await session.callTool('return', { status: 'ok', reason: 'ok' });
         });
-        await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        await processDelegate({ plan_dir: planDir }, getCurrentRun());
         expect(times['n2']).toBeGreaterThanOrEqual(times['n1_e']);
     });
 });
@@ -114,7 +114,7 @@ describe('Squad Flow - Advanced', () => {
         pi.pi.onPrompt(async (t, s) => {
             await s.callTool('return', { status: 'ok', reason: 'ok' });
         });
-        await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        await processDelegate({ plan_dir: planDir }, getCurrentRun());
         expect(times['B']).toBeGreaterThanOrEqual(times['A_e']);
         expect(times['C']).toBeGreaterThanOrEqual(times['A_e']);
         expect(times['D']).toBeGreaterThanOrEqual(times['B_e']);
@@ -133,7 +133,7 @@ describe('Squad Flow - Advanced', () => {
             } catch (e) {}
         });
         try {
-            await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+            await processDelegate({ plan_dir: planDir }, getCurrentRun());
         } catch (e) {}
         expect(signal.aborted).toBe(true);
     });
@@ -177,7 +177,7 @@ describe('Squad Flow - Reject Flow', () => {
             await session.callTool('return', { status: 'ok', reason: 'done', affected_files: ['f.js'] });
         });
 
-        const res = await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        const res = await processDelegate({ plan_dir: planDir }, getCurrentRun());
         expect(res.success).toBe(true);
         expect(squadFsm.state).toBe('idle');
         expect(reviewerCalls).toBe(2);
@@ -224,14 +224,14 @@ describe('Squad Flow - Outer Review', () => {
         });
 
         // First delegation — outer review rejects
-        const res = await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        const res = await processDelegate({ plan_dir: planDir }, getCurrentRun());
         expect(res.success).toBe(true);
         // After outer review reject, FSM should be in 'active' state
         expect(squadFsm.state).toBe('active');
         expect(outerReviewCalls).toBe(1);
 
         // Re-delegate — outer review approves this time
-        const res2 = await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        const res2 = await processDelegate({ plan_dir: planDir }, getCurrentRun());
         expect(res2.success).toBe(true);
         expect(squadFsm.state).toBe('idle');
         expect(outerReviewCalls).toBe(2);

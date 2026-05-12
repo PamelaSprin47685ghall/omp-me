@@ -1,5 +1,4 @@
 import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
-import { createDelegateHandler } from './submit-plan.js';
 import { executeDAG } from './dag-execute.js';
 import { createOnCompleteHandler } from './squad-complete.js';
 import { createViewManager } from './view-manager.js';
@@ -7,41 +6,22 @@ import SquadFSM from './squad-fsm.js';
 import { register, unregister } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
 import { startServer, getGlobalEventBus, getGlobalModelPool, getServerPort } from './server-lifecycle.js';
-import { setCurrentRun, clearCurrentRun, getCurrentRun } from './plugin-state.js';
+import { setCurrentRun, clearCurrentRun } from './plugin-state.js';
+import { delegateTool, returnTool } from './lifecycle-tools.js';
 import path from 'path';
 import fs from 'fs';
 
 export default function squadPlugin(pi) {
     let server = null;
 
-    registerDelegateTool(pi);
+    pi.registerTool(delegateTool);
+    pi.registerTool(returnTool);
+
     registerSquadCommand(pi, () => {
         if (!server) server = startServer();
         return server;
     });
     registerSquadModelsCommand(pi);
-}
-
-function registerDelegateTool(pi) {
-    pi.registerTool({
-        name: 'delegate',
-        label: 'Delegate',
-        description: 'Delegate execution by reading plan nodes from a directory of .toml files',
-        parameters: {
-            type: 'object',
-            properties: {
-                plan_dir: { type: 'string', description: 'Directory containing .toml node definition files' },
-            },
-            required: ['plan_dir'],
-        },
-        async execute(_id, params, _sig, _upd, _childCtx) {
-            const run = getCurrentRun();
-            if (!run) throw new Error('No active squad run');
-            const handler = createDelegateHandler(run);
-            const result = await handler.handler(params);
-            return { content: [{ type: 'text', text: result.message || 'Delegated' }], display: false };
-        },
-    });
 }
 
 function registerSquadCommand(pi, getServer) {

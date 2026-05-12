@@ -1,9 +1,8 @@
 import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
-import { buildReturnTool } from './lifecycle-tools.js';
 import { buildWorkerPrompt as getWorkerPrompt, buildConfirmPrompt as getConfirmPrompt } from './run-worker-prompt.js';
 import { MAX_EMPTY_TURNS, createCounter } from './empty-turns.js';
 import { buildWorkerSessionOptions } from './session-options.js';
-import { register, unregister } from './session-registry.js';
+import { register, unregister, setReturnResolver } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
 
 function emitEnd(eventBus, sessionId, reason, errorMessage) {
@@ -12,8 +11,21 @@ function emitEnd(eventBus, sessionId, reason, errorMessage) {
     eventBus.emit('session', 'end', { sessionId, reason, errorMessage });
 }
 
-function buildWorkerReturnTool(state) {
-    return buildReturnTool((params) => {
+async function setupWorkerSession({ node, ctx, pi, modelSlot, eventBus, state }) {
+    const { SessionManager } = await getCodingAgentModule();
+    const options = buildWorkerSessionOptions(ctx, pi, modelSlot);
+    const sessionOpts = { ...options, sessionManager: SessionManager.create(options.cwd) };
+    const factoryResult = await pi.pi.createAgentSession(sessionOpts);
+    const session = factoryResult.session;
+    const sessionId = session.sessionFile;
+
+    register(sessionId, {
+        sendUserMessage: (text) => session.prompt(text),
+        session,
+        status: 'authoring',
+    });
+
+    setReturnResolver(sessionId, (params) => {
         if (params.status === 'error') {
             state.redo = true;
             state.redoReason = params.reason || '';
@@ -26,22 +38,6 @@ function buildWorkerReturnTool(state) {
             state.phase = 2;
             state.finalResolve({ reason: params.reason, affected_files: params.affected_files || [] });
         }
-    });
-}
-
-async function setupWorkerSession({ node, ctx, pi, modelSlot, eventBus, state }) {
-    const { SessionManager } = await getCodingAgentModule();
-    const options = buildWorkerSessionOptions(ctx, pi, modelSlot);
-    const returnTool = buildWorkerReturnTool(state);
-    const sessionOpts = { ...options, customTools: [returnTool], sessionManager: SessionManager.create(options.cwd) };
-    const factoryResult = await pi.pi.createAgentSession(sessionOpts);
-    const session = factoryResult.session;
-    const sessionId = session.sessionFile;
-
-    register(sessionId, {
-        sendUserMessage: (text) => session.prompt(text),
-        session,
-        status: 'authoring',
     });
 
     if (eventBus) {

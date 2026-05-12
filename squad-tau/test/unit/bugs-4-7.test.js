@@ -4,14 +4,14 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import { processDelegate } from '../../server/submit-plan.js';
+import { setCurrentRun, clearCurrentRun, getCurrentRun } from '../../server/plugin-state.js';
 
 /**
  * Bug 4: delegate handler onComplete must pass { results, mode, nodes } not raw array.
  */
 describe('delegate onComplete contract (Bug 4 fixed)', () => {
     it('delegate passes { results, mode, nodes } to onComplete', async () => {
-        const { createDelegateHandler } = await import('../../server/submit-plan.js');
-
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'delegate-test-'));
         fs.writeFileSync(
             path.join(tmpDir, 'n1.toml'),
@@ -23,7 +23,7 @@ describe('delegate onComplete contract (Bug 4 fixed)', () => {
 
         const fsm = { getState: () => 'active', deactivate: () => {}, revise: () => {} };
 
-        const handler = createDelegateHandler({
+        setCurrentRun({
             fsm,
             executeDAG: async () => [{ nodeId: 'n1', status: 'approved' }],
             ctx: {},
@@ -38,7 +38,7 @@ describe('delegate onComplete contract (Bug 4 fixed)', () => {
             },
         });
 
-        const result = await handler.handler({ plan_dir: tmpDir });
+        const result = await processDelegate({ plan_dir: tmpDir }, getCurrentRun());
 
         assert.ok(onCompleteCalled, 'onComplete must be called');
         assert.ok(onCompleteArg, 'onComplete arg must be truthy');
@@ -48,12 +48,11 @@ describe('delegate onComplete contract (Bug 4 fixed)', () => {
         assert.strictEqual(onCompleteArg.nodes.length, 1);
         assert.strictEqual(onCompleteArg.nodes[0].id, 'n1');
 
+        clearCurrentRun();
         fs.rmSync(tmpDir, { recursive: true });
     });
 
     it('delegate does not call onComplete when not provided', async () => {
-        const { createDelegateHandler } = await import('../../server/submit-plan.js');
-
         const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'delegate-test-'));
         fs.writeFileSync(
             path.join(tmpDir, 'n1.toml'),
@@ -62,7 +61,7 @@ describe('delegate onComplete contract (Bug 4 fixed)', () => {
 
         const fsm = { getState: () => 'active', deactivate: () => {}, revise: () => {} };
 
-        const handler = createDelegateHandler({
+        setCurrentRun({
             fsm,
             executeDAG: async () => [],
             ctx: {},
@@ -74,10 +73,11 @@ describe('delegate onComplete contract (Bug 4 fixed)', () => {
             // no onComplete
         });
 
-        const result = await handler.handler({ plan_dir: tmpDir });
+        const result = await processDelegate({ plan_dir: tmpDir }, getCurrentRun());
 
         assert.ok(result.success);
 
+        clearCurrentRun();
         fs.rmSync(tmpDir, { recursive: true });
     });
 });

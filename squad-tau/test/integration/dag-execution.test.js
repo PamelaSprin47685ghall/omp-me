@@ -7,7 +7,7 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { EventBus } from '../../server/event-bus.js';
 import { ModelPool } from '../../server/model-pool.js';
 import { createTestEnvironment, setupSquadRun } from './squad-flow-setup.js';
-import { createDelegateHandler } from '../../server/submit-plan.js';
+import { processDelegate } from '../../server/submit-plan.js';
 import { getCurrentRun, clearCurrentRun } from '../../server/plugin-state.js';
 import fs from 'fs';
 import path from 'path';
@@ -39,7 +39,7 @@ describe('dag-execution with mock createAgentSession', () => {
             }
         });
 
-        const res = await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        const res = await processDelegate({ plan_dir: planDir }, getCurrentRun());
         expect(res.success).toBe(true);
         expect(res.results.length).toBe(1);
         expect(res.results[0].status).toBe('approved');
@@ -65,7 +65,7 @@ describe('dag-execution with mock createAgentSession', () => {
             }
         });
 
-        await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        await processDelegate({ plan_dir: planDir }, getCurrentRun());
         // Both should succeed (n1 first, then n2)
         expect(order.length).toBe(2);
         expect(order[0]).toBe('first');
@@ -108,7 +108,7 @@ describe('dag-execution with mock createAgentSession', () => {
             }
         });
 
-        const res = await createDelegateHandler(getCurrentRun()).handler({ plan_dir: planDir });
+        const res = await processDelegate({ plan_dir: planDir }, getCurrentRun());
         expect(res.success).toBe(true);
         // Both nodes exist in results
         const results = res.results || [];

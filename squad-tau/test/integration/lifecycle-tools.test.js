@@ -3,7 +3,7 @@
  * Tests the return tool's resolver mechanism directly.
  */
 import { describe, test, expect } from 'bun:test';
-import { buildGlobalReturnTool } from '../../server/lifecycle-tools.js';
+import { returnTool } from '../../server/lifecycle-tools.js';
 import { register, unregister, setReturnResolver, clearReturnResolver } from '../../server/session-registry.js';
 
 function makeCtx(sessionFile) {
@@ -18,7 +18,7 @@ function makeCtx(sessionFile) {
 describe('return tool with session-registry resolver', () => {
     test('status ok resolves with reason and affected_files', async () => {
         const sessionId = 'rt-test-1';
-        const tool = buildGlobalReturnTool();
+        const tool = returnTool;
 
         register(sessionId, { sendUserMessage: () => {}, session: null, status: 'authoring' });
 
@@ -43,7 +43,7 @@ describe('return tool with session-registry resolver', () => {
 
     test('status error passes through reason', async () => {
         const sessionId = 'rt-test-2';
-        const tool = buildGlobalReturnTool();
+        const tool = returnTool;
 
         register(sessionId, { sendUserMessage: () => {}, session: null, status: 'authoring' });
 
@@ -60,7 +60,7 @@ describe('return tool with session-registry resolver', () => {
     });
 
     test('multiple sessions have independent resolvers', async () => {
-        const tool = buildGlobalReturnTool();
+        const tool = returnTool;
         const results = [];
 
         register('s1', { sendUserMessage: () => {}, session: null, status: 'authoring' });

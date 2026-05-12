@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import { createTestEnvironment, setupSquadRun } from './squad-flow-setup.js';
-import { createDelegateHandler } from '../../server/submit-plan.js';
+import { processDelegate } from '../../server/submit-plan.js';
 import { getCurrentRun, clearCurrentRun } from '../../server/plugin-state.js';
 import fs from 'fs';
 import path from 'path';
@@ -42,8 +42,7 @@ describe('Run Node Flow Lifecycle', () => {
             }
         });
 
-        const handler = createDelegateHandler(getCurrentRun()).handler;
-        const res = await handler({ plan_dir: planDir });
+        const res = await processDelegate({ plan_dir: planDir }, getCurrentRun());
 
         expect(res.success).toBe(true);
         expect(res.results[0].status).toBe('approved');
@@ -73,8 +72,7 @@ describe('Run Node Flow Lifecycle', () => {
             }
         });
 
-        const handler = createDelegateHandler(getCurrentRun()).handler;
-        const res = await handler({ plan_dir: planDir });
+        const res = await processDelegate({ plan_dir: planDir }, getCurrentRun());
 
         expect(res.success).toBe(true);
         expect(squadFsm.state).toBe('idle');
@@ -104,7 +102,7 @@ describe('Run Node Flow Lifecycle', () => {
             }
         });
 
-        const handlerFactory = () => createDelegateHandler(getCurrentRun()).handler;
+        const handlerFactory = () => (params) => processDelegate(params, getCurrentRun());
 
         // Delegation 1: outer review rejects
         const res1 = await handlerFactory()({ plan_dir: planDir });

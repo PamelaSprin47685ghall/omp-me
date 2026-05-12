@@ -127,29 +127,16 @@ async function finalize({
     };
 }
 
-function createDelegateHandler(deps) {
-    return {
-        name: 'delegate',
-        description: 'Delegate execution by reading plan nodes from a directory of .toml files',
-        parameters: {
-            type: 'object',
-            properties: {
-                plan_dir: { type: 'string', description: 'Directory containing .toml node definition files' },
-            },
-            required: ['plan_dir'],
-        },
-        handler: async ({ plan_dir }) => {
-            const { fsm, eventBus, originalTask } = deps;
-            const currentState = fsm.getState();
-            if (currentState !== 'active') {
-                throw new Error(`Cannot delegate in state: ${currentState}. Must be active.`);
-            }
-            const { nodes, mode } = readNodesFromDir(plan_dir);
-            validatePlan({ mode, nodes });
-            if (eventBus) eventBus.emit('squad', 'init', { mode, nodes, originalTask: originalTask || '' });
-            return await runDelegate({ nodes, mode, ...deps });
-        },
-    };
+async function processDelegate(params, runState) {
+    const { fsm, eventBus, originalTask } = runState;
+    const currentState = fsm.getState();
+    if (currentState !== 'active') {
+        throw new Error(`Cannot delegate in state: ${currentState}. Must be active.`);
+    }
+    const { nodes, mode } = readNodesFromDir(params.plan_dir);
+    validatePlan({ mode, nodes });
+    if (eventBus) eventBus.emit('squad', 'init', { mode, nodes, originalTask: originalTask || '' });
+    return await runDelegate({ nodes, mode, ...runState });
 }
 
 async function runDelegate(deps) {
@@ -186,4 +173,4 @@ async function runDelegate(deps) {
     }
 }
 
-export { createDelegateHandler };
+export { processDelegate };

@@ -1,8 +1,7 @@
 import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
-import { buildReturnTool } from './lifecycle-tools.js';
 import { OUTER_REVIEW_MAX_EMPTY, createCounter } from './empty-turns.js';
 import { buildBaseSessionOptions } from './session-options.js';
-import { register, unregister } from './session-registry.js';
+import { register, unregister, setReturnResolver } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
 
 function buildOuterReviewPrompt(originalTask, nodeResults, round) {
@@ -44,11 +43,6 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
     const childAbort = new AbortController();
     let settled = false;
 
-    const returnTool = buildReturnTool((params) => {
-        settled = true;
-        outcomeResolve({ approved: params.status === 'ok', reason: params.reason });
-    });
-
     const { sessionOpts, promptText } = await prepareReviewSession(
         nodeResults,
         originalTask,
@@ -56,7 +50,6 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
         ctx,
         pi,
         modelSlot,
-        returnTool,
     );
 
     if (signal)
@@ -79,6 +72,11 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
             eventBus,
             round,
         ));
+
+        setReturnResolver(sessionId, (params) => {
+            settled = true;
+            outcomeResolve({ approved: params.status === 'ok', reason: params.reason });
+        });
 
         const outcome = await executeOuterReviewLoop(session, promptText, childAbort, () => settled, outcomePromise);
         if (!outcome) {
@@ -126,11 +124,11 @@ async function executeOuterReviewLoop(session, promptText, childAbort, isSettled
     return await outcomePromise;
 }
 
-async function prepareReviewSession(nodeResults, originalTask, round, ctx, pi, modelSlot, returnTool) {
+async function prepareReviewSession(nodeResults, originalTask, round, ctx, pi, modelSlot) {
     const { SessionManager } = await getCodingAgentModule();
     const options = buildBaseSessionOptions(ctx, pi, modelSlot);
     options.toolNames = ['read', 'search', 'find', 'lsp', 'bash', 'return'];
-    const sessionOpts = { ...options, customTools: [returnTool], sessionManager: SessionManager.create(options.cwd) };
+    const sessionOpts = { ...options, sessionManager: SessionManager.create(options.cwd) };
     const promptText = buildOuterReviewPrompt(originalTask, nodeResults, round);
     return { sessionOpts, promptText };
 }

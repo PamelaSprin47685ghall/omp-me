@@ -58,9 +58,11 @@ export function buildReviewerPrompt({ node, workerResult, iterationHistory }) {
 
     sections.push(
         '\n---',
-        '结束时调用：',
-        '- return({ status: "ok", reason: "..." }) — 通过',
-        '- return({ status: "error", reason: "..." }) — 驳回附详细修改意见',
+        '评审结束时，必须调用名为 return 的工具提交结果：',
+        '- 参数 status: "ok" (通过) 或 "error" (驳回)',
+        '- 参数 reason: 详细的修改意见或通过理由',
+        '',
+        '不要用纯文本写 return(...) 的假代码。只有真正的工具调用才有效。',
     );
 
     return sections.join('\n');

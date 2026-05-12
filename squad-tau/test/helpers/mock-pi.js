@@ -1,9 +1,11 @@
+import { returnTool } from '../../server/lifecycle-tools.js';
+
 export function stubPi() {
     const commandRegistry = [];
     const toolRegistry = [];
     const eventHandlers = new Map();
 
-    const piApi = {
+    const pi = {
         _globalOnPrompt: null,
         onPrompt(callback) {
             this._globalOnPrompt = callback;
@@ -56,7 +58,7 @@ export function stubPi() {
                     // Store callback for deferred execution by waitForIdle().
                     // In production, prompt() initiates streaming and returns immediately;
                     // isStreaming is true until the LLM finishes.
-                    const cb = session._localOnPrompt || piApi._globalOnPrompt;
+                    const cb = session._localOnPrompt || pi._globalOnPrompt;
                     if (cb) {
                         session._pendingCb = cb;
                         session._pendingText = text;
@@ -94,7 +96,7 @@ export function stubPi() {
         },
     };
 
-    return {
+    const outerApi = {
         registerCommand(name, opts) {
             commandRegistry.push({ name, opts });
         },
@@ -152,9 +154,12 @@ export function stubPi() {
             if (!tool) throw new Error(`Tool not found: ${name}`);
             return tool.def.execute(params.id || 'test-call', params, null, () => {}, ctx);
         },
-        pi: piApi,
+        pi,
         _commandRegistry: commandRegistry,
         _toolRegistry: toolRegistry,
         _eventHandlers: eventHandlers,
     };
+
+    outerApi.registerTool(returnTool);
+    return outerApi;
 }
