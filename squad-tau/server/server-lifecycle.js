@@ -18,8 +18,10 @@ import { getCurrentRun } from './plugin-state.js';
 
 let _server = null;
 let _close = null;
+let _refCount = 0;
 
 export async function startServer() {
+    _refCount++;
     if (_server) return { port: _server.port, eventBus: _server.eventBus, modelPool: _server.modelPool };
 
     const eventBus = new EventBus();
@@ -97,7 +99,11 @@ export async function startServer() {
 
 export async function stopServer() {
     if (!_close) return;
-    await _close();
+    _refCount--;
+    if (_refCount <= 0) {
+        await _close();
+        _refCount = 0;
+    }
 }
 
 export function getGlobalEventBus() {
