@@ -14,12 +14,20 @@ export function createApp() {
         const next = (err) => {
             if (err) return handleError(res, err);
             if (i >= stack.length) return handleNotFound(res);
-            stack[i++](req, res, next);
+            const mw = stack[i++];
+            // If it's an API route that didn't match any handler, don't fall through to Vite/SPA
+            if (req.url.startsWith('/api/') && mw._isVite) {
+                return handleNotFound(res);
+            }
+            mw(req, res, next);
         };
         next();
     };
 
-    app.use = (mw) => stack.push(mw);
+    app.use = (mw, opts = {}) => {
+        if (opts.isVite) mw._isVite = true;
+        stack.push(mw);
+    };
     app.get = (path, handler) =>
         stack.push((req, res, next) => {
             req.method === 'GET' && req.url === path ? handler(req, res) : next();
@@ -62,7 +70,7 @@ export async function createHttpServer({ viteMiddlewares, server: existingServer
         );
     });
 
-    if (viteMiddlewares) app.use(viteMiddlewares);
+    if (viteMiddlewares) app.use(viteMiddlewares, { isVite: true });
 
     const server = existingServer || createServer();
     attach(server);
