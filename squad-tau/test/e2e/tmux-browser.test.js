@@ -10,6 +10,7 @@
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { startServer, stopServer } from '../../server/server-lifecycle.js';
+import { register, unregister } from '../../server/session-registry.js';
 import { setupBrowser, teardownBrowser, waitForAppWebSocket } from '../helpers/puppeteer-setup.js';
 
 // ---------------------------------------------------------------------------
@@ -50,10 +51,17 @@ describe('Tmux Browser — UI Content', () => {
         eventBus = server.eventBus;
         const b = await setupBrowser();
         browser = b.browser;
+
+        // Register e2e test session IDs so backend accepts session:user_message
+        const testSessions = ['sess-1', 's1', 'sess-a', 'sess-b', 's-a', 's-b', 's-x', 's-y'];
+        for (const sid of testSessions) {
+            register(sid, { sendUserMessage: () => {}, session: null, status: 'authoring' });
+        }
     }, 60000);
 
     afterAll(async () => {
         await teardownBrowser(browser);
+        ['sess-1', 's1', 'sess-a', 'sess-b', 's-a', 's-b', 's-x', 's-y'].forEach(unregister);
         await stopServer();
     });
 
