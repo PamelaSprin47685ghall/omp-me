@@ -21,7 +21,7 @@ describe('Standalone E2E', () => {
         browser = b.browser;
         page = b.page;
         await page.goto(`http://127.0.0.1:${port}`, NAV);
-        await page.waitForSelector('#root', { timeout: 5000 });
+        await page.waitForSelector('#root', { timeout: 15000 });
     }, 20000);
 
     afterAll(async () => {

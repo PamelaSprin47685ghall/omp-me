@@ -1,4 +1,5 @@
 import { getCurrentRun } from './plugin-state.js';
+import fs from 'fs';
 
 export function createOnCompleteHandler({ pi, fsm, eventBus }) {
     return ({ results, mode, nodes, durationMs }) => {
@@ -25,7 +26,7 @@ export function createOnCompleteHandler({ pi, fsm, eventBus }) {
                     null,
                     2,
                 );
-                require('fs').writeFileSync(markerPath, marker, 'utf8');
+                fs.writeFileSync(markerPath, marker, 'utf8');
             } catch {}
         }
     };

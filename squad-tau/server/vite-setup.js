@@ -22,10 +22,16 @@ export async function createViteDevServer() {
 
         // Kick off Vite creation once, share across concurrent first requests.
         if (!startPromise) {
-            startPromise = startVite().then((mw) => {
-                realMiddleware = mw;
-                return mw;
-            });
+            startPromise = startVite()
+                .then((mw) => {
+                    realMiddleware = mw;
+                    return mw;
+                })
+                .catch((err) => {
+                    // On failure, reset so the next request retries.
+                    startPromise = null;
+                    throw err;
+                });
         }
 
         startPromise.then((mw) => mw(req, res, next)).catch(next);
