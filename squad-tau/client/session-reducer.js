@@ -76,10 +76,18 @@ function handleSessionToolCall(state, payload) {
     const { sessionId, toolName, toolId, params } = payload;
     const messages = new Map(state.messages);
     const list = messages.get(sessionId) || [];
-    messages.set(sessionId, [
-        ...list,
-        { role: 'assistant', messageId: toolId, content: [{ type: 'tool_call', toolName, toolId, params }] },
-    ]);
+    const existingIdx = list.findIndex((msg) => msg.messageId === toolId);
+    if (existingIdx !== -1) {
+        const updated = list.map((msg, i) =>
+            i === existingIdx ? { ...msg, content: [{ type: 'tool_call', toolName, toolId, params }] } : msg,
+        );
+        messages.set(sessionId, updated);
+    } else {
+        messages.set(sessionId, [
+            ...list,
+            { role: 'assistant', messageId: toolId, content: [{ type: 'tool_call', toolName, toolId, params }] },
+        ]);
+    }
     return { ...state, messages };
 }
 

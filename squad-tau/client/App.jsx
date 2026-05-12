@@ -140,7 +140,13 @@ export default function App() {
   const [dagCollapsed, setDagCollapsed] = useState(false);
 
   useAppEffects(isDark, send, sendModelPoolUpdate);
-  
+
+  // Expose APIs for test/synthetic event injection
+  useEffect(() => {
+    window.__squadEventBus = handleEvent;
+    window.__setActiveSessionId = setActiveSessionId;
+  }, [handleEvent, setActiveSessionId]);
+
   const handleNodeClick = (nodeId) => {
     const nodeSession = Object.values(sessions).find(s => s.nodeId === nodeId);
     if (nodeSession) setActiveSessionId(nodeSession.sessionId);

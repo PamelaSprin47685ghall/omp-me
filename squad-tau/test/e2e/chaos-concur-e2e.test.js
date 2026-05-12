@@ -203,10 +203,10 @@ describe('Chaos: Browser concurrency path', () => {
                 retryCount: i + 1,
             });
         }
-        // Verify some session labels appeared
-        await page.waitForFunction(() => document.body.innerText.includes('R1-worker'), { timeout: 5000 });
+        // Verify some session labels appeared (label = retryCount+1)
+        await page.waitForFunction(() => document.body.innerText.includes('R2-worker'), { timeout: 5000 });
         await page
-            .waitForFunction(() => document.body.innerText.includes('R10-worker'), { timeout: 3000 })
+            .waitForFunction(() => document.body.innerText.includes('R11-worker'), { timeout: 3000 })
             .catch(() => {});
         await page.close();
     }, 15000);

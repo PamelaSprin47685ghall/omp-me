@@ -63,7 +63,7 @@ export default function ThinkingBlock({ content, isStreaming = false, messageId 
   const [isOpen, setIsOpen] = useState(() => {
     try {
       const pref = localStorage.getItem('thinking_user_preference');
-      return pref === 'expanded';
+      return pref !== 'collapsed';
     } catch {
       return true;
     }

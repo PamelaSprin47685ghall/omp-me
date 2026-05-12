@@ -75,8 +75,8 @@ describe('Standalone E2E', () => {
 
         await page.waitForFunction(() => document.body.innerText.includes('NodeA'), { timeout: 5000 });
         await page.waitForFunction(() => document.body.innerText.includes('NodeB'), { timeout: 5000 });
-        await page.waitForFunction(() => document.body.innerText.includes('R1-worker'), { timeout: 5000 });
-        await page.waitForFunction(() => document.body.innerText.includes('R1-reviewer'), { timeout: 5000 });
+        await page.waitForFunction(() => document.body.innerText.includes('R2-worker'), { timeout: 5000 });
+        await page.waitForFunction(() => document.body.innerText.includes('R2-reviewer'), { timeout: 5000 });
     }, 15000);
 
     test('error banner on node failure', async () => {

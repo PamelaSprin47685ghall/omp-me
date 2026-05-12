@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Card, Collapse, Icon } from '@blueprintjs/core';
 import { IconNames } from '@blueprintjs/icons';
 import mermaid from 'mermaid';
@@ -63,7 +63,23 @@ function nodeStateKey(nodes, activeNodeId) {
   return nodes.map(n => `${n.id}:${n.status}`).join('|') + `!!active:${activeNodeId}`;
 }
 
+function attachClickHandlers(container, onNodeClickRef) {
+  if (!container) return;
+  const svg = container.querySelector('svg');
+  if (!svg) return;
+  svg.style.maxWidth = '100%';
+  svg.querySelectorAll('g.node').forEach(g => {
+    g.style.cursor = 'pointer';
+    const label = g.querySelector('text');
+    if (label) label.style.fontFamily = 'inherit';
+    const nodeId = label?.textContent?.replace(/[()\[\]]/g, '') ?? '';
+    g.onclick = () => nodeId && onNodeClickRef.current?.(nodeId);
+  });
+}
+
 function useMermaidRender(nodeList, activeNodeId, onNodeClick) {
+  const onNodeClickRef = useRef(onNodeClick);
+  onNodeClickRef.current = onNodeClick;
   const containerRef = useRef(null);
   const renderedKeyRef = useRef(null);
   const stateKey = nodeStateKey(nodeList, activeNodeId);
@@ -76,29 +92,16 @@ function useMermaidRender(nodeList, activeNodeId, onNodeClick) {
     try {
       const { svg } = await mermaid.render(id, diagram);
       if (containerRef.current) containerRef.current.innerHTML = svg;
+      attachClickHandlers(containerRef.current, onNodeClickRef);
     } catch (err) {
       console.error('[DAGView] mermaid render error:', err);
     }
   }, [activeNodeId]);
 
   useEffect(() => {
-    if (stateKey === renderedKeyRef.current) return;
     renderedKeyRef.current = stateKey;
     renderDiagram(nodeList);
   }, [stateKey, nodeList, renderDiagram]);
-
-  useEffect(() => {
-    const el = containerRef.current?.querySelector('svg');
-    if (!el) return;
-    el.style.maxWidth = '100%';
-    el.querySelectorAll('g.node').forEach(g => {
-      g.style.cursor = 'pointer';
-      const label = g.querySelector('text');
-      if (label) label.style.fontFamily = 'inherit';
-      const nodeId = label?.textContent?.replace(/[()[\]]/g, '') ?? '';
-      g.onclick = () => nodeId && onNodeClick?.(nodeId);
-    });
-  }, [nodeList, onNodeClick]);
 
   return containerRef;
 }
@@ -107,7 +110,8 @@ function useMermaidRender(nodeList, activeNodeId, onNodeClick) {
  * Renders a Mermaid DAG visualization for squad nodes.
  * @param {import('../types').DAGViewProps} props
  */
-export default function DAGView({ nodes, activeNodeId, onNodeClick, collapsed, onToggle }) {
+export default function DAGView({ nodes, activeNodeId, onNodeClick }) {
+  const [expanded, setExpanded] = useState(true);
   const nodeList = useMemo(() => {
     if (!nodes) return [];
     if (Array.isArray(nodes)) return nodes;
@@ -119,11 +123,11 @@ export default function DAGView({ nodes, activeNodeId, onNodeClick, collapsed, o
 
   return (
     <Card style={PANEL_STYLE} elevation={2}>
-      <div style={TOGGLE_STYLE} onClick={onToggle} role="button" aria-expanded={!collapsed}>
-        <Icon icon={collapsed ? IconNames.CHEVRON_RIGHT : IconNames.CHEVRON_DOWN} size={14} />
+      <div style={TOGGLE_STYLE} onClick={() => setExpanded(v => !v)} role="button" aria-expanded={expanded}>
+        <Icon icon={expanded ? IconNames.CHEVRON_DOWN : IconNames.CHEVRON_RIGHT} size={14} />
         <span>DAG View</span>
       </div>
-      <Collapse isOpen={!collapsed}>
+      <Collapse isOpen={expanded}>
         <div style={DAG_WRAPPER_STYLE}>
           <div style={DAG_CONTAINER_STYLE}>
             <div ref={containerRef} />

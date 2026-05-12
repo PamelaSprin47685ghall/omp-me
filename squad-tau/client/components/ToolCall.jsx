@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { Card, Collapse, Spinner, Icon } from '@blueprintjs/core';
 import { IconNames } from '@blueprintjs/icons';
 
@@ -124,7 +124,15 @@ export default function ToolCall({ toolCall, toolResult, isLatest, borderColor }
 
   const [expanded, setExpanded] = useState(isLatest ?? false);
   const [paramsOpen, setParamsOpen] = useState(true);
-  const [resultOpen, setResultOpen] = useState(isError || (isLatest && hasResult));
+  const [resultOpen, setResultOpen] = useState(isError || hasResult);
+
+  // When result becomes available, auto-expand the result section
+  useEffect(() => {
+    if (hasResult && !resultOpen) setResultOpen(true);
+  }, [hasResult]);
+  useEffect(() => {
+    if (isLatest && !expanded) setExpanded(true);
+  }, [isLatest]);
 
   const toggleExpanded = useCallback(() => setExpanded((v) => !v), []);
   const toggleParams = useCallback(() => setParamsOpen((v) => !v), []);

@@ -71,7 +71,7 @@ function buildTreeNodes(sessions, nodes) {
     
     nodeMap.get(nodeId).childNodes.push({
       id: sessionId,
-      label: `R${retryCount || 1}-${phase}`,
+      label: `R${retryCount != null ? retryCount + 1 : 1}-${phase}`,
       icon: getStatusIcon(status || 'pending'),
       sessionId
     });

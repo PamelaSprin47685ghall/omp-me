@@ -39,8 +39,15 @@ export async function createViteDevServer() {
 }
 
 async function startVite(_httpServer) {
-    const { importNodeModule } = await import('@oh-my-pi/resolve-pi');
-    const { createServer } = await importNodeModule('vite');
+    let createServer;
+    try {
+        // Try OMP's module resolver first
+        const { importNodeModule } = await import('@oh-my-pi/resolve-pi');
+        createServer = (await importNodeModule('vite')).createServer;
+    } catch {
+        // Fall back to regular import (works in test/standalone env)
+        createServer = (await import('vite')).createServer;
+    }
 
     viteServer = await createServer({
         root: CLIENT_ROOT,

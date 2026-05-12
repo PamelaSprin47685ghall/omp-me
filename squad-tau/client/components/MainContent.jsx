@@ -141,15 +141,13 @@ function useFailedNodes(nodes) {
   }, [nodes]);
 }
 
-function DAGSection({ nodes, activeSession, dagCollapsed, onNodeClick, onToggleDAG }) {
+function DAGSection({ nodes, activeSession, dagCollapsed, onNodeClick }) {
   if (dagCollapsed) return null;
   return (
     <DAGView
       nodes={Array.from(nodes.values())}
       activeNodeId={activeSession?.nodeId}
       onNodeClick={onNodeClick}
-      collapsed={dagCollapsed}
-      onToggle={onToggleDAG}
     />
   );
 }
@@ -159,7 +157,9 @@ export default function MainContent({
   dagCollapsed, onToggleDAG, onNodeClick, onOpenModelPool,
   onOptimisticMessage, send, results
 }) {
-  const activeSession = sessions[activeSessionId];
+  const activeSession = Array.isArray(sessions)
+    ? sessions.find(s => s.sessionId === activeSessionId)
+    : sessions[activeSessionId];
   const activeMessages = messages[activeSessionId] || [];
   const sessionRole = getSessionRole(activeSession);
   const details = useMessageDetails(activeMessages, activeSessionId);
@@ -175,7 +175,6 @@ export default function MainContent({
       <DAGSection
         nodes={nodes} activeSession={activeSession}
         dagCollapsed={dagCollapsed} onNodeClick={onNodeClick}
-        onToggleDAG={onToggleDAG}
       />
       <StatusBarSection activeSession={activeSession} />
       <MessageListSection activeMessages={activeMessages} sessionRole={sessionRole} details={details} />
