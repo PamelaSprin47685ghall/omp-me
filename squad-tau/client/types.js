@@ -102,7 +102,7 @@
 /** @typedef {Object} ModelPoolUpdate
  * @property {'add'|'remove'|'edit'} action
  * @property {ModelSlot} [slot]
- * @property {number} [index] */
+ * @property {string} [slotId] */
 
 /** @typedef {Object} SessionInfo
  * @property {string} sessionId

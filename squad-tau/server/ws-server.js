@@ -8,7 +8,6 @@ let wsModulePromise = null;
 
 async function getWsModule() {
     if (!wsModulePromise) {
-        // Use importNodeModule to bypass OMP's bare-import rewriting and resolve from root node_modules.
         wsModulePromise = import('@oh-my-pi/resolve-pi').then((mod) =>
             mod.importNodeModule('ws').then((m) => m.WebSocketServer),
         );
@@ -22,13 +21,9 @@ export async function createWsServer(httpServer, eventBus, { onConnection, onMes
 
     wss.on('connection', (ws) => {
         ws._connId = nextConnId++;
-
-        // Enable heartbeat ping-pong
-        ws.isAlive = true;
-        ws._lastPong = Date.now();
+        ws._missedPongs = 0;
         ws.on('pong', () => {
-            ws.isAlive = true;
-            ws._lastPong = Date.now();
+            ws._missedPongs = 0;
         });
 
         ws.send(
@@ -49,7 +44,6 @@ export async function createWsServer(httpServer, eventBus, { onConnection, onMes
         });
     });
 
-    // Broadcast all eventBus events to every connected client
     let unsub = () => {};
     if (eventBus) {
         unsub = eventBus.on('*', (payload, type) => {

@@ -36,30 +36,53 @@ async function runReviewerPhase(args, workerResult) {
     }
 }
 
-async function runNode(args) {
-    const { node, eventBus } = args;
+function buildApprovedResult(node, workerResult) {
+    return {
+        nodeId: node.id,
+        status: STATUS.APPROVED,
+        summary: workerResult.reason,
+        affectedFiles: workerResult.affected_files,
+    };
+}
+
+function emitApproved(eventBus, node) {
+    eventBus.emit('squad', 'node_state', {
+        nodeId: node.id,
+        status: STATUS.APPROVED,
+        timestamp: Date.now(),
+    });
+}
+
+function buildIterationEntry(workerResult, reviewResult) {
+    return {
+        workRecord: { reason: workerResult.reason, affected_files: workerResult.affected_files },
+        feedback: reviewResult.reason,
+    };
+}
+
+function emitRejected(eventBus, node, retryCount) {
+    eventBus.emit('squad', 'node_state', {
+        nodeId: node.id,
+        status: STATUS.REJECTED,
+        retryCount,
+        timestamp: Date.now(),
+    });
+}
+
+function executeRetryLoop(node, eventBus, args) {
+    const maxRetries = DEFAULTS.MAX_RETRIES;
     let reviewerFeedback = null;
     let retryCount = 0;
     const iterationHistory = [];
 
-    const maxRetries = DEFAULTS.MAX_RETRIES;
-    try {
+    return (async function runIteration() {
         while (true) {
             const workerResult = await runWorkerPhase({ ...args, reviewerFeedback, retryCount, iterationHistory });
             const reviewResult = await runReviewerPhase({ ...args, iterationHistory }, workerResult);
 
             if (reviewResult.approved) {
-                eventBus.emit('squad', 'node_state', {
-                    nodeId: node.id,
-                    status: STATUS.APPROVED,
-                    timestamp: Date.now(),
-                });
-                return {
-                    nodeId: node.id,
-                    status: STATUS.APPROVED,
-                    summary: workerResult.reason,
-                    affectedFiles: workerResult.affected_files,
-                };
+                emitApproved(eventBus, node);
+                return buildApprovedResult(node, workerResult);
             }
 
             retryCount++;
@@ -68,25 +91,28 @@ async function runNode(args) {
                     `Max retries (${maxRetries}) exceeded for node ${node.id}. Last feedback: ${reviewResult.reason}`,
                 );
             }
-            iterationHistory.push({
-                workRecord: { reason: workerResult.reason, affected_files: workerResult.affected_files },
-                feedback: reviewResult.reason,
-            });
+            iterationHistory.push(buildIterationEntry(workerResult, reviewResult));
             reviewerFeedback = reviewResult.reason;
-            eventBus.emit('squad', 'node_state', {
-                nodeId: node.id,
-                status: STATUS.REJECTED,
-                retryCount,
-                timestamp: Date.now(),
-            });
+            emitRejected(eventBus, node, retryCount);
         }
+    })();
+}
+
+function emitFailed(eventBus, node, error) {
+    eventBus.emit('squad', 'node_state', {
+        nodeId: node.id,
+        status: STATUS.FAILED,
+        error: error.message,
+        timestamp: Date.now(),
+    });
+}
+
+async function runNode(args) {
+    const { node, eventBus } = args;
+    try {
+        return await executeRetryLoop(node, eventBus, args);
     } catch (error) {
-        eventBus.emit('squad', 'node_state', {
-            nodeId: node.id,
-            status: STATUS.FAILED,
-            error: error.message,
-            timestamp: Date.now(),
-        });
+        emitFailed(eventBus, node, error);
         throw error;
     }
 }

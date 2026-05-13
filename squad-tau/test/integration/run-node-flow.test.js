@@ -26,7 +26,10 @@ describe('Run Node Flow Lifecycle', () => {
         setupSquadRun(env);
         squadFsm.activate();
 
-        fs.writeFileSync(path.join(planDir, 'node1.toml'), 'task = "do work"');
+        fs.writeFileSync(
+            path.join(planDir, 'node1.toml'),
+            'task = "do work"\nreview_criteria = ["Output is correct and complete"]',
+        );
 
         pi.pi.onPrompt(async (text, session) => {
             if (text.includes('最终审核者')) {
@@ -54,7 +57,10 @@ describe('Run Node Flow Lifecycle', () => {
         setupSquadRun(env);
         squadFsm.activate();
 
-        fs.writeFileSync(path.join(planDir, 'node1.toml'), 'task = "do work"');
+        fs.writeFileSync(
+            path.join(planDir, 'node1.toml'),
+            'task = "do work"\nreview_criteria = ["Meets acceptance criteria"]',
+        );
 
         let reviewerCalls = 0;
         pi.pi.onPrompt(async (text, session) => {
@@ -85,8 +91,14 @@ describe('Run Node Flow Lifecycle', () => {
         squadFsm.activate();
 
         // L mode requires at least 2 nodes or it defaults to M (if only 1)
-        fs.writeFileSync(path.join(planDir, 'A.toml'), 'task = "task A"');
-        fs.writeFileSync(path.join(planDir, 'B.toml'), 'task = "task B"');
+        fs.writeFileSync(
+            path.join(planDir, 'A.toml'),
+            'task = "task A"\nreview_criteria = ["Task A output is complete"]',
+        );
+        fs.writeFileSync(
+            path.join(planDir, 'B.toml'),
+            'task = "task B"\nreview_criteria = ["Task B output is complete"]',
+        );
 
         let outerReviewCalls = 0;
         pi.pi.onPrompt(async (text, session) => {

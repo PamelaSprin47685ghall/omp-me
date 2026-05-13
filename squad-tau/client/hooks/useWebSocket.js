@@ -11,6 +11,7 @@ export function useWebSocket({ port, onEvent }) {
     const pingIntervalRef = useRef(null);
     const backoffIndexRef = useRef(0);
     const reconnectAttemptsRef = useRef(0);
+    const lastPongRef = useRef(true);
     const onEventRef = useRef(onEvent);
     const [connected, setConnected] = useState(false);
 
@@ -37,11 +38,16 @@ export function useWebSocket({ port, onEvent }) {
     const startPing = useCallback(() => {
         clearInterval(pingIntervalRef.current);
         pingIntervalRef.current = setInterval(() => {
+            if (!lastPongRef.current) {
+                disconnect();
+                return;
+            }
+            lastPongRef.current = false;
             if (wsRef.current?.readyState === WebSocket.OPEN) {
                 wsRef.current.send(JSON.stringify({ type: 'ping' }));
             }
         }, PING_INTERVAL);
-    }, []);
+    }, [disconnect]);
 
     const connect = useCallback(() => {
         clearTimers();
@@ -60,7 +66,12 @@ export function useWebSocket({ port, onEvent }) {
 
         ws.onmessage = (event) => {
             try {
-                const { type, payload } = JSON.parse(event.data);
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'pong') {
+                    lastPongRef.current = true;
+                    return;
+                }
+                const { type, payload } = msg;
                 try {
                     onEventRef.current(type, payload);
                 } catch (err) {

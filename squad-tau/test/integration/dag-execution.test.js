@@ -29,7 +29,10 @@ describe('dag-execution with mock createAgentSession', () => {
         const { pi, squadFsm } = env;
         setupSquadRun(env);
         squadFsm.activate();
-        fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "work"');
+        fs.writeFileSync(
+            path.join(planDir, 'n1.toml'),
+            'task = "work"\nreview_criteria = ["Output is correct and complete"]',
+        );
 
         pi.pi.onPrompt(async (text, session) => {
             if (text.includes('最终审核者') || text.includes('审核专员')) {
@@ -49,8 +52,14 @@ describe('dag-execution with mock createAgentSession', () => {
         const { pi, squadFsm } = env;
         setupSquadRun(env);
         squadFsm.activate();
-        fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "first"');
-        fs.writeFileSync(path.join(planDir, 'n2.toml'), 'task = "second"\ndepends_on = ["n1"]');
+        fs.writeFileSync(
+            path.join(planDir, 'n1.toml'),
+            'task = "first"\nreview_criteria = ["Output matches requirements"]',
+        );
+        fs.writeFileSync(
+            path.join(planDir, 'n2.toml'),
+            'task = "second"\nreview_criteria = ["Integrates with n1 correctly"]\ndepends_on = ["n1"]',
+        );
 
         const order = [];
         pi.pi.onPrompt(async (text, session) => {
@@ -84,8 +93,11 @@ describe('dag-execution with mock createAgentSession', () => {
         env.modelPool = modelPool;
         setupSquadRun(env, 'two dependent nodes');
         squadFsm.activate();
-        fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "fail-me"');
-        fs.writeFileSync(path.join(planDir, 'n2.toml'), 'task = "dependent"\ndepends_on = ["n1"]');
+        fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "fail-me"\nreview_criteria = ["Edge cases handled"]');
+        fs.writeFileSync(
+            path.join(planDir, 'n2.toml'),
+            'task = "dependent"\nreview_criteria = ["Dependencies resolved"]\ndepends_on = ["n1"]',
+        );
 
         let rejectCount = 0;
         pi.pi.onPrompt(async (text, session) => {

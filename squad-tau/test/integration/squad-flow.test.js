@@ -21,7 +21,7 @@ describe('Squad Flow - M mode', () => {
         const { pi, eventBus, squadFsm } = env;
         setupSquadRun(env);
         squadFsm.activate();
-        fs.writeFileSync(path.join(planDir, 'node1.toml'), 'task = "do work"');
+        fs.writeFileSync(path.join(planDir, 'node1.toml'), 'task = "do work"\nreview_criteria = ["Output is correct"]');
         let events = [];
         eventBus.on('squad:*', (data, event) => events.push({ type: event.split(':')[1], data }));
         pi.pi.onPrompt(async (text, session) => {
@@ -55,8 +55,8 @@ describe('Squad Flow - L mode Basic', () => {
         const { pi, squadFsm } = env;
         setupSquadRun(env);
         squadFsm.activate();
-        fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "w1"');
-        fs.writeFileSync(path.join(planDir, 'n2.toml'), 'task = "w2"');
+        fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "w1"\nreview_criteria = ["w1 output correct"]');
+        fs.writeFileSync(path.join(planDir, 'n2.toml'), 'task = "w2"\nreview_criteria = ["w2 output correct"]');
         pi.pi.onPrompt(async (text, session) => {
             if (text.includes('审核专员') || text.includes('最终审核者'))
                 await session.callTool('return', { status: 'ok', reason: 'ok' });
@@ -72,8 +72,11 @@ describe('Squad Flow - L mode Basic', () => {
         const { pi, squadFsm, eventBus } = env;
         setupSquadRun(env);
         squadFsm.activate();
-        fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "w1"');
-        fs.writeFileSync(path.join(planDir, 'n2.toml'), 'task = "w2"\ndepends_on = ["n1"]');
+        fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "w1"\nreview_criteria = ["w1 output correct"]');
+        fs.writeFileSync(
+            path.join(planDir, 'n2.toml'),
+            'task = "w2"\nreview_criteria = ["w2 output correct"]\ndepends_on = ["n1"]',
+        );
         let times = {};
         eventBus.on('squad:node_state', (data) => {
             if (data.status === 'authoring' && !times[data.nodeId]) times[data.nodeId] = Date.now();
@@ -102,10 +105,19 @@ describe('Squad Flow - Advanced', () => {
         const { pi, eventBus, squadFsm } = env;
         setupSquadRun(env);
         squadFsm.activate();
-        fs.writeFileSync(path.join(planDir, 'A.toml'), 'task = "A"');
-        fs.writeFileSync(path.join(planDir, 'B.toml'), 'task = "B"\ndepends_on = ["A"]');
-        fs.writeFileSync(path.join(planDir, 'C.toml'), 'task = "C"\ndepends_on = ["A"]');
-        fs.writeFileSync(path.join(planDir, 'D.toml'), 'task = "D"\ndepends_on = ["B", "C"]');
+        fs.writeFileSync(path.join(planDir, 'A.toml'), 'task = "A"\nreview_criteria = ["A output correct"]');
+        fs.writeFileSync(
+            path.join(planDir, 'B.toml'),
+            'task = "B"\nreview_criteria = ["B output correct, integrates with A"]\ndepends_on = ["A"]',
+        );
+        fs.writeFileSync(
+            path.join(planDir, 'C.toml'),
+            'task = "C"\nreview_criteria = ["C output correct, integrates with A"]\ndepends_on = ["A"]',
+        );
+        fs.writeFileSync(
+            path.join(planDir, 'D.toml'),
+            'task = "D"\nreview_criteria = ["D output correct, integrates with B and C"]\ndepends_on = ["B", "C"]',
+        );
         let times = {};
         eventBus.on('squad:node_state', (data) => {
             if (data.status === 'authoring' && !times[data.nodeId]) times[data.nodeId] = Date.now();
@@ -125,7 +137,7 @@ describe('Squad Flow - Advanced', () => {
         const { pi, squadFsm, abortController, signal } = env;
         setupSquadRun(env);
         squadFsm.activate();
-        fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "long"');
+        fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "long"\nreview_criteria = ["Output is complete"]');
         pi.pi.onPrompt(async (text, session) => {
             if (text.includes('你的任务:')) abortController.abort();
             try {
@@ -154,7 +166,10 @@ describe('Squad Flow - Reject Flow', () => {
         const { pi, eventBus, squadFsm } = env;
         setupSquadRun(env);
         squadFsm.activate();
-        fs.writeFileSync(path.join(planDir, 'n1.toml'), 'task = "do work"');
+        fs.writeFileSync(
+            path.join(planDir, 'n1.toml'),
+            'task = "do work"\nreview_criteria = ["Output meets quality bar"]',
+        );
 
         let reviewerCalls = 0;
         pi.pi.onPrompt(async (text, session) => {
@@ -199,8 +214,14 @@ describe('Squad Flow - Outer Review', () => {
         const { pi, eventBus, squadFsm } = env;
         setupSquadRun(env);
         squadFsm.activate();
-        fs.writeFileSync(path.join(planDir, 'A.toml'), 'task = "task A"');
-        fs.writeFileSync(path.join(planDir, 'B.toml'), 'task = "task B"');
+        fs.writeFileSync(
+            path.join(planDir, 'A.toml'),
+            'task = "task A"\nreview_criteria = ["Task A output meets requirements"]',
+        );
+        fs.writeFileSync(
+            path.join(planDir, 'B.toml'),
+            'task = "task B"\nreview_criteria = ["Task B output meets requirements"]',
+        );
 
         let outerReviewCalls = 0;
         pi.pi.onPrompt(async (text, session) => {

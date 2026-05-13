@@ -7,6 +7,35 @@
 import { handleModelPoolMessage } from './model-pool-events.js';
 import * as sessionRegistry from './session-registry.js';
 
+function wsSendError(ws, message) {
+    ws.send(JSON.stringify({ type: 'error', payload: { message }, timestamp: Date.now() }));
+}
+
+function genMessageId() {
+    return `usr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function handleUserMessage(payload, eventBus, ws) {
+    const { sessionId, text } = payload || {};
+    if (!sessionId || typeof text !== 'string') {
+        wsSendError(ws, 'Invalid session:user_message payload');
+        return true;
+    }
+    const entry = sessionRegistry.get(sessionId);
+    if (!entry || !sessionRegistry.isActive(sessionId)) {
+        wsSendError(ws, 'Session not active');
+        return true;
+    }
+    eventBus.emit('session', 'message', {
+        sessionId,
+        role: 'user',
+        content: [{ type: 'text', text }],
+        messageId: genMessageId(),
+    });
+    await entry.sendUserMessage(text);
+    return true;
+}
+
 /**
  * Routes incoming WebSocket messages by type.
  * @param {object} msg - Parsed WebSocket message
@@ -23,65 +52,14 @@ export async function routeMessage(msg, modelPool, configModule, eventBus, ws) {
         case 'model_pool:update':
             await handleModelPoolMessage(msg.payload, modelPool, configModule, eventBus);
             return true;
-
-        case 'session:user_message': {
-            const { sessionId, text, messageId, parentId } = msg.payload || {};
-            if (!sessionId || typeof text !== 'string') {
-                ws.send(
-                    JSON.stringify({
-                        type: 'error',
-                        payload: { message: 'Invalid session:user_message payload' },
-                        timestamp: Date.now(),
-                    }),
-                );
-                return true;
-            }
-
-            if (!messageId) {
-                ws.send(
-                    JSON.stringify({
-                        type: 'error',
-                        payload: { message: 'session:user_message requires messageId' },
-                        timestamp: Date.now(),
-                    }),
-                );
-                return true;
-            }
-
-            const entry = sessionRegistry.get(sessionId);
-            if (!entry || !sessionRegistry.isActive(sessionId)) {
-                ws.send(
-                    JSON.stringify({
-                        type: 'error',
-                        payload: { message: 'Session not active' },
-                        timestamp: Date.now(),
-                    }),
-                );
-                return true;
-            }
-
-            // Broadcast user message to all connected clients (multi-tab sync)
-            eventBus.emit('session', 'message', {
-                sessionId,
-                role: 'user',
-                content: [{ type: 'text', text }],
-                messageId,
-                parentId: parentId,
-                timestamp: Date.now(),
-            });
-
-            await entry.sendUserMessage(text);
-            return true;
-        }
-
+        case 'session:user_message':
+            return handleUserMessage(msg.payload, eventBus, ws);
         case 'ping':
             ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
             return true;
-
         case 'abort':
             eventBus.emit('squad', 'abort', msg.payload || {});
             return true;
-
         default:
             return false;
     }

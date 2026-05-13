@@ -8,14 +8,14 @@ export function MessageInput({ sessionId, send, onOptimisticMessage }) {
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
     if (!trimmed || !sessionId) return;
-    const messageId = `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const tempId = `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     onOptimisticMessage({
       sessionId,
       role: 'user',
       content: [{ type: 'text', text: trimmed }],
-      messageId,
+      messageId: tempId,
     });
-    send({ type: 'session:user_message', payload: { sessionId, text: trimmed, messageId } });
+    send({ type: 'session:user_message', payload: { sessionId, text: trimmed } });
     setText('');
   }, [text, sessionId, send, onOptimisticMessage]);
 

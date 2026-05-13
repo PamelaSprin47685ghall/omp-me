@@ -72,34 +72,31 @@ class ModelPool {
         const roleSlots = slot.role === 'worker' ? this.workerSlots : this.reviewerSlots;
         const queue = slot.role === 'worker' ? this.workerQueue : this.reviewerQueue;
 
-        const targetSlot =
-            slot._slot ||
-            roleSlots.find(
-                (s) => s.provider === slot.provider && s.modelId === slot.modelId && s.inUse && !s.pendingDelete,
-            );
-        if (!targetSlot) return;
+        const targetSlot = slot._slot;
+        if (!targetSlot || !roleSlots.includes(targetSlot)) return;
 
+        targetSlot.pendingDelete ? this._purgeSlot(targetSlot, roleSlots) : this._tryWakeWaiter(targetSlot, queue);
+    }
+
+    _purgeSlot(targetSlot, roleSlots) {
         targetSlot.inUse = false;
+        const index = roleSlots.indexOf(targetSlot);
+        if (index !== -1) roleSlots.splice(index, 1);
+    }
 
-        if (targetSlot.pendingDelete) {
-            const index = roleSlots.indexOf(targetSlot);
-            if (index !== -1) {
-                roleSlots.splice(index, 1);
-            }
-            return;
-        }
-
-        if (queue.length > 0) {
-            targetSlot.inUse = true;
-            const waiter = queue.shift();
-            waiter.cleanup?.();
-            waiter.resolve({
-                provider: targetSlot.provider,
-                modelId: targetSlot.modelId,
-                role: targetSlot.role,
-                _slot: targetSlot,
-            });
-        }
+    _tryWakeWaiter(targetSlot, queue) {
+        targetSlot.inUse = false;
+        if (queue.length === 0) return;
+        const waiter = queue.shift();
+        if (!waiter) return;
+        targetSlot.inUse = true;
+        waiter.cleanup?.();
+        waiter.resolve({
+            provider: targetSlot.provider,
+            modelId: targetSlot.modelId,
+            role: targetSlot.role,
+            _slot: targetSlot,
+        });
     }
 
     addSlot(config) {
@@ -115,20 +112,10 @@ class ModelPool {
 
         if (config.role === 'worker') {
             this.workerSlots.push(slot);
-            if (this.workerQueue.length > 0) {
-                slot.inUse = true;
-                const waiter = this.workerQueue.shift();
-                waiter.cleanup?.();
-                waiter.resolve({ provider: slot.provider, modelId: slot.modelId, role: slot.role, _slot: slot });
-            }
+            this._tryWakeWaiter(slot, this.workerQueue);
         } else if (config.role === 'reviewer') {
             this.reviewerSlots.push(slot);
-            if (this.reviewerQueue.length > 0) {
-                slot.inUse = true;
-                const waiter = this.reviewerQueue.shift();
-                waiter.cleanup?.();
-                waiter.resolve({ provider: slot.provider, modelId: slot.modelId, role: slot.role, _slot: slot });
-            }
+            this._tryWakeWaiter(slot, this.reviewerQueue);
         }
     }
 

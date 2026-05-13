@@ -33,11 +33,52 @@ export default function squadPlugin(pi) {
     registerSquadModelsCommand(pi);
 }
 
+function parseTaskArgs(args) {
+    return typeof args === 'string' ? args.trim() : (args || []).join(' ').trim();
+}
+
+function initRunContext(serverResult, ctx, pi) {
+    const { port, eventBus, modelPool } = serverResult;
+    const fsm = new SquadFSM();
+    const abortController = new AbortController();
+    const { signal } = abortController;
+    const startTime = Date.now();
+
+    ctx.ui?.notify(`Squad UI: http://127.0.0.1:${port}`, 'info');
+
+    const viewManager = createViewManager(eventBus, ctx);
+    viewManager.start();
+
+    const onComplete = createOnCompleteHandler({ pi, fsm, eventBus });
+
+    return {
+        eventBus,
+        modelPool,
+        fsm,
+        abortController,
+        signal,
+        startTime,
+        viewManager,
+        onComplete,
+        port,
+    };
+}
+
+async function runAndCleanup(run, pi, ctx, task, eventBus) {
+    run.fsm.activate();
+    try {
+        await runSquadSession(pi, ctx, task, run.fsm, eventBus);
+    } finally {
+        for (const unsub of run._unsubSnapshot) unsub();
+        run.viewManager.cleanup();
+    }
+}
+
 function registerSquadCommand(pi, getServer) {
     pi.registerCommand('squad', {
         description: 'Start a squad task with multi-agent orchestration',
         async handler(args, ctx) {
-            const task = typeof args === 'string' ? args.trim() : (args || []).join(' ').trim();
+            const task = parseTaskArgs(args);
             if (!task) {
                 pi.sendMessage('Usage: /squad <task description>');
                 return;
@@ -48,20 +89,11 @@ function registerSquadCommand(pi, getServer) {
                 pi.sendMessage('Failed to start squad server — check console for errors');
                 return;
             }
-            const { port, eventBus, modelPool } = serverResult;
-            const fsm = new SquadFSM();
-            const abortController = new AbortController();
-            const { signal } = abortController;
-            const startTime = Date.now();
 
-            ctx.ui?.notify(`Squad UI: http://127.0.0.1:${port}`, 'info');
+            const { fsm, signal, eventBus, modelPool, abortController, startTime, viewManager, onComplete } =
+                initRunContext(serverResult, ctx, pi);
 
-            const viewManager = createViewManager(eventBus, ctx);
-            viewManager.start();
-
-            const onComplete = createOnCompleteHandler({ pi, fsm, eventBus });
-
-            setupCurrentRun({
+            const run = setupCurrentRun({
                 viewManager,
                 fsm,
                 ctx,
@@ -75,14 +107,55 @@ function registerSquadCommand(pi, getServer) {
                 abortController,
             });
 
-            fsm.activate();
-            try {
-                await runSquadSession(pi, ctx, task, fsm, eventBus);
-            } finally {
-                viewManager.cleanup();
-            }
+            await runAndCleanup(run, pi, ctx, task, eventBus);
         },
     });
+}
+
+function buildInitHandler() {
+    return (payload) => {
+        setSquadSnapshot({
+            mode: payload.mode,
+            nodes: payload.nodes.map((n) => ({
+                ...n,
+                status: n.depends_on?.length ? 'waiting_deps' : 'pending',
+                retryCount: 0,
+            })),
+            originalTask: payload.originalTask,
+            completed: false,
+            results: null,
+        });
+    };
+}
+
+function buildNodeStateHandler() {
+    return (payload) => {
+        const snap = getSquadSnapshot();
+        if (!snap) return;
+        const node = snap.nodes.find((n) => n.id === payload.nodeId);
+        if (node) {
+            node.status = payload.status;
+            if (payload.retryCount !== undefined) node.retryCount = payload.retryCount;
+        }
+        setSquadSnapshot({ ...snap });
+    };
+}
+
+function buildCompleteHandler() {
+    return (payload) => {
+        const snap = getSquadSnapshot();
+        if (!snap) return;
+        setSquadSnapshot({ ...snap, completed: true, results: payload.results });
+    };
+}
+
+function subscribeToSnapshotEvents(eventBus) {
+    return [
+        eventBus.on('squad:init', buildInitHandler()),
+        eventBus.on('squad:node_state', buildNodeStateHandler()),
+        eventBus.on('squad:complete', buildCompleteHandler()),
+        eventBus.on('squad:abort', clearSquadSnapshot),
+    ];
 }
 
 function setupCurrentRun({ fsm, ctx, pi, signal, eventBus, modelPool, onComplete, task, startTime, abortController }) {
@@ -102,40 +175,11 @@ function setupCurrentRun({ fsm, ctx, pi, signal, eventBus, modelPool, onComplete
     };
 
     if (eventBus) {
-        run._unsubSnapshot.push(
-            eventBus.on('squad:init', (payload) => {
-                setSquadSnapshot({
-                    mode: payload.mode,
-                    nodes: payload.nodes.map((n) => ({
-                        ...n,
-                        status: n.depends_on?.length ? 'waiting_deps' : 'pending',
-                        retryCount: 0,
-                    })),
-                    originalTask: payload.originalTask,
-                    completed: false,
-                    results: null,
-                });
-            }),
-            eventBus.on('squad:node_state', (payload) => {
-                const snap = getSquadSnapshot();
-                if (!snap) return;
-                const node = snap.nodes.find((n) => n.id === payload.nodeId);
-                if (node) {
-                    node.status = payload.status;
-                    if (payload.retryCount !== undefined) node.retryCount = payload.retryCount;
-                }
-                setSquadSnapshot({ ...snap });
-            }),
-            eventBus.on('squad:complete', (payload) => {
-                const snap = getSquadSnapshot();
-                if (!snap) return;
-                setSquadSnapshot({ ...snap, completed: true, results: payload.results });
-            }),
-            eventBus.on('squad:abort', clearSquadSnapshot),
-        );
+        run._unsubSnapshot.push(...subscribeToSnapshotEvents(eventBus));
     }
 
     setCurrentRun(run);
+    return run;
 }
 
 function registerSquadModelsCommand(pi) {

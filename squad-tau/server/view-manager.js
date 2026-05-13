@@ -13,83 +13,88 @@ const SYM = Object.freeze({
     failed: '\u2716', // heavy X — unrecoverable
 });
 
+function buildSegment(n, nodeMap) {
+    const sym = SYM[n.status] || '?';
+    let seg = `${n.id}${sym}`;
+    if (n.retryCount > 0 && (n.status === 'authoring' || n.status === 'confirming' || n.status === 'reviewing')) {
+        seg += `#${n.retryCount}`;
+    }
+    if (n.status === 'waiting_deps') {
+        const pending = n.deps.filter((d) => {
+            const dep = nodeMap.get(d);
+            return dep && dep.status !== 'approved';
+        });
+        if (pending.length > 0 && pending.length <= 2) {
+            seg += `[${pending.join(',')}]`;
+        }
+    }
+    return seg;
+}
+
+function buildConsoleLine(nodeMap) {
+    const parts = [];
+    for (const n of nodeMap.values()) {
+        parts.push(buildSegment(n, nodeMap));
+    }
+    const done = [...nodeMap.values()].filter((n) => n.status === 'approved').length;
+    const total = nodeMap.size;
+    return done === total ? `squad: \u2713 ${done}/${total}` : `squad: ${parts.join(', ')}`;
+}
+
+function applyInit(nodeMap, payload) {
+    nodeMap.clear();
+    for (const n of payload.nodes) {
+        nodeMap.set(n.id, {
+            id: n.id,
+            status: n.depends_on?.length ? 'waiting_deps' : 'pending',
+            retryCount: 0,
+            deps: n.depends_on || [],
+        });
+    }
+}
+
+function applyNodeState(nodeMap, payload) {
+    const n = nodeMap.get(payload.nodeId);
+    if (!n) return;
+    n.status = payload.status;
+    if (payload.retryCount !== undefined) n.retryCount = payload.retryCount;
+}
+
 export function createViewManager(eventBus, ctx) {
     const nodeMap = new Map();
     let unsubs = [];
 
-    function handleInit(payload) {
-        nodeMap.clear();
-        for (const n of payload.nodes) {
-            nodeMap.set(n.id, {
-                id: n.id,
-                status: n.depends_on?.length ? 'waiting_deps' : 'pending',
-                retryCount: 0,
-                deps: n.depends_on || [],
-            });
-        }
-        render();
-    }
-
-    function handleNodeState(payload) {
-        const n = nodeMap.get(payload.nodeId);
-        if (!n) return;
-        n.status = payload.status;
-        if (payload.retryCount !== undefined) n.retryCount = payload.retryCount;
-        render();
-    }
-
-    function cleanup() {
-        for (const unsub of unsubs) unsub?.();
-        unsubs = [];
-    }
-
-    function render() {
+    const render = () => {
         if (nodeMap.size === 0) return;
+        const output = buildConsoleLine(nodeMap);
+        if (typeof ctx?.ui?.notify === 'function') ctx.ui.notify(output, 'info');
+    };
 
-        const parts = [];
-
-        for (const n of nodeMap.values()) {
-            const sym = SYM[n.status] || '?';
-            let seg = `${n.id}${sym}`;
-
-            if (
-                n.retryCount > 0 &&
-                (n.status === 'authoring' || n.status === 'confirming' || n.status === 'reviewing')
-            ) {
-                seg += `#${n.retryCount}`;
-            }
-
-            if (n.status === 'waiting_deps') {
-                const pending = n.deps.filter((d) => {
-                    const dep = nodeMap.get(d);
-                    return dep && dep.status !== 'approved';
-                });
-                if (pending.length > 0 && pending.length <= 2) {
-                    seg += `[${pending.join(',')}]`;
-                }
-            }
-
-            parts.push(seg);
-        }
-
-        const done = [...nodeMap.values()].filter((n) => n.status === 'approved').length;
-        const total = nodeMap.size;
-        const line = `squad: ${parts.join(', ')}`;
-        const output = done === total ? `squad: \u2713 ${done}/${total}` : line;
-
-        if (typeof ctx?.ui?.notify === 'function') {
-            ctx.ui.notify(output, 'info');
-        }
-    }
-
-    function start() {
+    const start = () => {
         unsubs = [
-            eventBus.on('squad:init', handleInit),
-            eventBus.on('squad:node_state', handleNodeState),
-            eventBus.on('squad:complete', cleanup),
-            eventBus.on('squad:abort', cleanup),
+            eventBus.on('squad:init', (p) => {
+                applyInit(nodeMap, p);
+                render();
+            }),
+            eventBus.on('squad:node_state', (p) => {
+                applyNodeState(nodeMap, p);
+                render();
+            }),
+            eventBus.on('squad:complete', () => {
+                for (const u of unsubs) u?.();
+                unsubs = [];
+            }),
+            eventBus.on('squad:abort', () => {
+                for (const u of unsubs) u?.();
+                unsubs = [];
+            }),
         ];
-    }
+    };
+
+    const cleanup = () => {
+        for (const u of unsubs) u?.();
+        unsubs = [];
+    };
 
     return { start, cleanup };
 }

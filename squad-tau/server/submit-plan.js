@@ -17,7 +17,7 @@ function listTomlFiles(plan_dir) {
     } catch (err) {
         throw new Error(`Failed to read plan_dir: ${err.message}`);
     }
-    const tomlFiles = entries.filter((e) => e.endsWith('.toml'));
+    const tomlFiles = entries.filter((e) => e.endsWith('.toml')).sort();
     if (tomlFiles.length === 0) {
         throw new Error(`No .toml files found in ${plan_dir}`);
     }
@@ -125,7 +125,10 @@ async function processDelegate(params, runState) {
         throw new Error(`Cannot delegate in state: ${currentState}. Must be active.`);
     }
     const { nodes, mode } = readNodesFromDir(params.plan_dir);
-    validatePlan({ mode, nodes });
+    const validation = validatePlan({ mode, nodes });
+    if (!validation.valid) {
+        throw new Error(`Invalid plan: ${validation.errors.join('; ')}`);
+    }
     if (eventBus) eventBus.emit('squad', 'init', { mode, nodes, originalTask: originalTask || '' });
     return await runDelegate({ nodes, mode, ...runState });
 }

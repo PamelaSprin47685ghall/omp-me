@@ -40,7 +40,7 @@ function validateNodes(plan, errors, seenIds) {
         validateNodeId(node, prefix, errors, seenIds);
         validateNodeTask(node, prefix, errors);
         validateReviewCriteria(node.review_criteria, prefix, errors);
-        validateDependencies(plan.mode, node, prefix, errors);
+        validateDependencies(plan.mode, node, prefix, errors, seenIds);
     }
 }
 
@@ -108,7 +108,7 @@ function validateReviewCriteriaItem(item, j, prefix, errors) {
     }
 }
 
-function validateDependencies(mode, node, prefix, errors) {
+function validateDependencies(mode, node, prefix, errors, seenIds) {
     if (mode === 'M' && node.depends_on) {
         errors.push(`${prefix}.depends_on is not allowed in M mode`);
     }
@@ -117,8 +117,11 @@ function validateDependencies(mode, node, prefix, errors) {
             errors.push(`${prefix}.depends_on must be an array if present`);
         } else {
             for (let j = 0; j < node.depends_on.length; j++) {
-                if (typeof node.depends_on[j] !== 'string') {
+                const dep = node.depends_on[j];
+                if (typeof dep !== 'string') {
                     errors.push(`${prefix}.depends_on[${j}] must be a string`);
+                } else if (!seenIds.has(dep)) {
+                    errors.push(`${prefix}.depends_on[${j}] references unknown node "${dep}"`);
                 }
             }
         }

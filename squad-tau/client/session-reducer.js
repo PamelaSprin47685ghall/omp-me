@@ -28,8 +28,16 @@ function handleSessionMessage(state, payload) {
     const messages = new Map(state.messages);
     const list = messages.get(sessionId) || [];
 
-    // Deduplicate by messageId (server echoes back the same messageId we sent)
-    const existingIdx = list.findIndex((msg) => msg.messageId === messageId);
+    // Deduplicate: match by messageId if present, else by content (optimistic echo)
+    let existingIdx = -1;
+    if (messageId) {
+        existingIdx = list.findIndex((msg) => msg.messageId === messageId);
+    } else if (role === 'user') {
+        const text = content?.[0]?.text;
+        existingIdx = list.findIndex(
+            (msg) => msg.role === 'user' && msg.content?.[0]?.text === text && msg.messageId?.startsWith('opt_'),
+        );
+    }
 
     if (existingIdx !== -1) {
         const updated = list.map((msg, i) =>

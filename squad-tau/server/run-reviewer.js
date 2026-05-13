@@ -58,51 +58,76 @@ async function buildReviewerPrompt(session, node, workerResult, iterationHistory
     await session.prompt(getReviewerPrompt({ node, workerResult, iterationHistory: iterationHistory || [] }));
 }
 
-async function runReviewer(args) {
-    const { node, workerResult, pi, signal, eventBus, iterationHistory } = args;
-    if (!pi?.pi?.createAgentSession) throw new Error('squad: createAgentSession unavailable');
+function initReviewerState() {
     const state = { settled: false, unsub: null };
     const { promise: outcomePromise, resolve: outcomeResolve } = Promise.withResolvers();
     state.outcomeResolve = outcomeResolve;
+    return { state, outcomePromise };
+}
+
+function linkParentAbort(signal, childAbort) {
+    return (session) => {
+        if (signal) {
+            signal.addEventListener(
+                'abort',
+                () => {
+                    childAbort.abort();
+                    session?.abort?.();
+                },
+                { once: true },
+            );
+        }
+    };
+}
+
+function handleReviewerCompletion(eventBus, sessionId, outcome) {
+    emitSessionEnd(eventBus, sessionId, 'completed', 'completed');
+    return outcome;
+}
+
+function handleReviewerAbort(err, childAbort, signal, eventBus, sessionId) {
+    if (childAbort.signal.aborted && signal?.aborted) {
+        emitSessionEnd(eventBus, sessionId, 'aborted', 'aborted');
+        return null;
+    }
+    emitSessionEnd(eventBus, sessionId, 'error', 'error', err.message);
+    throw err;
+}
+
+function cleanupReviewer(childAbort, session, factoryResult, unsub, sessionId) {
+    childAbort.abort();
+    session?.abort?.();
+    factoryResult?.dispose?.();
+    unsub?.();
+    if (sessionId) {
+        unregister(sessionId);
+    }
+}
+
+async function runReviewer(args) {
+    const { node, workerResult, pi, signal, eventBus, iterationHistory } = args;
+    if (!pi?.pi?.createAgentSession) throw new Error('squad: createAgentSession unavailable');
 
     const childAbort = new AbortController();
-    if (signal)
-        signal.addEventListener(
-            'abort',
-            () => {
-                childAbort.abort();
-                session?.abort?.();
-            },
-            { once: true },
-        );
+    const { state, outcomePromise } = initReviewerState();
 
     let session = null,
         sessionId = null,
         factoryResult = null;
     try {
         ({ session, sessionId, factoryResult } = await setupReviewerSession({ ...args, state }));
+        linkParentAbort(signal, childAbort)(session);
+
         await buildReviewerPrompt(session, node, workerResult, iterationHistory);
         await pollReviewerSettled(session, state, childAbort);
         if (!state.settled) return null;
 
         const outcome = await outcomePromise;
-        emitSessionEnd(eventBus, sessionId, 'completed', 'completed');
-        return outcome;
+        return handleReviewerCompletion(eventBus, sessionId, outcome);
     } catch (err) {
-        if (childAbort.signal.aborted && signal?.aborted) {
-            emitSessionEnd(eventBus, sessionId, 'aborted', 'aborted');
-            return null;
-        }
-        emitSessionEnd(eventBus, sessionId, 'error', 'error', err.message);
-        throw err;
+        return handleReviewerAbort(err, childAbort, signal, eventBus, sessionId);
     } finally {
-        childAbort.abort();
-        session?.abort?.();
-        factoryResult?.dispose?.();
-        state.unsub?.();
-        if (sessionId) {
-            unregister(sessionId);
-        }
+        await cleanupReviewer(childAbort, session, factoryResult, state.unsub, sessionId);
     }
 }
 

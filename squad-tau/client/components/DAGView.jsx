@@ -3,6 +3,18 @@ import { NonIdealState } from '@blueprintjs/core';
 import { IconNames } from '@blueprintjs/icons';
 import { renderMermaidSVG } from 'beautiful-mermaid';
 
+const STATUS_COLOR = Object.freeze({
+    waiting_deps: '#6c7a89',
+    pending: '#8a9ba8',
+    authoring: '#3085c3',
+    confirming: '#9364c8',
+    reviewing: '#e08a1e',
+    approved: '#5bb66e',
+    rejected: '#c23030',
+    blocked: '#b8652a',
+    failed: '#db3737',
+});
+
 const HARDCODED_THEME = {
   bg: '#383e47',
   fg: '#f6f7f9',
@@ -99,7 +111,7 @@ export default function DAGView({ nodes, activeNodeId, onNodeClick }) {
     <div
       className="dag-container"
       onClick={handleClick}
-      dangerouslySetInnerHTML={{ __html: svg }}
+      dangerouslySetInnerHTML={{ __html: svg.trim().startsWith('<svg') ? svg : '<p>DAG render failed</p>' }}
     />
   );
 }

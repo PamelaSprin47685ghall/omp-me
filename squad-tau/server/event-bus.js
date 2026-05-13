@@ -15,7 +15,8 @@ class EventBus {
         }
 
         for (const [pattern, handlers] of this.wildcardHandlers) {
-            if (pattern === '*' || fullEvent.startsWith(pattern.replace('*', ''))) {
+            const prefix = pattern.replace('*', '');
+            if (pattern === '*' || (prefix && fullEvent.startsWith(prefix))) {
                 for (const handler of handlers) {
                     try {
                         handler(payload, fullEvent);

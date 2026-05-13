@@ -23,8 +23,7 @@ function cleanupSquadSession(unsub, sessionId, fsm) {
     clearCurrentRun();
 }
 
-async function executeSquadPrompt(session, task, fsm) {
-    const architectPrompt = `你现在是 Squad-Tau 架构师。用户交给了你一个总任务，你需要：
+const ARCHITECT_STATIC = `你现在是 Squad-Tau 架构师。用户交给了你一个总任务，你需要：
 1. 分析任务，判断适合 M 模式（单节点）还是 L 模式（多节点 DAG）
 2. 在系统临时目录（如 /tmp/squad-xxx）准备子任务描述文件
 3. 每个节点一个 \`.toml\` 文件，文件名即节点 ID
@@ -64,11 +63,13 @@ description = "[此处省略 300 字]"
 注意：\`task\` 描述必须尽可能详细，\`review_criteria\` 的 \`description\` 要具体可检查。
 
 用户任务：
-${task}`;
+`;
 
-    await session.prompt(architectPrompt);
-    await session.waitForIdle();
+function buildArchitectPrompt(task) {
+    return ARCHITECT_STATIC + task;
+}
 
+async function waitForArchitectPlan(session, fsm) {
     let promptCount = 0;
     const MAX_ARCHITECT_PROMPTS = 3;
     while (fsm.isActive()) {
@@ -84,6 +85,12 @@ ${task}`;
         );
         await session.waitForIdle();
     }
+}
+
+async function executeSquadPrompt(session, task, fsm) {
+    await session.prompt(buildArchitectPrompt(task));
+    await session.waitForIdle();
+    await waitForArchitectPlan(session, fsm);
 }
 
 async function runSquadSession(pi, ctx, task, fsm, eventBus) {

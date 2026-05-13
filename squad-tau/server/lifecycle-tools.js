@@ -49,7 +49,7 @@ export const delegateTool = {
         },
         required: ['plan_dir'],
     },
-    async execute(_id, params, _sig, _upd, _ctx) {
+    async execute(_id, params, sig, _upd, _ctx) {
         const run = getCurrentRun();
         if (!run) throw new Error('No active squad run');
         const result = await processDelegate(params, run);

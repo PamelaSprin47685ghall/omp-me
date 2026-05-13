@@ -33,59 +33,21 @@ async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal,
     if (eventBus) eventBus.emit('squad', 'outer_review_start', { round });
 
     const modelSlot = await modelPool.acquire('reviewer', signal);
-    const { promise: outcomePromise, resolve: outcomeResolve } = Promise.withResolvers();
-    const childAbort = new AbortController();
-    let settled = false;
-
-    const { sessionOpts, promptText } = await prepareReviewSession(
-        nodeResults,
-        originalTask,
-        round,
-        ctx,
-        pi,
-        modelSlot,
-    );
-
-    if (signal)
-        signal.addEventListener(
-            'abort',
-            () => {
-                childAbort.abort();
-                session?.abort?.();
-            },
-            { once: true },
-        );
-
-    let session = null,
-        unsub = null,
-        sessionId = null,
-        factoryResult = null;
     try {
-        ({ session, sessionId, unsub, factoryResult } = await initOuterReviewSession(
-            createAgentSession,
-            sessionOpts,
-            eventBus,
+        return await executeOuterReviewWithSlot(
+            modelSlot,
+            modelPool,
+            nodeResults,
+            originalTask,
             round,
-        ));
-
-        setReturnResolver(sessionId, (params) => {
-            settled = true;
-            outcomeResolve({ approved: params.status === 'ok', reason: params.reason });
-        });
-
-        const outcome = await executeOuterReviewLoop(session, promptText, childAbort, () => settled, outcomePromise);
-        if (!outcome) {
-            modelPool.release(modelSlot);
-            return null;
-        }
-
-        processOuterVerdict(eventBus, sessionId, round, outcome);
-        modelPool.release(modelSlot);
-        return outcome;
-    } catch (err) {
-        return handleOuterReviewError(err, childAbort, signal, eventBus, sessionId, modelPool, modelSlot);
+            ctx,
+            pi,
+            signal,
+            eventBus,
+            createAgentSession,
+        );
     } finally {
-        cleanupOuterReview(childAbort, session, unsub, sessionId, factoryResult);
+        modelPool.release(modelSlot);
     }
 }
 
@@ -166,7 +128,7 @@ function processOuterVerdict(eventBus, sessionId, round, outcome) {
 }
 
 function handleOuterReviewError(err, childAbort, signal, eventBus, sessionId, modelPool, modelSlot) {
-    if (childAbort.signal.aborted && signal?.aborted) {
+    if (childAbort?.signal.aborted && signal?.aborted) {
         emitSessionEnd(eventBus, sessionId, 'aborted', 'aborted');
         modelPool.release(modelSlot);
         return null;
@@ -183,6 +145,96 @@ function cleanupOuterReview(childAbort, session, unsub, sessionId, factoryResult
     factoryResult?.dispose?.();
     if (sessionId) {
         unregister(sessionId);
+    }
+}
+
+function createOuterReviewAbortContext(signal) {
+    const childAbort = new AbortController();
+    const { promise: outcomePromise, resolve: outcomeResolve } = Promise.withResolvers();
+    const ctx = { childAbort, settled: false, outcomePromise, outcomeResolve };
+    if (signal) {
+        signal.addEventListener(
+            'abort',
+            () => {
+                childAbort.abort();
+                ctx.session?.abort?.();
+            },
+            { once: true },
+        );
+    }
+    return ctx;
+}
+
+function setupOuterReviewResolver(sessionId, ctx) {
+    setReturnResolver(sessionId, (params) => {
+        ctx.settled = true;
+        ctx.outcomeResolve({ approved: params.status === 'ok', reason: params.reason });
+    });
+}
+
+async function executeOuterReviewBody(session, childAbort, signal, eventBus, sessionId, round, ctx, promptText) {
+    setupOuterReviewResolver(sessionId, ctx);
+
+    const outcome = await executeOuterReviewLoop(
+        session,
+        promptText,
+        childAbort,
+        () => ctx.settled,
+        ctx.outcomePromise,
+    );
+    if (!outcome) return null;
+
+    processOuterVerdict(eventBus, sessionId, round, outcome);
+    return outcome;
+}
+
+async function executeOuterReviewWithSlot(
+    modelSlot,
+    modelPool,
+    nodeResults,
+    originalTask,
+    round,
+    ctx,
+    pi,
+    signal,
+    eventBus,
+    createAgentSession,
+) {
+    const { sessionOpts, promptText } = await prepareReviewSession(
+        nodeResults,
+        originalTask,
+        round,
+        ctx,
+        pi,
+        modelSlot,
+    );
+    const ac = createOuterReviewAbortContext(signal);
+
+    let session = null,
+        unsub = null,
+        sessionId = null,
+        factoryResult = null;
+    ac.session = undefined; // closure placeholder
+
+    try {
+        ({ session, sessionId, unsub, factoryResult } = await initOuterReviewSession(
+            createAgentSession,
+            sessionOpts,
+            eventBus,
+            round,
+        ));
+        ac.session = session;
+
+        return await executeOuterReviewBody(session, ac.childAbort, signal, eventBus, sessionId, round, ac, promptText);
+    } catch (err) {
+        if (ac.childAbort.signal.aborted && signal?.aborted) {
+            emitSessionEnd(eventBus, sessionId, 'aborted', 'aborted');
+            return null;
+        }
+        emitSessionEnd(eventBus, sessionId, 'error', 'error', err.message);
+        throw err;
+    } finally {
+        cleanupOuterReview(ac.childAbort, session, unsub, sessionId, factoryResult);
     }
 }
 

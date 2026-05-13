@@ -38,7 +38,7 @@ function FailedBanner({ nodes, onDismiss }) {
   if (!failed.length) return null;
   return (
     <Callout intent="danger" icon={IconNames.ERROR} className="banner"
-      title={`Squad Failed — ${failedCount} failed, ${blockedCount} blocked}`}>
+      title={`Squad Failed — ${failedCount} failed, ${blockedCount} blocked`}>
       {reason}
       <div style={{ cursor: 'pointer', textAlign: 'right', marginTop: 4 }} onClick={onDismiss}>Dismiss</div>
     </Callout>
@@ -71,8 +71,8 @@ export default function MainContent({
     );
   }
 
-  const activeSession = sessions.find(s => s.sessionId === activeSessionId);
-  const activeMessages = messages[activeSessionId] || [];
+  const activeSession = [...sessions.values()].find(s => s.sessionId === activeSessionId);
+  const activeMessages = messages.get(activeSessionId) || [];
   const sessionRole = getSessionRole(activeSession);
 
   return (

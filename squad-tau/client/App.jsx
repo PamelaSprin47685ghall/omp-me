@@ -27,7 +27,10 @@ function useAppEventHandlers(squadDispatch, sessionDispatch, modelPoolDispatch) 
       sessionDispatch({ type: eventType, payload });
     } else if (type.startsWith('model_pool:')) {
       modelPoolDispatch({ type, payload });
+    } else if (type === 'error') {
+      console.error('[App] WS error:', payload);
     }
+    // connection:established / connection:close handled by useWebSocket connected state
   }, [squadDispatch, sessionDispatch, modelPoolDispatch]);
 }
 
@@ -42,31 +45,30 @@ export default function App() {
   const { connected, send } = useWebSocket({ onEvent: handleEvent });
   const [viewMode, setViewMode] = useState('dag');
 
-  useEffect(() => { if (send) sendModelPoolUpdate(send); }, [send, sendModelPoolUpdate]);
-  useEffect(() => { document.documentElement.classList.toggle(Classes.DARK, isDark); }, [isDark]);
-  useEffect(() => {
-    window.__squadEventBus = handleEvent;
-    window.__setActiveSessionId = setActiveSessionId;
-    // Helper for tests: auto-select latest session to view messages
-    window.__selectLatestSession = () => {
-      const s = Object.values(sessions);
-      if (s.length > 0) selectSession(s[s.length - 1].sessionId);
-    };
-  }, [handleEvent, setActiveSessionId, sessions, selectSession]);
-
   const selectSession = useCallback((sessionId) => {
     setActiveSessionId(sessionId);
     setViewMode('session');
   }, [setActiveSessionId]);
 
+  useEffect(() => { if (send) sendModelPoolUpdate(send); }, [send, sendModelPoolUpdate]);
+  useEffect(() => { document.documentElement.classList.toggle(Classes.DARK, isDark); }, [isDark]);
+  useEffect(() => {
+    window.__squadEventBus = handleEvent;
+    window.__setActiveSessionId = setActiveSessionId;
+    window.__selectLatestSession = () => {
+      const s = [...sessions.values()];
+      if (s.length > 0) selectSession(s[s.length - 1].sessionId);
+    };
+  }, [handleEvent, setActiveSessionId, sessions, selectSession]);
+
   const handleNodeClick = (nodeId) => {
-    const sessionsForNode = Object.values(sessions).filter(s => s.nodeId === nodeId);
+    const sessionsForNode = [...sessions.values()].filter(s => s.nodeId === nodeId);
     if (sessionsForNode.length > 0) {
       selectSession(sessionsForNode[sessionsForNode.length - 1].sessionId);
     }
   };
 
-  const sessionList = Object.values(sessions).sort((a, b) =>
+  const sessionList = [...sessions.values()].sort((a, b) =>
     String(a.sessionId).localeCompare(String(b.sessionId))
   );
 
