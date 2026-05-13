@@ -45,7 +45,7 @@ function handleNodeState(state, payload) {
 }
 
 function handleOuterReview(state, action) {
-    if (action.type === 'OUTER_REVIEW_START') {
+    if (action.type === 'SQUAD_OUTER_REVIEW_START') {
         return {
             ...state,
             outerReview: { round: action.payload.round, verdict: null, feedback: null },

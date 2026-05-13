@@ -1,8 +1,8 @@
 # Squad-Tau PRD — 01 概述
 
-**Version**: 1.0.0
+**Version**: 1.1.0
 **Date**: 2026-05-10
-**Status**: Draft
+**Status**: Final（根据实际代码行为修订）
 
 ## 1.1 项目定位
 
@@ -28,3 +28,6 @@ Squad-Tau 是一个将 Squad（DAG 多代理编排）和 Tau-Mirror（Web UI 实
 | 前端 | tau-mirror 自带 UI | React + Blueprint.js 全新实现 |
 | 协议 | tau-mirror 协议兼容 | 全新事件协议 |
 | 语言 | TypeScript 前端 + JS 服务端 | 纯 JavaScript（前后端都 JS） |
+| HTTP 端口 | 固定端口 9527 | OS 随机分配（`server.listen(0)`），无需端口冲突处理 |
+| DAG 渲染 | mermaid | `beautiful-mermaid`（内置暗色主题支持，无需额外 CSS） |
+| 模块解析 | 直接 import | 通过 `@oh-my-pi/resolve-pi` 的 `importNodeModule` 动态解析 |

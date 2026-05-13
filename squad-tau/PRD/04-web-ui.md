@@ -7,7 +7,7 @@
 | 框架 | React | 18.3.x |
 | UI 组件 | @blueprintjs/core | 6.12.x |
 | 图标 | @blueprintjs/icons | 6.9.x |
-| DAG 可视化 | mermaid | 11.14.x |
+| DAG 可视化 | beautiful-mermaid | latest |（基于 mermaid 但内置暗色主题支持） |
 | 通信 | WebSocket (原生) | — |
 | 构建 | vite | 8.0.x |
 | 语言 | JavaScript (JSX) | — |
@@ -79,11 +79,11 @@
   - 流式更新丝滑无停顿，展开状态跨消息保持
 - **Tool 调用**：
   - Blueprint `Card` 组件
-  - **最新工具调用默认展开**，旧的自动折叠
+  - **默认全部折叠**（`useState(false)`），代码行为与 PRD 设计不同——所有 tool call 卡片初始均为折叠状态，不区分新旧
   - 显示 tool 名称、参数（JSON 格式化）、结果
   - 结果可点击展开/折叠
-  - 工具调用期间显示加载动画（`Spinner`）
-  - 错误结果自动展开并以红色高亮
+  - 工具调用期间显示 `running` Tag（无 `Spinner` 动画）
+  - 错误结果自动展开并以红色高亮（错误结果 `Collapse isOpen` 由 `isError` 单独标记，实际代码不自动展开）
 
 ### Auto-scroll 行为
 - 默认自动跟随最新消息
@@ -113,7 +113,7 @@
 
 ### 消息输入
 
-消息列表底部始终显示输入区域（无论 session 是否结束）。
+消息列表底部显示输入区域**仅当有活跃 session 时**（`MainContent.jsx` 中 `{activeSession && <MessageInput .../>}`），不显示无 session 状态的输入框。
 
 - Blueprint `TextArea`（支持多行）+ `Button`（发送），支持 Enter 发送，Shift+Enter 换行
 - 输入框占满宽度，发送按钮固定在右侧
@@ -149,7 +149,8 @@
 
 ## 4.9 移动端适配
 - 最佳努力（best effort）支持，不单独开发移动端 UI
-- 利用 Blueprint 原生响应式能力：`Drawer` 自动全屏、表格横向滚动、Sidebar 折叠为汉堡菜单
+- 利用 Blueprint 原生响应式能力：`Drawer` 自动全屏、表格横向滚动
+- 实际代码中**未实现汉堡菜单**——Sidebar 在移动端保持展示
 - 不写移动端专用 CSS 或组件，所有适配逻辑共用同一套源码
 
 ## 4.10 安全

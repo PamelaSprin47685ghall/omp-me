@@ -79,11 +79,11 @@ describe('Chaos: UI visual correctness', () => {
         eb.emit('session', 'start', { sessionId: 'tree-s2', nodeId: 'TreeN', phase: 'reviewer', retryCount: 2 });
 
         // Verify exact labels (label is retryCount+1 to show round number)
-        await page.waitForFunction(() => document.body.innerText.includes('R2-worker'), { timeout: 3000 });
-        await page.waitForFunction(() => document.body.innerText.includes('R3-reviewer'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('R2 worker'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('R3 reviewer'), { timeout: 3000 });
 
         const labelsOk = await page.evaluate(
-            () => document.body.innerText.includes('R2-worker') && document.body.innerText.includes('R3-reviewer'),
+            () => document.body.innerText.includes('R2 worker') && document.body.innerText.includes('R3 reviewer'),
         );
         expect(labelsOk).toBe(true);
         await page.close();

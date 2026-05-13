@@ -82,7 +82,9 @@ describe('Edge Case Stress Tests', () => {
             });
             await waitForText(page, 'n1', 5000);
             eventBus.emit('session', 'start', { sessionId: 's1', nodeId: 'n1', phase: 'worker', retryCount: 0 });
-            await waitForText(page, 'R1-worker', 5000);
+            await waitForText(page, 'R1 worker', 5000);
+            // Select session to view messages
+            await page.evaluate(() => window.__selectLatestSession?.());
 
             eventBus.emit('session', 'tool_result', {
                 sessionId: 's1',
@@ -172,8 +174,8 @@ describe('Edge Case Stress Tests', () => {
         const page = await createPage();
         try {
             eventBus.emit('squad', 'init', { mode: 'M', nodes: [], originalTask: 'empty' });
-            expect(await waitForText(page, 'DAG View')).toBe(true);
-            expect(await waitForText(page, 'No nodes')).toBe(true);
+            expect(await waitForText(page, 'DAG Overview')).toBe(true);
+            expect(await waitForText(page, 'No nodes in DAG')).toBe(true);
         } finally {
             await page.close();
         }
@@ -192,7 +194,9 @@ describe('Edge Case Stress Tests', () => {
             });
             await waitForText(page, 'n1', 5000);
             eventBus.emit('session', 'start', { sessionId: 's1', nodeId: 'n1', phase: 'worker', retryCount: 0 });
-            await waitForText(page, 'R1-worker', 5000);
+            await waitForText(page, 'R1 worker', 5000);
+            // Select session to view messages
+            await page.evaluate(() => window.__selectLatestSession?.());
 
             for (let i = 0; i < 10; i++) {
                 eventBus.emit('session', 'tool_call', {
@@ -221,7 +225,9 @@ describe('Edge Case Stress Tests', () => {
             });
             await waitForText(page, 'n1', 5000);
             eventBus.emit('session', 'start', { sessionId: 's1', nodeId: 'n1', phase: 'worker', retryCount: 0 });
-            await waitForText(page, 'R1-worker', 5000);
+            await waitForText(page, 'R1 worker', 5000);
+            // Select session to view messages
+            await page.evaluate(() => window.__selectLatestSession?.());
             eventBus.emit('session', 'message_delta', {
                 sessionId: 's1',
                 messageId: 'long-msg',
@@ -247,6 +253,8 @@ describe('Edge Case Stress Tests', () => {
             await waitForText(page, 'n1', 5000);
             eventBus.emit('session', 'start', { sessionId: 's1', nodeId: 'n1', phase: 'worker', retryCount: -5 });
             expect(await waitForText(page, 'R')).toBe(true);
+            // Select session to view messages
+            await page.evaluate(() => window.__selectLatestSession?.());
             expect(await waitForSelector(page, 'textarea')).toBe(true);
             expect(getRelevant(errs.get()).length).toBe(0);
         } finally {
@@ -275,7 +283,7 @@ describe('Edge Case Stress Tests', () => {
             }
             // Sidebar shows labels as R{retryCount+1}-worker for each session
             for (let i = 1; i <= 5; i++) {
-                expect(await waitForText(page, `R${i}-worker`)).toBe(true);
+                expect(await waitForText(page, `R${i} worker`)).toBe(true);
             }
         } finally {
             await page.close();
@@ -293,7 +301,7 @@ describe('Edge Case Stress Tests', () => {
                 nodes: [{ id: 'n1', task: 'T', review_criteria: [] }],
                 originalTask: 'test',
             });
-            await waitForText(page, 'DAG View', 5000);
+            await waitForText(page, 'n1', 5000);
             expect(await page.evaluate(() => !!document.querySelector('.bp6-tree'))).toBe(true);
             expect(getRelevant(errs.get()).length).toBe(0);
         } finally {
@@ -313,7 +321,9 @@ describe('Edge Case Stress Tests', () => {
             });
             await waitForText(page, 'n1', 5000);
             eventBus.emit('session', 'start', { sessionId: 's1', nodeId: 'n1', phase: 'worker', retryCount: 0 });
-            await waitForText(page, 'R1-worker', 5000);
+            await waitForText(page, 'R1 worker', 5000);
+            // Select session to view messages
+            await page.evaluate(() => window.__selectLatestSession?.());
 
             eventBus.emit('session', 'message', {
                 sessionId: 's1',
@@ -368,7 +378,9 @@ describe('Edge Case Stress Tests', () => {
             });
             await waitForText(page, 'n1', 5000);
             eventBus.emit('session', 'start', { sessionId: 's1', nodeId: 'n1', phase: 'worker', retryCount: 0 });
-            await waitForText(page, 'R1-worker', 5000);
+            await waitForText(page, 'R1 worker', 5000);
+            // Select session to view messages
+            await page.evaluate(() => window.__selectLatestSession?.());
 
             eventBus.emit('session', 'message_delta', {
                 sessionId: 's1',
@@ -423,7 +435,9 @@ describe('Edge Case Stress Tests', () => {
             await waitForText(page, 'pa', 5000);
             eventBus.emit('session', 'start', { sessionId: 's-a', nodeId: 'pa', phase: 'worker', retryCount: 0 });
             eventBus.emit('session', 'start', { sessionId: 's-b', nodeId: 'pb', phase: 'worker', retryCount: 0 });
-            await waitForText(page, 'R1-worker', 5000);
+            await waitForText(page, 'R1 worker', 5000);
+            // Select session to view messages (session A)
+            await page.evaluate(() => window.__selectLatestSession?.());
 
             eventBus.emit('session', 'message_delta', {
                 sessionId: 's-a',

@@ -40,7 +40,7 @@ Worker 和 Self-Confirm 共用**同一个 session 对象**。工具集在 `creat
 - 如需修改，改完后再次调用 `return({ status: 'ok', ... })`
 
 ### 空轮次保护
-两阶段共享 `MAX_EMPTY_TURNS = 20`。
+两阶段**分别**计数：Worker authoring `MAX_EMPTY_TURNS = 20`，Self-Confirm `CONFIRM_MAX_EMPTY = 5`（`empty-turns.js` 定义）。
 
 ## 3.3 Reviewer 会话
 
@@ -49,7 +49,7 @@ Worker 和 Self-Confirm 共用**同一个 session 对象**。工具集在 `creat
 - 每个 retry 轮次都是全新的 reviewer session
 
 ### 可用工具
-同全部 session，工具集完全一致（`delegate` + `return` + host tools），不限制
+Reviewer session 工具集受限：`['read', 'search', 'find', 'lsp', 'bash', 'return']`（`run-reviewer.js` 中 `buildBaseSessionOptions` + 显式 `toolNames` 覆盖），不包含 `delegate` 和 `write`/`edit` 等写操作工具
 
 ### 生命周期
 ```typescript
@@ -130,5 +130,22 @@ graph LR
 ### 与 Self-Confirm 的关系
 
 所有 steer 统一走 `session.prompt(text)`，`pi.sendUserMessage()` 在 squad-tau 中不使用。
+
+### 消息事件 subscribe 机制
+
+实际代码中，session 事件通过 `session.subscribe(callback)` 订阅，回调接收原始事件对象而非命名事件。事件桥接在 `session-events.js` 中完成：
+- `message_update` → 拆分为 `session:message_delta`（含 `text_delta`/`thinking_delta`）
+- `tool_execution_start` → `session:tool_call`
+- `tool_execution_end` → `session:tool_result`
+- `message_end` → `session:message`
+
+### 空轮次上限汇总
+
+| 阶段 | 最大空轮次 | 代码常量 |
+|------|-----------|---------|
+| Worker authoring | 20 | `MAX_EMPTY_TURNS` |
+| Self-Confirm | 5 | `CONFIRM_MAX_EMPTY` |
+| Reviewer | 20 | `REVIEWER_MAX_EMPTY` |
+| Outer Review | 20 | `OUTER_REVIEW_MAX_EMPTY` |
 
 节点完整执行流程见 §3.4。

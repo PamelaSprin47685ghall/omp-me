@@ -49,7 +49,7 @@ describe('Chaos E2E (PRD scenarios)', () => {
         }
 
         // Verify sessions rendered in sidebar
-        await page.waitForFunction(() => document.body.innerText.includes('R1-worker'), { timeout: 5000 });
+        await page.waitForFunction(() => document.body.innerText.includes('R1 worker'), { timeout: 5000 });
 
         // Server still healthy
         const resp = await fetch(`${baseUrl}/api/status`);

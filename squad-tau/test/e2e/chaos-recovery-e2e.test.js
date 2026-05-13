@@ -138,11 +138,11 @@ describe('Chaos: Destructive / Functional scenarios', () => {
         await page.evaluate(() => window.__selectLatestSession?.());
         await page.waitForFunction(() => document.body.innerText.includes('Session TWO content'), { timeout: 3000 });
 
-        // Both session labels (R1-worker, R1-reviewer) visible in sidebar
+        // Both session labels (R1 worker, R1 reviewer) visible in sidebar
         await page.waitForFunction(
             () => {
                 const text = document.body.innerText;
-                return text.includes('R1-worker') && text.includes('R1-reviewer');
+                return text.includes('R1 worker') && text.includes('R1 reviewer');
             },
             { timeout: 3000 },
         );

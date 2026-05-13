@@ -2,7 +2,9 @@
 
 ## 6.1 配置文件
 
-- 路径：`{cwd}/.omp/models.toml`（当前工作目录下的 `.omp/models.toml`）
+- 路径：`{cwd}/.omp/models.toml`（当前工作目录下的 `.omp/models.toml`，实际代码使用 `process.cwd()` 拼接）
+- 解析方式：使用 `Bun.TOML.parse()` 解析（`model-pool-config.js`），非 Bun 环境抛出错误
+- 保存方式：手动字符串拼接生成 TOML 格式（`saveModelsConfig`），非使用 TOML 序列化库
 - 格式示例：
 ```toml
 [[slot]]
@@ -56,9 +58,21 @@ graph TD
 | `edit` | 修改 `thinkingLevel`，不影响正在运行的任务 |
 
 ### 注意事项
-- 删除正在使用的槽位 → 标记为 `pending_delete`，release 时真正删除
+- 删除正在使用的槽位 → 标记为 `pending_delete`，release 时真正删除（`ModelPool._purgeSlot`）
 - 编辑不影响运行中任务的 thinkingLevel
 - 新增槽位立即生效，等待队列中的 acquire 会立即分配到新槽位
+
+### 实际实现细节
+
+| 方面 | PRD 设计 | 实际实现 |
+|------|---------|---------|
+| 配置文件解析 | 未指定 | `Bun.TOML.parse()` 读取，手动字符串拼接写入 |
+| 配置路径 | `{cwd}/.omp/models.toml` | `process.cwd()` + `.omp/models.toml` |
+| 槽位同步 | 直接增删改 | 使用频率计数 map（`syncModelPoolFromConfig`），匹配新旧配置的 slot 数量差异进行增删，多余 slot 按频率移除 |
+| thinkingLevel 同步 | 编辑更新 | 按 position 匹配：对每个 `newConfig` 条目，找到 pool 中第 N 个匹配 key 的 slot 更新 thinkingLevel |
+| 文件监听 | `fs.watchFile` | 使用 `fs.watchFile(configPath, { interval: 300 })` + 300ms debounce |
+| 空池处理 | acquire 返回 null | `slots.length === 0` 或所有 slot 均为 `pendingDelete` 时返回 null（降级到当前会话模型） |
+| 信号处理 | acquire 可被 signal.abort | `signal.addEventListener('abort')` 从等待队列中移除 waiter 并 reject |
 
 ## 6.4 与 Squad 引擎的集成
 

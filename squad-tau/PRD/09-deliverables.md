@@ -7,29 +7,38 @@
   - [x] 服务端：引擎、DAG 执行器、节点执行、网络层、模型池、基础设施
   - [x] 前端：React SPA、Blueprint.js 组件、hooks
   - [x] 配置：`package.json`, `README.md`, `SPEC.md`
-- [x] 单元测试（28 个文件，260+ 用例，Bun Test）
-  - [x] 状态机 70 / 事件总线 12 / DAG 排序 12 / DAG 验证 21
-  - [x] 模型池基础 7 / 动态 10 / 配置 5
-  - [x] squad-fsm 10 / run-worker 4 / run-reviewer 5
-  - [x] outer-review 4 / retry-logic 4 / validate-plan 10 / session-registry 5
-  - [x] 审计轮次：round2 10 / round3 10 / round4 6 / bugs-4-7 8 / final-bugs 4
-  - [x] 杂项：deps 3 / dead-code 2 / duplicate-code 2 / null-safety 3 / http-server 4 / vite-middleware 3 / event-bus-integration 6
-- [x] 集成测试（mock pi，`.skip.js`）
-  - [x] `squad-flow.skip.js` / `websocket.skip.js` / `run-confirm.skip.js`
-- [ ] 端到端测试（需真实 OMP/Puppeteer，`.skip.js`）
-  - [ ] `browser.skip.js` / `standalone.skip.js` / `rpc-e2e.skip.js` / `chaos-e2e.skip.js`
+- [x] 单元测试（42 个文件，420+ 用例，Bun Test，`test/unit/`）
+  - [x] `dag-sort` / `dag-validate` / `dag-execute` / `dag-concurrency`
+  - [x] `model-pool-basic` / `model-pool-dynamic` / `model-pool-config` / `model-pool-events`
+  - [x] `squad-fsm` / `event-bus` / `event-bus-integration` / `empty-turns`
+  - [x] `run-worker` / `run-reviewer` / `run-confirm-prompt` / `outer-review`
+  - [x] `validate-plan` / `session-registry` / `session-events` / `session-options` / `session-loop-flow`
+  - [x] `squad-complete` / `plugin-state` / `lifecycle-tools` / `benchmark`
+  - [x] `ws-handler` / `ws-heartbeat` / `ws-events` / `http-server` / `vite-middleware`
+  - [x] 审计：`round2-audit` / `round3-audit` / `round4-gaps` / `bugs-4-7` / `final-bugs`
+  - [x] 杂项：`dead-code` / `duplicate-code` / `null-safety` / `squad-command-args`
+- [x] 集成测试（5 个文件，`test/integration/`）
+  - [x] `squad-flow.test.js` / `dag-execution.test.js` / `lifecycle-tools.test.js`
+  - [x] `websocket.test.js` / `run-node-flow.test.js` / `run-confirm.test.js`
+- [x] 端到端测试（13 个文件，`test/e2e/` + `test/real-env/`）
+  - [x] `rpc-e2e.test.js` / `standalone.test.js` / `tmux-browser.test.js` / `tmux-browser-edge.test.js`
+  - [x] Chaos: `chaos-e2e.test.js` / `chaos-cmd-storm-e2e.test.js` / `chaos-cmd-abuse-e2e.test.js` / `chaos-concur-e2e.test.js` / `chaos-garbage-e2e.test.js` / `chaos-interleave-e2e.test.js` / `chaos-interrupt-e2e.test.js` / `chaos-recovery-e2e.test.js` / `chaos-steer-msg-e2e.test.js` / `chaos-ui-e2e.test.js`
+- [x] 客户端测试（4 个文件，`test/client/`）
+  - [x] `error-banner.test.js` / `message-input.test.js` / `use-model-pool.test.js` / `sidebar-no-autoswitch.test.js`
+- [x] 真实环境测试（2 个文件，`test/real-env/`）
+  - [x] `real-environment.test.js` / `real-env-chaos.test.js`
 
 ## 9.2 非功能需求
 
 ### 性能
 - WebSocket 消息频率 > 100/s，无丢失
 - 10 节点并发执行，浏览器不卡顿
-- 100 条消息的会话，虚拟滚动流畅
+- 100 条消息的会话流畅（内容可见性优化 `content-visibility: auto`）
 
 ### 可靠性
-- WebSocket 断开自动重连（指数退避：1s, 2s, 4s, 8s, ...max 30s）
+- WebSocket 断开自动重连（指数退避：[1000, 2000, 4000, 8000, 16000, 30000]，`MAX_RECONNECT_ATTEMPTS=50`）
 - 服务端异常 → 浏览器显示错误提示，自动重连
-- 文件篡改检测 100% 准确（mtime）
+- 文件篡改检测：已移除（v1.1.0 设计变更）
 
 ### 可用性
 - 首次页面加载 < 2s（Vite 构建产物）
@@ -114,7 +123,7 @@
 | 29 | UI: Header | Abort 仅活跃时显示，连接状态简化为绿/红点 |
 | 30 | UI: 深色模式 | 自动跟随系统主题，Blueprint `Classes.DARK` |
 | 31 | Vite Dev 模式 | 调用 `vite.createServer` Node API 直读 JSX |
-| 32 | 端口分配 | 默认 9527，冲突 +1 递增 |
+| 32 | 端口分配 | ~~默认 9527，冲突 +1 递增~~ | OS 随机分配（`server.listen(0)`），无需冲突处理 |
 | 33 | 图标选择 | 所有图标使用 Blueprint `Icon` 组件 + `@blueprintjs/icons` 的 `IconNames` 枚举，实现在 https://blueprintjs.com/docs/#icons/icons-list 中挑选最贴合语义的，不将就 |
 
 ## 9.7 待决策事项
@@ -149,3 +158,13 @@
 | 53 | HTTP/WS 启动时机 | 随 `/squad` 启动 | 插件加载时即启动，始终可用 | `squad-engine.js` |
 | 54 | delegate 可用性 | 仅在 squad 任务中 | 始终全局注册，LLM 可随时自主调用 | `lifecycle-tools.js` |
 | 55 | /squad 语义 | 启动服务 + 激活工具 | 仅修改提示词 + 强制 LLM 调 delegate | `squad-engine.js` |
+| 56 | 端口分配 | `server.listen(9527)` 固定端口 | `server.listen(0)` OS 随机分配 | `http-server.js` |
+| 57 | MAX_RETRIES | Infinity（无限重试） | 5（`DEFAULTS.MAX_RETRIES = 5`） | `constants.js` |
+| 58 | CONFIRM_MAX_EMPTY | 与 Worker 共享 `MAX_EMPTY_TURNS=20` | 独立 `CONFIRM_MAX_EMPTY=5` | `empty-turns.js` |
+| 59 | Tool 卡片默认状态 | 最新展开 | 全部折叠（`useState(false)`） | `ToolCall.jsx` |
+| 60 | DAG 库 | mermaid | `beautiful-mermaid`（内置暗色主题） | `DAGView.jsx` |
+| 61 | 模块解析 | 直接 import | 通过 `@oh-my-pi/resolve-pi` 的 `importNodeModule` | 多处 |
+| 62 | Vite 初始化 | 插件加载时立即启动 | 首次 HTTP 请求时惰性启动 | `vite-setup.js` |
+| 63 | 消息输入显示 | 始终显示 | 仅在有活跃 session 时显示 | `MainContent.jsx` |
+| 64 | Tool 调用动画 | Spinner | `running` Tag（无动画） | `ToolCall.jsx` |
+| 65 | 服务端生命周期 | 单次启动/关闭 | 引用计数（`_refCount`）管理 | `server-lifecycle.js` |

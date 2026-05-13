@@ -22,19 +22,24 @@
 
 ```javascript
 // 服务端 → 浏览器：连接建立
-{ type: 'connection:established', payload: { sessionId: number, serverVersion: string } }
+{ type: 'connection:established', payload: { sessionId: number, serverVersion: '1.0.0' } }
 
 // 服务端 → 浏览器：连接断开（优雅通知）
-{ type: 'connection:close', payload: { reason: string } }
+{ type: 'connection:close', payload: { reason: 'server_stop' } }
 
 // 浏览器 → 服务端：ping（心跳）
 { type: 'ping' }
 
 // 服务端 → 浏览器：pong
 { type: 'pong' }
+
+// 浏览器 → 服务端：abort（中止 squad）
+{ type: 'abort', payload: {} }
 ```
 
-**连接 ID**：使用自然数递增（1, 2, 3, ...），每个新 WebSocket 连接分配下一个 ID。squad 子会话使用 session 文件路径作为 ID (string)，非自增数字。
+**连接 ID**：`ws-server.js` 中 `nextConnId` 自增（1, 2, 3, ...），每个新 WebSocket 连接分配下一个 ID。squad 子会话使用 `session.sessionFile` 作为 ID（文件路径字符串），非自增数字。
+
+**客户端中止**：浏览器通过发送 `{ type: 'abort' }` 消息触发 squad 中止（`ws-handler.js` 中 `routeMessage`），服务端收到后通过 eventBus 广播 `squad:abort` 事件。
 
 ## 5.4 Squad 状态事件
 
@@ -61,7 +66,9 @@
            | 'reviewing' | 'approved' | 'rejected' | 'blocked' | 'failed',
     retryCount: number,
     summary?: string,
-    affectedFiles?: string[]
+    affectedFiles?: string[],
+    error?: string,         // 仅 failed 状态时携带错误信息
+    timestamp?: number      // 可选时间戳
   }
 }
 
@@ -119,6 +126,8 @@
     phase: 'authoring' | 'confirming' | 'reviewing' | 'completed' | 'aborted' | 'error'
   }
 }
+// 注：`session:state` 与 `session:end` 在 `session-events.js` 中成对发送——
+// `emitSessionEnd` 先发 `session:state`，再发 `session:end`
 
 // session:message - 完整消息（非流式，如 tool_result）
 { type: 'session:message',
@@ -171,6 +180,11 @@
     errorMessage?: string
   }
 }
+
+// 注：`session:end` 的 `reason` 字段同时作为 `session:state` 的 `phase` 字段传递。
+// 客户端 `sessionReducer` 中 `handleSessionStateChange` 的 status 逻辑：
+// 如果 phase 是 'completed'/'aborted'/'error' 之一，status 同步更新为 phase 值，
+// 否则 status 保持不变（保持之前的 active 状态）。
 ```
 
 ## 5.6 模型池事件
@@ -180,6 +194,7 @@
 { type: 'model_pool:snapshot',
   payload: {
     slots: Array<{
+      slotId: string,         // crypto.randomUUID() 生成，实际代码包含此字段
       provider: string,
       modelId: string,
       role: 'worker' | 'reviewer',
@@ -203,6 +218,7 @@
 { type: 'model_pool:changed',
   payload: {
     slots: Array<{
+      slotId: string,         // 包含 slotId 字段
       provider: string,
       modelId: string,
       role: 'worker' | 'reviewer',
@@ -231,7 +247,8 @@
 { type: 'session:user_message',
   payload: {
     sessionId: string,     // 目标 session ID
-    text: string            // 消息内容
+    text: string,           // 消息内容
+    messageId?: string     // 可选，客户端生成的乐观消息 ID（以 'opt_' 前缀开头），服务端优先使用此 ID 广播
   }
 }
 ```

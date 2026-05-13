@@ -40,7 +40,7 @@ describe('Chaos: Garbage and mixed-language input', () => {
             originalTask: 'garbage',
         });
         eb.emit('session', 'start', { sessionId: sid, nodeId: 'GarbN', phase: 'worker' });
-        await page.waitForFunction(() => document.body.innerText.includes('R1-worker'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('R1 worker'), { timeout: 3000 });
 
         // Random ASCII noise (all 128 values)
         const asciiNoise = String.fromCharCode(...Array.from({ length: 50 }, () => Math.floor(Math.random() * 128)));
@@ -95,7 +95,7 @@ describe('Chaos: Garbage and mixed-language input', () => {
             originalTask: 'lang test',
         });
         eb.emit('session', 'start', { sessionId: sid, nodeId: 'LangN', phase: 'worker' });
-        await page.waitForFunction(() => document.body.innerText.includes('R1-worker'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('R1 worker'), { timeout: 3000 });
 
         // Chinese
         eb.emit('session', 'message', {

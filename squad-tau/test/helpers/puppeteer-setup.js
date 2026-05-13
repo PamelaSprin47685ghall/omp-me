@@ -67,14 +67,6 @@ export async function waitForAppWebSocket(page, timeoutMs = 10000) {
 }
 
 /**
- * Auto-select the latest session in the sidebar to view its messages.
- * Needed since Sidebar no longer auto-switches sessions.
- */
-export async function selectLatestSession(page) {
-    await page.evaluate(() => window.__selectLatestSession?.());
-}
-
-/**
  * @param {import('puppeteer').Page} page
  * @param {string} text
  * @param {number} timeoutMs

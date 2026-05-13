@@ -55,13 +55,13 @@ name = "Design"
 description = "Follows design system"
 ```
 
-### 字段约束（所有字段必填）
+### 字段约束
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `task` | string | **必须详细具体**，包含问题背景、目标、工作方法（如 TDD）、参考材料、注意事项等。LLM 准备文件时应尽可能细致 |
-| `depends_on` | string[] | **必填**，独立节点填 `[]`，依赖节点填其他文件名（不含 `.toml` 后缀），构成 DAG |
-| `review_criteria` | table[] | `[[review_criteria]]` 表数组，每项含 `name` + `description`，`description` 必须原样嵌入提示词（Worker/Confirm/Reviewer 均展开为 `name: description`） |
+| `depends_on` | string[] | **M 模式不允许**（`validate-plan.js` 会报错）；L 模式必填，独立节点填 `[]`，依赖节点填其他文件名（不含 `.toml` 后缀） |
+| `review_criteria` | table[] 或 string[] 或 string | 字段实际逻辑比 PRD 描述的更灵活，可接受 `{name, description}` 对象数组、字符串数组或纯字符串 |
 
 ### 设计理由
 - 避免 LLM 输出截断（复杂 plan 可拆到多个 `.toml` 文件）
@@ -99,11 +99,12 @@ graph LR
 
 ### 事件与转换
 
+状态转换通过 `eventBus.emit('squad', 'node_state', payload)` 实现，实际代码中**不通过 FSM 对象管理**节点级别的状态转换，而是由 `run-node.js` 中的 `executeRetryLoop` 直接控制流程。`constants.js` 中的 `EVENT` 枚举保留未使用。
+
 | 事件 | 从 → 到 |
 |------|---------|
 | `start` | `waiting_deps` → `pending` |
-| `start` | `pending` → `authoring` |
-| `worker_submit` | `authoring` → `confirming` |
+| `worker_submit` | `pending`/`authoring` → `confirming` |
 | `confirm` | `confirming` → `reviewing` |
 | `review_approved` | `reviewing` → `approved` |
 | `review_rejected` | `reviewing` → `rejected` → `authoring` (retry) |
@@ -112,10 +113,11 @@ graph LR
 
 ## 2.5 DAG 执行
 
-- **拓扑排序**：根据 `depends_on` 确定执行顺序
-- **分层并发**：同一层的节点并行执行（默认并发 5）
+- **拓扑排序**：Kahn 算法（`dag-sort.js` 中 `kahnLayers`），根据 `depends_on` 确定执行顺序
+- **分层并发**：同一层的节点并行执行（默认并发 5，`dag-concurrency.js` 中 `executeLayer` 使用 `Promise.race` + 信号量式队列）
 - **依赖传递**：上游节点的 summary 和 affected_files 传递给下游
 - **失败传播**：如果某节点 failed/blocked，下游节点标记 `blocked`
+- **未完成节点兜底**：DAG 执行完成后，所有不在 `completedNodes` 中的节点都会获得终端状态（blocked 或 failed）
 
 ## 2.6 外层 Review（L 模式）
 
@@ -135,7 +137,17 @@ graph LR
 ```
 
 - `idle`：空闲。可静默结束控制权（无活跃任务）
-- `active`：外层 review reject，等待 `delegate` 提交修订版。**不允许静默结束**——LLM 必须调用 `delegate` 或显式放弃，否则系统强制提醒
+- `active`：外层 review reject，等待 `delegate` 提交修订版。**不允许静默结束**——LLM 必须调用 `delegate` 或显式放弃，否则系统强制提醒（`squad-session.js` 中 `waitForArchitectPlan` 最多强制提示 3 轮后抛出错误）
 - 执行期间 LLM 不拥有控制权（等待 `delegate` 工具返回）
 
 `idle` 与 `active` 的唯一区别：`active` 不允许 LLM 不打招呼就结束回合。
+
+### 实际约束
+
+| 参数 | PRD 设计值 | 实际代码值 |
+|------|-----------|-----------|
+| `MAX_RETRIES` | Infinity（无限） | 5（`constants.js` 中 `DEFAULTS.MAX_RETRIES = 5`） |
+| `MAX_EMPTY_TURNS`（Worker） | 20 | 20 |
+| `CONFIRM_MAX_EMPTY` | 20（与 Worker 共享） | 5（独立计数器） |
+| `REVIEWER_MAX_EMPTY` | — | 20 |
+| `OUTER_REVIEW_MAX_EMPTY` | — | 20 |

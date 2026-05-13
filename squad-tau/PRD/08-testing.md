@@ -8,77 +8,36 @@
 
 因代码库按 ≤200 行/文件拆分，测试文件也按模块拆分，每个测试文件覆盖一个源文件。
 
-### 状态机 (`state-machine.test.js`)
-- 每个状态 × 每个事件的转换结果
-- `emptyState(true)` → `waiting_deps`
-- `emptyState(false)` → `pending`
-- 重试计数递增
-- MAX_RETRIES 边界（虽然 = Infinity，但测试有限轮次）
-- 非法状态转换拒绝
+**实际文件数**：42 个单元测试文件（`test/unit/` 目录）+ 5 个集成测试（`test/integration/`）+ 13+ 个 e2e/chaos 测试 + 6 个 helpers + 4 个客户端测试 = 70+ 个测试文件。
 
-### Squad FSM (`squad-fsm.test.js`)
-- idle → delegate → 执行 → approved → idle
-- idle → delegate → 执行 → rejected → active
-- active → delegate → 执行 → approved → idle
-- active → delegate → 执行 → rejected → active（保留在 active）
+### 关键测试覆盖
 
-### DAG 拓扑排序 (`dag-sort.test.js`)
-- 无依赖 → 单层
-- 链式依赖 → 多层
-- 菱形依赖 → 正确分层
-- 循环依赖 → 抛出错误
-
-### DAG 验证 (`dag-validate.test.js`)
-- `validateNodes`：重复 ID
-- `validateNodes`：引用未知节点
-- `validateNodes`：空节点列表
-- `validateNodes`：无效模式
-
-### DAG 执行 (`dag-execute.test.js`)
-- 完整 DAG 编排流程
-- 事件触发顺序
-- 结果收集
-
-### DAG 并发 (`dag-concurrency.test.js`)
-- `executeLayer`：节点失败 → 下游 blocked
-- 并发限制正确
-- 信号中止传播
-
-### 模型池 (`model-pool.test.js`)
-- acquire/release 正常配对
-- 并发限制：2 个槽位，3 个 acquire 同时等待
-- 角色隔离：worker 和 reviewer 独立队列
-- signal.abort 取消等待
-- 动态添加槽位后等待者立即获取
-- 删除使用中的槽位 → pending_delete
-
-### 事件总线 (`event-bus.test.js`)
-- 订阅/发布基础
-- 通配符订阅 `squad:*`
-- 命名空间隔离
-- 取消订阅
-
-### 空轮次保护 (`empty-turns.test.js`)
-- MAX_EMPTY_TURNS 常量正确
-- 空轮次计数器递增
-- 达到上限时强制错误
-
-### Worker 执行 (`run-worker.test.js`)
-- `buildWorkerPrompt`：包含上游结果
-- `buildWorkerPrompt`：重试时包含 reviewer 反馈
-- `runWorker` 创建 session 并注入工具
-- 模型分配逻辑
-
-### Worker 执行 (`run-worker.test.js`)
-- `buildWorkerPrompt`：包含节点任务 + 上游结果 + reviewer 反馈
-- `buildConfirmPrompt`：包含原始任务 + review_criteria 展开
-- 同一 session 两次 `return` 调用：首次进 confirm，二次进 reviewer
-- 空轮次保护
-
-### Reviewer 执行 (`run-reviewer.test.js`)
-- `buildReviewerPrompt`：包含 review_criteria 展开（`name: description`）
-- `runReviewer` 每次新 session
-- `return` 工具（status='ok' 或 'error'）
+| 模块 | 测试文件 | 测试重点 |
+|------|---------|---------|
+| DAG 排序 | `dag-sort.test.js` | Kahn 算法：无依赖/链式/菱形/循环依赖 |
+| DAG 验证 | `dag-validate.test.js` | 重复 ID、未知节点依赖、空节点列表 |
+| DAG 执行 | `dag-execute.test.js` | 完整编排流程、事件触发顺序 |
+| DAG 并发 | `dag-concurrency.test.js` | 节点失败→下游 blocked、并发限制、信号中止 |
+| Squad FSM | `squad-fsm.test.js` | idle/active 状态转换 |
+| 模型池基础 | `model-pool-basic.test.js` | acquire/release、并发限制、角色隔离 |
+| 模型池动态 | `model-pool-dynamic.test.js` | 动态添加槽位、pending_delete |
+| 模型池配置 | `model-pool-config.test.js` | 配置读写、文件同步 |
+| Worker 执行 | `run-worker.test.js` | 两次 return 调用、提示词构建 |
+| Reviewer 执行 | `run-reviewer.test.js` | 每次新 session、return 工具 |
+| 事件总线 | `event-bus.test.js` | 订阅/发布、通配符 |
+| 审计轮次 | `round2-audit.test.js`, `round3-audit.test.js`, `round4-gaps.test.js` | 多轮审计缺陷修复 |
+| 最终 Bug | `final-bugs.test.js`, `bugs-4-7.test.js` | 回归测试 |
+| 死代码 | `dead-code.test.js` | 未使用的变量/函数检测 |
+| 重复代码 | `duplicate-code.test.js` | 代码重复率检测 |
+| Null 安全 | `null-safety.test.js` | 边界情况空值处理 |
+| HTTP 服务器 | `http-server.test.js` | 中间件栈、路由 |
+| Vite 中间件 | `vite-middleware.test.js` | 惰性加载、跳过逻辑 |
+| Session 事件 | `session-events.test.js` | 事件桥接正确性 |
+| WS 处理器 | `ws-handler.test.js` | 消息路由、错误处理 |
+| WS 心跳 | `ws-heartbeat.test.js` | ping/pong 超时 |
+| 客户端测试 | `error-banner.test.js`, `message-input.test.js`, `use-model-pool.test.js`, `sidebar-no-autoswitch.test.js` | React 组件行为 |
+| 回归去重 | `regression-dedup.test.js`, `useSessionState-delta.test.js` | 消息去重和 delta 渲染回归 |
+| 真实环境 | `real-environment.test.js`, `real-env-chaos.test.js` | 真实 OMP 环境集成测试 |
 
 ### 8.3 集成测试（Bun Test + Mock）
 

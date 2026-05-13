@@ -80,8 +80,8 @@ describe('Standalone E2E', () => {
 
         await page.waitForFunction(() => document.body.innerText.includes('NodeA'), { timeout: 5000 });
         await page.waitForFunction(() => document.body.innerText.includes('NodeB'), { timeout: 5000 });
-        await page.waitForFunction(() => document.body.innerText.includes('R2-worker'), { timeout: 5000 });
-        await page.waitForFunction(() => document.body.innerText.includes('R2-reviewer'), { timeout: 5000 });
+        await page.waitForFunction(() => document.body.innerText.includes('R2 worker'), { timeout: 5000 });
+        await page.waitForFunction(() => document.body.innerText.includes('R2 reviewer'), { timeout: 5000 });
     }, 15000);
 
     test('error banner on node failure', async () => {
@@ -116,10 +116,10 @@ describe('Standalone E2E', () => {
         eb.emit('session', 'start', { sessionId: sid, nodeId: 'SNode', phase: 'worker' });
 
         // Wait for session tree to appear, then click the session node to select it (no auto-follow)
-        await page.waitForFunction(() => document.body.innerText.includes('R1-worker'), { timeout: 8000 });
+        await page.waitForFunction(() => document.body.innerText.includes('R1 worker'), { timeout: 8000 });
         await page.evaluate(() => {
             const nodeLabel = [...document.querySelectorAll('.bp6-tree-node-label')].find((el) =>
-                el.textContent.includes('R1-worker'),
+                el.textContent.includes('R1 worker'),
             );
             if (nodeLabel) {
                 nodeLabel.closest('.bp6-tree-node-content')?.click();
@@ -157,10 +157,10 @@ describe('Standalone E2E', () => {
         eb.emit('session', 'start', { sessionId: sid, nodeId: 'TNode', phase: 'worker' });
 
         // Wait for session tree to appear, then click the session node to select it
-        await page.waitForFunction(() => document.body.innerText.includes('R1-worker'), { timeout: 5000 });
+        await page.waitForFunction(() => document.body.innerText.includes('R1 worker'), { timeout: 5000 });
         await page.evaluate(() => {
             const nodeLabel = [...document.querySelectorAll('.bp6-tree-node-label')].find((el) =>
-                el.textContent.includes('R1-worker'),
+                el.textContent.includes('R1 worker'),
             );
             if (nodeLabel) {
                 nodeLabel.closest('.bp6-tree-node-content')?.click();

@@ -38,7 +38,7 @@ describe('Chaos: Steer messages', () => {
             originalTask: 'steer',
         });
         eb.emit('session', 'start', { sessionId: sid, nodeId: 'SteerN', phase: 'worker' });
-        await page.waitForFunction(() => document.body.innerText.includes('R1-worker'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('R1 worker'), { timeout: 3000 });
 
         const steerText = 'Actually, use Python instead of JavaScript';
         eb.emit('session', 'message', {
@@ -72,7 +72,7 @@ describe('Chaos: Steer messages', () => {
             originalTask: 'contra',
         });
         eb.emit('session', 'start', { sessionId: sid, nodeId: 'ContraN', phase: 'worker' });
-        await page.waitForFunction(() => document.body.innerText.includes('R1-worker'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('R1 worker'), { timeout: 3000 });
 
         eb.emit('session', 'message', {
             sessionId: sid,
