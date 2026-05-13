@@ -10,12 +10,18 @@ export function createOnCompleteHandler({ pi, fsm, eventBus }) {
             affectedFiles: r.affectedFiles || [],
         }));
 
+        const failed = nodeResults.filter((r) => r.status === 'failed' || r.status === 'blocked');
+        const msg =
+            failed.length > 0
+                ? `Squad completed — ${failed.length} node(s) failed (${(durationMs / 1000).toFixed(1)}s)`
+                : `Squad completed successfully (${(durationMs / 1000).toFixed(1)}s)`;
+
         if (eventBus) {
             eventBus.emit('squad', 'complete', { results: nodeResults, durationMs });
         }
 
         fsm.deactivate();
-        pi.sendMessage(`Squad completed successfully in ${(durationMs / 1000).toFixed(1)}s`);
+        pi.sendMessage(msg);
 
         const run = getCurrentRun();
         if (run?.ctx?.cwd) {

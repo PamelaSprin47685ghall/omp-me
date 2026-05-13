@@ -71,7 +71,7 @@ const DEFAULT_EVENT = (over) => ({
     ...over,
 });
 
-describe('semantic-edit plugin', () => {
+describe('semantic-tools plugin', () => {
     describe('plugin registration', () => {
         it('registers the semantic_edit tool', async () => {
             const { default: semanticEdit } = await import('../index.js?bust=1');

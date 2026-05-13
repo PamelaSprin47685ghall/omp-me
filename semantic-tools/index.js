@@ -171,7 +171,7 @@ async function runSubAgentSession(pi, opts) {
 
 async function runEditSession(pi, intent, signal, ctx) {
     return runSubAgentSession(pi, {
-        prefix: 'semantic-edit',
+        prefix: 'semantic-tools',
         signal,
         ctx,
         returnToolMeta: {
@@ -397,7 +397,7 @@ export default async function semanticEditExtension(pi) {
                             content: [
                                 {
                                     type: 'text',
-                                    text: `The previous edit attempt failed, but it has been automatically recovered via semantic-edit. Changes applied to: ${files}. Summary: ${result.summary}.${RECOMMENDATION}`,
+                                    text: `The previous edit attempt failed, but it has been automatically recovered via semantic-tools. Changes applied to: ${files}. Summary: ${result.summary}.${RECOMMENDATION}`,
                                 },
                             ],
                         };

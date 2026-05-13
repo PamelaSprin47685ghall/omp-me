@@ -127,17 +127,6 @@ function processOuterVerdict(eventBus, sessionId, round, outcome) {
     }
 }
 
-function handleOuterReviewError(err, childAbort, signal, eventBus, sessionId, modelPool, modelSlot) {
-    if (childAbort?.signal.aborted && signal?.aborted) {
-        emitSessionEnd(eventBus, sessionId, 'aborted', 'aborted');
-        modelPool.release(modelSlot);
-        return null;
-    }
-    emitSessionEnd(eventBus, sessionId, 'error', 'error', err.message);
-    modelPool.release(modelSlot);
-    throw err;
-}
-
 function cleanupOuterReview(childAbort, session, unsub, sessionId, factoryResult) {
     childAbort.abort();
     session?.abort?.();

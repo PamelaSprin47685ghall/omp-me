@@ -37,6 +37,11 @@ class ModelPool {
             return null;
         }
 
+        // If parent abort already fired, don't queue a waiter that can never resolve
+        if (signal?.aborted) {
+            throw new Error('Acquire aborted');
+        }
+
         const availableSlot = slots.find((s) => !s.inUse && !s.pendingDelete);
         if (availableSlot) {
             availableSlot.inUse = true;
@@ -75,13 +80,16 @@ class ModelPool {
         const targetSlot = slot._slot;
         if (!targetSlot || !roleSlots.includes(targetSlot)) return;
 
-        targetSlot.pendingDelete ? this._purgeSlot(targetSlot, roleSlots) : this._tryWakeWaiter(targetSlot, queue);
+        targetSlot.pendingDelete
+            ? this._purgeSlot(targetSlot, roleSlots, queue)
+            : this._tryWakeWaiter(targetSlot, queue);
     }
 
-    _purgeSlot(targetSlot, roleSlots) {
+    _purgeSlot(targetSlot, roleSlots, queue) {
         targetSlot.inUse = false;
         const index = roleSlots.indexOf(targetSlot);
         if (index !== -1) roleSlots.splice(index, 1);
+        this._wakeFromAnyFree(queue, roleSlots);
     }
 
     _tryWakeWaiter(targetSlot, queue) {
@@ -96,6 +104,22 @@ class ModelPool {
             modelId: targetSlot.modelId,
             role: targetSlot.role,
             _slot: targetSlot,
+        });
+    }
+
+    _wakeFromAnyFree(queue, roleSlots) {
+        if (queue.length === 0) return;
+        const free = roleSlots.find((s) => !s.inUse && !s.pendingDelete);
+        if (!free) return;
+        const waiter = queue.shift();
+        if (!waiter) return;
+        free.inUse = true;
+        waiter.cleanup?.();
+        waiter.resolve({
+            provider: free.provider,
+            modelId: free.modelId,
+            role: free.role,
+            _slot: free,
         });
     }
 

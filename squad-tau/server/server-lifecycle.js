@@ -67,7 +67,10 @@ function createConnectionHandler(modelPool, eventBus) {
 }
 
 function createCloseHandler(wss, rawServer, heartbeatCleanup, unsub) {
+    let closing = false;
     return async () => {
+        if (closing) return;
+        closing = true;
         const closeMsg = JSON.stringify({
             type: 'connection:close',
             payload: { reason: 'server_stop' },

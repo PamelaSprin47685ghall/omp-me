@@ -120,14 +120,13 @@ describe('Run Node Flow Lifecycle', () => {
         const res1 = await handlerFactory()({ plan_dir: planDir });
         expect(res1.success).toBe(true);
         expect(res1.outerReviewRejected).toBe(true);
-        expect(squadFsm.state).toBe('active');
+        // FSM must be deactivated after rejection (architecture: 1 round only)
+        expect(squadFsm.state).toBe('idle');
         expect(outerReviewCalls).toBe(1);
 
-        // Delegation 2: outer review approves
-        const res2 = await handlerFactory()({ plan_dir: planDir });
-        expect(res2.success).toBe(true);
-        expect(res2.outerReviewRejected).toBeUndefined();
-        expect(squadFsm.state).toBe('idle');
-        expect(outerReviewCalls).toBe(2);
+        // Re-delegation is not allowed when FSM is idle
+        await expect(handlerFactory()({ plan_dir: planDir })).rejects.toThrow(
+            'Cannot delegate in state: idle. Must be active.',
+        );
     });
 });

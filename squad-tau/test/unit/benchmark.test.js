@@ -66,7 +66,7 @@ describe('Performance Benchmarks', () => {
         const { transition, emptyState } = await import('../../server/state-machine.js');
         const { STATUS, EVENT } = await import('../../server/constants.js');
 
-        let state = emptyState('bench-node');
+        let state = emptyState();
         const ops = measure('state-machine transition', () => {
             state = transition(state, EVENT.START);
             state = transition(state, EVENT.WORKER_SUBMIT);

@@ -48,7 +48,7 @@ const DEFAULTS = Object.freeze({
     MAX_EMPTY_TURNS: 20,
     HEARTBEAT_INTERVAL: 30000,
     HEARTBEAT_TIMEOUT: 60000,
-    MAX_RETRIES: Infinity,
+    MAX_RETRIES: 5,
 });
 
 const SESSION_PHASES = Object.freeze(['worker', 'reviewer', 'outer_review', 'main']);

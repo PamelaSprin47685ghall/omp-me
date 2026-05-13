@@ -35,11 +35,3 @@ export function startHeartbeat(clients, opts = {}) {
 
     return () => clearInterval(ticker);
 }
-
-/**
- * Called on the server 'pong' event to reset the missed counter.
- * @param {import('ws').WebSocket} ws
- */
-export function recordPong(ws) {
-    ws._missedPongs = 0;
-}

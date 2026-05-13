@@ -14,7 +14,7 @@ async function executeDAG({ nodes, ctx, pi, signal, eventBus, modelPool }) {
 
     for (const layer of layers) {
         if (signal.aborted) {
-            handleAbortedLayer(layer, completedNodes, allResults, eventBus);
+            handleAbortedLayer(layer, completedNodes, allResults, failedNodes, eventBus);
             continue;
         }
 
@@ -32,10 +32,31 @@ async function executeDAG({ nodes, ctx, pi, signal, eventBus, modelPool }) {
         }
     }
 
+    // Ensure any remaining unprocessed nodes (from layers skipped by abort
+    // or blocked by failed deps) get a terminal state visible to the client.
+    for (const node of nodes) {
+        if (!completedNodes.has(node.id)) {
+            const hasFailedDep = (node.depends_on || []).some((d) => failedNodes.has(d));
+            const result = {
+                nodeId: node.id,
+                status: hasFailedDep ? STATUS.BLOCKED : STATUS.FAILED,
+                summary: hasFailedDep ? 'Blocked by failed upstream' : 'Unreachable due to abort',
+                affectedFiles: [],
+            };
+            allResults.push(result);
+            completedNodes.set(node.id, result);
+            eventBus.emit('squad', 'node_state', {
+                nodeId: node.id,
+                status: result.status,
+                retryCount: 0,
+            });
+        }
+    }
+
     return allResults;
 }
 
-function handleAbortedLayer(layer, completedNodes, allResults, eventBus) {
+function handleAbortedLayer(layer, completedNodes, allResults, failedNodes, eventBus) {
     for (const node of layer) {
         if (!completedNodes.has(node.id)) {
             const result = {
@@ -46,6 +67,7 @@ function handleAbortedLayer(layer, completedNodes, allResults, eventBus) {
             };
             allResults.push(result);
             completedNodes.set(node.id, result);
+            failedNodes.add(node.id);
             eventBus.emit('squad', 'node_state', { nodeId: node.id, status: STATUS.FAILED, retryCount: 0 });
         }
     }

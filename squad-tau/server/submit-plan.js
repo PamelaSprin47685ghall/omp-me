@@ -106,7 +106,13 @@ async function finalize({
             modelPool,
             fsm,
         });
-        if (review.done) return review.payload;
+        if (review.done) {
+            // Outer review rejected or was aborted — terminate the squad run
+            fsm.deactivate();
+            const duration = Date.now() - startTime;
+            if (onComplete) onComplete({ results: nodeResults, mode, nodes, durationMs: duration });
+            return review.payload;
+        }
     }
     fsm.deactivate();
     const duration = Date.now() - startTime;
@@ -160,8 +166,6 @@ async function runDelegate(deps) {
             });
         }
         fsm.deactivate();
-        const duration = Date.now() - startTime;
-        if (onComplete) onComplete({ results: nodeResults, mode, nodes, durationMs: duration });
 
         throw new Error(`DAG execution failed: ${error.message}`);
     }

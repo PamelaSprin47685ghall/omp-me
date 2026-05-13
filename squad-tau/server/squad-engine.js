@@ -67,7 +67,7 @@ function initRunContext(serverResult, ctx, pi) {
 async function runAndCleanup(run, pi, ctx, task, eventBus) {
     run.fsm.activate();
     try {
-        await runSquadSession(pi, ctx, task, run.fsm, eventBus);
+        await runSquadSession(pi, ctx, task, run.fsm, eventBus, run.signal);
     } finally {
         for (const unsub of run._unsubSnapshot) unsub();
         run.viewManager.cleanup();
@@ -107,7 +107,13 @@ function registerSquadCommand(pi, getServer) {
                 abortController,
             });
 
-            await runAndCleanup(run, pi, ctx, task, eventBus);
+            try {
+                await runAndCleanup(run, pi, ctx, task, eventBus);
+            } catch (err) {
+                const msg = `Squad error: ${err.message}`;
+                console.error(`[squad] ${msg}`);
+                pi.sendMessage(msg);
+            }
         },
     });
 }

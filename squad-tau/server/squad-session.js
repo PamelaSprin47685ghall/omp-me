@@ -8,11 +8,17 @@ function emitSquadSessionStart(eventBus, sessionId) {
     eventBus.emit('session', 'state', { sessionId, phase: 'authoring' });
 }
 
-function handleSquadError(pi, err) {
-    if (err.name === 'AbortError') pi.sendMessage('Squad aborted by user');
-    else {
+function handleSquadAbort(session, fsm) {
+    session?.abort?.();
+    fsm.deactivate();
+}
+
+function handleSquadError(pi, session, fsm, err) {
+    if (err.name === 'AbortError') {
+        handleSquadAbort(session, fsm);
+        pi.sendMessage('Squad aborted by user');
+    } else {
         pi.sendMessage(`Squad error: ${err.message}`);
-        throw err;
     }
 }
 
@@ -69,31 +75,34 @@ function buildArchitectPrompt(task) {
     return ARCHITECT_STATIC + task;
 }
 
-async function waitForArchitectPlan(session, fsm) {
+async function waitForArchitectPlan(session, fsm, signal) {
     let promptCount = 0;
     const MAX_ARCHITECT_PROMPTS = 3;
     while (fsm.isActive()) {
+        if (signal?.aborted) break;
         if (fsm.isIdle()) break;
         promptCount++;
         if (promptCount > MAX_ARCHITECT_PROMPTS) {
-            console.warn('[squad] Architect exceeded max prompt attempts, deactivating');
-            fsm.deactivate();
-            break;
+            throw new Error('Architect failed to submit a plan after multiple prompts');
         }
+        if (signal?.aborted) break;
         await session.prompt(
             '错误：必须先调用 delegate 工具提交计划，不能直接结束。请调用 delegate({ plan_dir: "/tmp/squad-xxx" }) 提交计划。',
         );
+        if (signal?.aborted) break;
         await session.waitForIdle();
     }
 }
 
-async function executeSquadPrompt(session, task, fsm) {
+async function executeSquadPrompt(session, task, fsm, signal) {
     await session.prompt(buildArchitectPrompt(task));
+    if (signal?.aborted) return;
     await session.waitForIdle();
-    await waitForArchitectPlan(session, fsm);
+    if (signal?.aborted) return;
+    await waitForArchitectPlan(session, fsm, signal);
 }
 
-async function runSquadSession(pi, ctx, task, fsm, eventBus) {
+async function runSquadSession(pi, ctx, task, fsm, eventBus, signal) {
     const { SessionManager } = await getCodingAgentModule();
     const createAgentSession = pi?.pi?.createAgentSession;
     if (!createAgentSession) throw new Error('squad: createAgentSession unavailable');
@@ -109,6 +118,10 @@ async function runSquadSession(pi, ctx, task, fsm, eventBus) {
     const { session } = await createAgentSession(sessionOpts);
     const sessionId = session.sessionFile;
 
+    if (signal) {
+        signal.addEventListener('abort', () => session?.abort?.(), { once: true });
+    }
+
     register(sessionId, {
         sendUserMessage: (text) => session.prompt(text),
         session,
@@ -119,9 +132,9 @@ async function runSquadSession(pi, ctx, task, fsm, eventBus) {
     emitSquadSessionStart(eventBus, sessionId);
 
     try {
-        await executeSquadPrompt(session, task, fsm);
+        await executeSquadPrompt(session, task, fsm, signal);
     } catch (err) {
-        handleSquadError(pi, err);
+        handleSquadError(pi, session, fsm, err);
     } finally {
         cleanupSquadSession(unsubSessionEvents, sessionId, fsm);
     }

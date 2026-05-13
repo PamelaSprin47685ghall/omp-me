@@ -16,7 +16,7 @@ function genMessageId() {
 }
 
 async function handleUserMessage(payload, eventBus, ws) {
-    const { sessionId, text } = payload || {};
+    const { sessionId, text, messageId } = payload || {};
     if (!sessionId || typeof text !== 'string') {
         wsSendError(ws, 'Invalid session:user_message payload');
         return true;
@@ -26,11 +26,13 @@ async function handleUserMessage(payload, eventBus, ws) {
         wsSendError(ws, 'Session not active');
         return true;
     }
+    // Echo back the client-provided messageId so the optimistic entry
+    // can be matched exactly — avoids content-based fuzzy dedup.
     eventBus.emit('session', 'message', {
         sessionId,
         role: 'user',
         content: [{ type: 'text', text }],
-        messageId: genMessageId(),
+        messageId: typeof messageId === 'string' && messageId ? messageId : genMessageId(),
     });
     await entry.sendUserMessage(text);
     return true;

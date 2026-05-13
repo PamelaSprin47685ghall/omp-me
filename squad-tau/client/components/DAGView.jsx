@@ -15,7 +15,7 @@ const STATUS_COLOR = Object.freeze({
     failed: '#db3737',
 });
 
-const HARDCODED_THEME = {
+const MERMAID_THEME = {
   bg: '#383e47',
   fg: '#f6f7f9',
   accent: '#2d72d2',
@@ -23,38 +23,8 @@ const HARDCODED_THEME = {
   line: '#abb2b9',
   border: '#f6f7f9',
   surface: '#535a63',
+  transparent: true,
 };
-
-function readResolvedCSS(varName, fallback) {
-  if (typeof document === 'undefined') return fallback;
-  try {
-    const el = document.createElement('div');
-    el.style.position = 'absolute';
-    el.style.visibility = 'hidden';
-    el.style.background = `var(${varName})`;
-    document.body.appendChild(el);
-    const val = getComputedStyle(el).background;
-    document.body.removeChild(el);
-    const match = val.match(/(rgb[^)]+\))/);
-    return match ? match[1] : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function getMermaidTheme() {
-  if (typeof document === 'undefined') return { ...HARDCODED_THEME };
-  return {
-    bg: readResolvedCSS('--app-mermaid-bg', HARDCODED_THEME.bg),
-    fg: readResolvedCSS('--app-mermaid-fg', HARDCODED_THEME.fg),
-    accent: readResolvedCSS('--app-mermaid-accent', HARDCODED_THEME.accent),
-    muted: readResolvedCSS('--app-mermaid-muted', HARDCODED_THEME.muted),
-    line: readResolvedCSS('--app-mermaid-line', HARDCODED_THEME.line),
-    border: readResolvedCSS('--app-mermaid-border', HARDCODED_THEME.border),
-    surface: readResolvedCSS('--app-mermaid-surface', HARDCODED_THEME.surface),
-    transparent: true,
-  };
-}
 
 function buildDiagram(nodeList, activeNodeId) {
   if (!nodeList?.length) return null;
@@ -90,7 +60,7 @@ export default function DAGView({ nodes, activeNodeId, onNodeClick }) {
     const diagram = buildDiagram(nodeList, activeNodeId);
     if (!diagram) return null;
     try {
-      return renderMermaidSVG(diagram, getMermaidTheme());
+      return renderMermaidSVG(diagram, MERMAID_THEME);
     } catch { return null; }
   }, [nodeList, activeNodeId]);
 

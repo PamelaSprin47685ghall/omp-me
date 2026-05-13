@@ -17,11 +17,20 @@ async function processQueue(state) {
     while (queue.length > 0 || running.size > 0) {
         while (running.size < concurrency && queue.length > 0) {
             const node = queue.shift();
-            const promise = executeOne(node, state).then((result) => {
-                running.delete(promise);
-                results.push(result);
-                return result;
-            });
+            const promise = executeOne(node, state)
+                .then((result) => {
+                    running.delete(promise);
+                    results.push(result);
+                })
+                .catch((error) => {
+                    running.delete(promise);
+                    results.push({
+                        nodeId: node.id,
+                        status: STATUS.FAILED,
+                        summary: error.message,
+                        affectedFiles: [],
+                    });
+                });
             running.add(promise);
         }
 
@@ -33,6 +42,8 @@ async function processQueue(state) {
 
 async function executeOne(node, { signal, eventBus, ctx, pi, modelPool }) {
     if (signal.aborted) {
+        // runNode was never called — emit the terminal state here
+        eventBus?.emit('squad', 'node_state', { nodeId: node.id, status: STATUS.FAILED, retryCount: 0 });
         return { nodeId: node.id, status: STATUS.FAILED, summary: 'Aborted', affectedFiles: [] };
     }
 
@@ -54,6 +65,7 @@ async function executeOne(node, { signal, eventBus, ctx, pi, modelPool }) {
             affectedFiles: result.affectedFiles || [],
         };
     } catch (error) {
+        // runNode already emitted node_state — avoid double emission
         if (signal.aborted) {
             return { nodeId: node.id, status: STATUS.FAILED, summary: 'Aborted by signal', affectedFiles: [] };
         }

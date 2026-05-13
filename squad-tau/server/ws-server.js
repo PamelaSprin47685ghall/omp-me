@@ -36,10 +36,18 @@ export async function createWsServer(httpServer, eventBus, { onConnection, onMes
         onConnection?.(ws);
 
         ws.on('message', async (data) => {
+            let parsed;
             try {
-                await onMessage?.(JSON.parse(data), ws);
+                parsed = JSON.parse(data);
+            } catch {
+                return; // drop malformed
+            }
+            try {
+                await onMessage?.(parsed, ws);
             } catch (err) {
-                ws.send(JSON.stringify({ type: 'error', payload: { message: err.message } }));
+                try {
+                    ws.send(JSON.stringify({ type: 'error', payload: { message: err.message } }));
+                } catch {}
             }
         });
     });

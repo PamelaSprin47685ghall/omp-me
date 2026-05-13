@@ -30,6 +30,7 @@ function validateBasicPlanStructure(plan, errors) {
 }
 
 function validateNodes(plan, errors, seenIds) {
+    // Pass 1: collect all IDs before validating dependencies
     for (let i = 0; i < plan.nodes.length; i++) {
         const node = plan.nodes[i];
         const prefix = `node[${i}]`;
@@ -38,6 +39,12 @@ function validateNodes(plan, errors, seenIds) {
             continue;
         }
         validateNodeId(node, prefix, errors, seenIds);
+    }
+    // Pass 2: validate fields + dependencies (seenIds is now complete)
+    for (let i = 0; i < plan.nodes.length; i++) {
+        const node = plan.nodes[i];
+        if (!node || typeof node !== 'object') continue;
+        const prefix = `node[${i}]`;
         validateNodeTask(node, prefix, errors);
         validateReviewCriteria(node.review_criteria, prefix, errors);
         validateDependencies(plan.mode, node, prefix, errors, seenIds);

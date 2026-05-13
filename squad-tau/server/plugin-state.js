@@ -12,7 +12,6 @@ export function clearCurrentRun() {
         for (const unsub of currentRun._unsubSnapshot) unsub?.();
     }
     currentRun = null;
-    squadSnapshot = null;
 }
 
 export function setSquadSnapshot(snap) {

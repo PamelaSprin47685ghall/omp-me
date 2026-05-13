@@ -24,6 +24,7 @@ function loadModelsConfig() {
         }));
     } catch (err) {
         if (err.code === 'ENOENT') return [];
+        console.warn(`[squad] Failed to parse model config ${CONFIG_PATH}:`, err.message);
         return [];
     }
 }
@@ -105,7 +106,7 @@ function syncModelPoolFromConfig(modelPool, newConfig) {
         const targetCount = newCounts.get(key) || 0;
         const currentCount = oldCounts.get(key) || 0;
         if (currentCount > targetCount) {
-            modelPool.removeSlot(i);
+            modelPool.removeSlot(s.slotId);
             oldCounts.set(key, currentCount - 1);
         }
     }

@@ -15,7 +15,7 @@ export function MessageInput({ sessionId, send, onOptimisticMessage }) {
       content: [{ type: 'text', text: trimmed }],
       messageId: tempId,
     });
-    send({ type: 'session:user_message', payload: { sessionId, text: trimmed } });
+    send({ type: 'session:user_message', payload: { sessionId, text: trimmed, messageId: tempId } });
     setText('');
   }, [text, sessionId, send, onOptimisticMessage]);
 

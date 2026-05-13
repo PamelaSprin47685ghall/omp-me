@@ -246,15 +246,14 @@ describe('Squad Flow - Outer Review', () => {
 
         // First delegation — outer review rejects
         const res = await processDelegate({ plan_dir: planDir }, getCurrentRun());
-        expect(res.success).toBe(true);
-        // After outer review reject, FSM should be in 'active' state
-        expect(squadFsm.state).toBe('active');
+        expect(res.outerReviewRejected).toBe(true);
+        // After outer review reject, FSM must be deactivated (not left hanging)
+        expect(squadFsm.state).toBe('idle');
         expect(outerReviewCalls).toBe(1);
 
-        // Re-delegate — outer review approves this time
-        const res2 = await processDelegate({ plan_dir: planDir }, getCurrentRun());
-        expect(res2.success).toBe(true);
-        expect(squadFsm.state).toBe('idle');
-        expect(outerReviewCalls).toBe(2);
+        // Re-delegation is not allowed when FSM is idle — must start a new /squad
+        await expect(processDelegate({ plan_dir: planDir }, getCurrentRun())).rejects.toThrow(
+            'Cannot delegate in state: idle. Must be active.',
+        );
     });
 });

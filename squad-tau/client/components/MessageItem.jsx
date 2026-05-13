@@ -22,18 +22,30 @@ function UserMessage({ message }) {
 }
 
 function AssistantMessage({ message, sessionRole }) {
-  const thinking = message.content?.filter(b => b.type === 'thinking').map(b => b.text).join('') || '';
-  const text = extractText(message.content);
-  const toolCalls = message.content?.filter(b => b.type === 'tool_call') || [];
+  const content = message.content || [];
+  const toolCalls = content.filter(b => b.type === 'tool_call');
+  const nonToolBlocks = content.filter(b => b.type !== 'tool_call');
+  const thinking = nonToolBlocks.filter(b => b.type === 'thinking').map(b => b.text).join('') || '';
+  const text = extractText(nonToolBlocks);
   const intent = ROLE_INTENT[sessionRole] || 'none';
   const accent = ROLE_ACCENT[sessionRole] || 'transparent';
+
+  // Pure tool-call messages (created by handleSessionToolCall/handleSessionToolResult)
+  // are rendered here. Full assistant messages (from message_end) may also embed
+  // tool_call blocks, but those lack results — skip them to avoid duplication.
+  if (!text && !thinking && toolCalls.length > 0) {
+    return (
+      <div className="msg-assistant" style={{ borderLeft: `3px solid ${accent}`, paddingLeft: 8 }}>
+        {toolCalls.map(tc => (
+          <ToolCall key={tc.toolId} toolCall={tc} sessionRole={sessionRole} />
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="msg-assistant" style={{ borderLeft: `3px solid ${accent}`, paddingLeft: 8 }}>
       {thinking && <ThinkingBlock content={thinking} isStreaming={message.streaming} />}
-      {toolCalls.map(tc => (
-        <ToolCall key={tc.toolId} toolCall={tc} sessionRole={sessionRole} />
-      ))}
       {text && (
         <div className="assistant-text-block">
           {message.streaming && <Tag minimal round intent={intent} className="streaming-tag">streaming</Tag>}

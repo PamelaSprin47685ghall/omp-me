@@ -50,7 +50,7 @@ function transition(state, event) {
     return { status: nextStatus, retryCount: nextRetryCount };
 }
 
-function emptyState(nodeId, hasDeps = false) {
+function emptyState(hasDeps = false) {
     return {
         status: hasDeps ? STATUS.WAITING_DEPS : STATUS.PENDING,
         retryCount: 0,

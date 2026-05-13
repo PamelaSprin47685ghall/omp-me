@@ -47,6 +47,8 @@ function FailedBanner({ nodes, onDismiss }) {
 
 function SuccessBanner({ results }) {
   if (!results?.length) return null;
+  const hasFailed = results.some(r => r.status !== 'approved');
+  if (hasFailed) return null;
   return (
     <Callout intent="success" icon={IconNames.TICK_CIRCLE} className="banner">
       Squad completed successfully

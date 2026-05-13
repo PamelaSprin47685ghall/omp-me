@@ -15,6 +15,7 @@ function useAppEventHandlers(squadDispatch, sessionDispatch, modelPoolDispatch) 
     if (type.startsWith('squad:')) {
       const mapped = {
         'squad:init': 'SQUAD_INIT',
+        'squad:node_state': 'NODE_STATE',
         'squad:complete': 'SQUAD_COMPLETE',
         'squad:abort': 'SQUAD_ABORT',
         'squad:outer_review_start': 'SQUAD_OUTER_REVIEW_START',

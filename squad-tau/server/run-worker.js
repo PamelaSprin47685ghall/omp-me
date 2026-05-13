@@ -1,6 +1,6 @@
 import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
 import { buildWorkerPrompt as getWorkerPrompt, buildConfirmPrompt as getConfirmPrompt } from './run-worker-prompt.js';
-import { MAX_EMPTY_TURNS, createCounter } from './empty-turns.js';
+import { MAX_EMPTY_TURNS, CONFIRM_MAX_EMPTY, createCounter } from './empty-turns.js';
 import { buildWorkerSessionOptions } from './session-options.js';
 import { register, unregister, setReturnResolver } from './session-registry.js';
 import { subscribeToSessionEvents, emitSessionEnd } from './session-events.js';
@@ -95,29 +95,42 @@ async function handleFirstReturn(session, state, childAbort, emptyCounter) {
         emptyCounter,
         `Worker ended without return after ${MAX_EMPTY_TURNS} empty turns`,
     );
+    if (childAbort.signal.aborted) return;
     await state.firstPromise;
     if (state.redo) return;
 }
 
-async function handleSecondReturn(session, state, childAbort, emptyCounter) {
-    if (state.eventBus) state.eventBus.emit('session', 'state', { sessionId: state.sessionId, phase: 'confirming' });
+async function handleSecondReturn(session, state, childAbort) {
+    if (childAbort.signal.aborted) return;
+    if (state.eventBus) {
+        state.eventBus.emit('session', 'state', { sessionId: state.sessionId, phase: 'confirming' });
+        state.eventBus.emit('squad', 'node_state', { nodeId: state.node.id, status: 'confirming' });
+    }
     await session.prompt(getConfirmPrompt(state.node));
+    const confirmCounter = createCounter(CONFIRM_MAX_EMPTY);
     await runSessionLoop(
         session,
         state,
         1,
         childAbort,
-        emptyCounter,
-        `Self-confirm ended without return after ${MAX_EMPTY_TURNS} empty turns`,
+        confirmCounter,
+        `Self-confirm ended without return after ${CONFIRM_MAX_EMPTY} empty turns`,
     );
 }
 
 function initWorkerState(args) {
     const state = { phase: 0, redo: false, redoReason: '', unsub: null, ...args };
+    refreshPromises(state);
+    return state;
+}
+
+function refreshPromises(state) {
     const { promise: firstPromise, resolve: firstResolve } = Promise.withResolvers();
     const { promise: finalPromise, resolve: finalResolve } = Promise.withResolvers();
-    Object.assign(state, { firstPromise, finalPromise, firstResolve, finalResolve });
-    return state;
+    state.firstPromise = firstPromise;
+    state.finalPromise = finalPromise;
+    state.firstResolve = firstResolve;
+    state.finalResolve = finalResolve;
 }
 
 function emitWorkerAbortResult(eventBus, sessionId) {
@@ -131,10 +144,11 @@ function isWorkerAborted(childAbort, signal) {
 
 async function runWorkerLoop(session, state, childAbort, emptyCounter, emitAbort, signal) {
     while (true) {
+        refreshPromises(state);
         await handleFirstReturn(session, state, childAbort, emptyCounter);
         if (isWorkerAborted(childAbort, signal)) return emitAbort();
 
-        await handleSecondReturn(session, state, childAbort, emptyCounter);
+        await handleSecondReturn(session, state, childAbort);
         if (isWorkerAborted(childAbort, signal)) return emitAbort();
 
         // If self-confirm redo reset phase to 0, loop back to worker phase
@@ -185,6 +199,7 @@ async function runWorker(args) {
     const childAbort = new AbortController();
     const state = initWorkerState(args);
 
+    let session = null;
     if (signal)
         signal.addEventListener(
             'abort',
@@ -195,8 +210,7 @@ async function runWorker(args) {
             { once: true },
         );
 
-    let session = null,
-        sessionId = null,
+    let sessionId = null,
         factoryResult = null;
     try {
         ({ session, sessionId, factoryResult } = await setupWorkerSession({ ...args, state }));

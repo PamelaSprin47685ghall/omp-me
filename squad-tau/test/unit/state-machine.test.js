@@ -8,17 +8,17 @@ const E = EVENT;
 
 describe('emptyState', () => {
     it('returns WAITING_DEPS when hasDeps is true', () => {
-        const state = emptyState('node-1', true);
+        const state = emptyState(true);
         assert.deepStrictEqual(state, { status: S.WAITING_DEPS, retryCount: 0 });
     });
 
     it('returns PENDING when hasDeps is false', () => {
-        const state = emptyState('node-1', false);
+        const state = emptyState(false);
         assert.deepStrictEqual(state, { status: S.PENDING, retryCount: 0 });
     });
 
     it('defaults hasDeps to false', () => {
-        const state = emptyState('node-1');
+        const state = emptyState();
         assert.deepStrictEqual(state, { status: S.PENDING, retryCount: 0 });
     });
 });

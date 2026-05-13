@@ -34,9 +34,15 @@ function handleSessionMessage(state, payload) {
         existingIdx = list.findIndex((msg) => msg.messageId === messageId);
     } else if (role === 'user') {
         const text = content?.[0]?.text;
-        existingIdx = list.findIndex(
-            (msg) => msg.role === 'user' && msg.content?.[0]?.text === text && msg.messageId?.startsWith('opt_'),
-        );
+        // Match the most recent optimistic entry to avoid stealing matches from
+        // earlier entries when identical text is sent multiple times.
+        for (let i = list.length - 1; i >= 0; i--) {
+            const msg = list[i];
+            if (msg.role === 'user' && msg.content?.[0]?.text === text && msg.messageId?.startsWith('opt_')) {
+                existingIdx = i;
+                break;
+            }
+        }
     }
 
     if (existingIdx !== -1) {
