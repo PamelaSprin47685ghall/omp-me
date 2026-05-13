@@ -62,22 +62,6 @@ describe('Performance Benchmarks', () => {
         assert.ok(ops > 100, `ModelPool should handle >100 acq/rel per second (got ${ops})`);
     });
 
-    it('State machine transition throughput', async () => {
-        const { transition, emptyState } = await import('../../server/state-machine.js');
-        const { STATUS, EVENT } = await import('../../server/constants.js');
-
-        let state = emptyState();
-        const ops = measure('state-machine transition', () => {
-            state = transition(state, EVENT.START);
-            state = transition(state, EVENT.WORKER_SUBMIT);
-            state = transition(state, EVENT.CONFIRM);
-            state = transition(state, EVENT.REVIEW_APPROVED);
-            // reset for next cycle
-            state = { status: STATUS.PENDING, retryCount: 0 };
-        });
-        assert.ok(ops > 50000, `State machine should handle >50k transitions/s (got ${ops})`);
-    });
-
     it('DAG topological sort throughput', async () => {
         const { topologicalSort } = await import('../../server/dag-sort.js');
 

@@ -42,8 +42,8 @@ export function useWebSocket({ port, onEvent }) {
                 disconnect();
                 return;
             }
-            lastPongRef.current = false;
             if (wsRef.current?.readyState === WebSocket.OPEN) {
+                lastPongRef.current = false;
                 wsRef.current.send(JSON.stringify({ type: 'ping' }));
             }
         }, PING_INTERVAL);

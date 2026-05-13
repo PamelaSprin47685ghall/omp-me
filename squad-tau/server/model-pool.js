@@ -54,6 +54,12 @@ class ModelPool {
         }
 
         return new Promise((resolve, reject) => {
+            // Re-check after creating the promise — abort might have fired between
+            // the outer signal?.aborted check and this Promise constructor.
+            if (signal?.aborted) {
+                reject(new Error('Acquire aborted'));
+                return;
+            }
             const waiter = { resolve, reject };
             queue.push(waiter);
 

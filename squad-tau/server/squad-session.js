@@ -119,7 +119,11 @@ async function runSquadSession(pi, ctx, task, fsm, eventBus, signal) {
     const sessionId = session.sessionFile;
 
     if (signal) {
-        signal.addEventListener('abort', () => session?.abort?.(), { once: true });
+        if (signal.aborted) {
+            session?.abort?.();
+        } else {
+            signal.addEventListener('abort', () => session?.abort?.(), { once: true });
+        }
     }
 
     register(sessionId, {

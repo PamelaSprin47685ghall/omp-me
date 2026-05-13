@@ -55,7 +55,6 @@ async function initOuterReviewSession(createAgentSession, sessionOpts, eventBus,
     const factoryResult = await createAgentSession(sessionOpts);
     const session = factoryResult.session;
     const sessionId = session.sessionFile;
-    const disposeResult = factoryResult;
 
     register(sessionId, {
         sendUserMessage: (text) => session.prompt(text),
@@ -142,14 +141,18 @@ function createOuterReviewAbortContext(signal) {
     const { promise: outcomePromise, resolve: outcomeResolve } = Promise.withResolvers();
     const ctx = { childAbort, settled: false, outcomePromise, outcomeResolve };
     if (signal) {
-        signal.addEventListener(
-            'abort',
-            () => {
-                childAbort.abort();
-                ctx.session?.abort?.();
-            },
-            { once: true },
-        );
+        if (signal.aborted) {
+            childAbort.abort();
+        } else {
+            signal.addEventListener(
+                'abort',
+                () => {
+                    childAbort.abort();
+                    ctx.session?.abort?.();
+                },
+                { once: true },
+            );
+        }
     }
     return ctx;
 }

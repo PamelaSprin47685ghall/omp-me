@@ -16,10 +16,18 @@ function buildWorkerReturnResolver(state) {
         }
         if (state.phase === 0) {
             state.phase = 1;
-            state.firstResolve({ reason: params.reason, affected_files: params.affected_files || [] });
+            state.redo = false;
+            const wr = { reason: params.reason, affected_files: params.affected_files || [] };
+            state.workerResult = wr;
+            state.firstResolve(wr);
         } else if (state.phase === 1) {
             state.phase = 2;
-            state.finalResolve({ reason: params.reason, affected_files: params.affected_files || [] });
+            state.redo = false;
+            const files =
+                params.affected_files && params.affected_files.length > 0
+                    ? params.affected_files
+                    : state.workerResult?.affected_files || [];
+            state.finalResolve({ reason: params.reason, affected_files: files });
         }
     };
 }
@@ -119,7 +127,7 @@ async function handleSecondReturn(session, state, childAbort) {
 }
 
 function initWorkerState(args) {
-    const state = { phase: 0, redo: false, redoReason: '', unsub: null, ...args };
+    const state = { phase: 0, redo: false, redoReason: '', unsub: null, workerResult: null, ...args };
     refreshPromises(state);
     return state;
 }
@@ -151,8 +159,11 @@ async function runWorkerLoop(session, state, childAbort, emptyCounter, emitAbort
         await handleSecondReturn(session, state, childAbort);
         if (isWorkerAborted(childAbort, signal)) return emitAbort();
 
-        // If self-confirm redo reset phase to 0, loop back to worker phase
-        if (state.phase === 0) continue;
+        // If self-confirm redo reset phase to 0, relay the redoReason and loop back
+        if (state.phase === 0) {
+            if (state.redoReason) state.redo = true;
+            continue;
+        }
         break;
     }
 }
@@ -200,15 +211,23 @@ async function runWorker(args) {
     const state = initWorkerState(args);
 
     let session = null;
-    if (signal)
-        signal.addEventListener(
-            'abort',
-            () => {
-                childAbort.abort();
-                session?.abort?.();
-            },
-            { once: true },
-        );
+    function getSession() {
+        return session;
+    }
+    if (signal) {
+        if (signal.aborted) {
+            childAbort.abort();
+        } else {
+            signal.addEventListener(
+                'abort',
+                () => {
+                    childAbort.abort();
+                    getSession()?.abort?.();
+                },
+                { once: true },
+            );
+        }
+    }
 
     let sessionId = null,
         factoryResult = null;

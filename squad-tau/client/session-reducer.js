@@ -32,15 +32,19 @@ function handleSessionMessage(state, payload) {
     let existingIdx = -1;
     if (messageId) {
         existingIdx = list.findIndex((msg) => msg.messageId === messageId);
-    } else if (role === 'user') {
+    }
+    // Content-based dedup for user messages: match against optimistic entries.
+    // Runs when messageId is absent, OR when messageId is present but didn't
+    // match AND the incoming messageId is a real (non-optimistic) one.
+    if (existingIdx === -1 && role === 'user') {
         const text = content?.[0]?.text;
-        // Match the most recent optimistic entry to avoid stealing matches from
-        // earlier entries when identical text is sent multiple times.
-        for (let i = list.length - 1; i >= 0; i--) {
-            const msg = list[i];
-            if (msg.role === 'user' && msg.content?.[0]?.text === text && msg.messageId?.startsWith('opt_')) {
-                existingIdx = i;
-                break;
+        if (text && (!messageId || !messageId.startsWith('opt_'))) {
+            for (let i = list.length - 1; i >= 0; i--) {
+                const msg = list[i];
+                if (msg.role === 'user' && msg.content?.[0]?.text === text && msg.messageId?.startsWith('opt_')) {
+                    existingIdx = i;
+                    break;
+                }
             }
         }
     }

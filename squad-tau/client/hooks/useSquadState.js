@@ -36,9 +36,9 @@ function handleNodeState(state, payload) {
         updatedNodes.set(nodeId, {
             ...existing,
             status,
-            retryCount,
-            summary,
-            affectedFiles,
+            ...(retryCount !== undefined && { retryCount }),
+            summary: summary ?? existing.summary,
+            affectedFiles: affectedFiles ?? existing.affectedFiles,
         });
     }
     return { ...state, nodes: updatedNodes };

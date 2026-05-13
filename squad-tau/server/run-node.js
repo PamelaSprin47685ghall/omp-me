@@ -44,10 +44,11 @@ function buildApprovedResult(node, workerResult) {
     };
 }
 
-function emitApproved(eventBus, node) {
+function emitApproved(eventBus, node, retryCount) {
     eventBus.emit('squad', 'node_state', {
         nodeId: node.id,
         status: STATUS.APPROVED,
+        retryCount,
         timestamp: Date.now(),
     });
 }
@@ -80,15 +81,18 @@ function executeRetryLoop(node, eventBus, args) {
             const reviewResult = await runReviewerPhase({ ...args, iterationHistory }, workerResult);
 
             if (reviewResult.approved) {
-                emitApproved(eventBus, node);
+                emitApproved(eventBus, node, retryCount);
                 return buildApprovedResult(node, workerResult);
             }
 
             retryCount++;
             if (retryCount >= maxRetries) {
-                throw new Error(
+                const err = new Error(
                     `Max retries (${maxRetries}) exceeded for node ${node.id}. Last feedback: ${reviewResult.reason}`,
                 );
+                err._isMaxRetries = true;
+                emitFailed(eventBus, node, err, retryCount);
+                throw err;
             }
             iterationHistory.push(buildIterationEntry(workerResult, reviewResult));
             reviewerFeedback = reviewResult.reason;
@@ -97,10 +101,11 @@ function executeRetryLoop(node, eventBus, args) {
     })();
 }
 
-function emitFailed(eventBus, node, error) {
+function emitFailed(eventBus, node, error, retryCount) {
     eventBus.emit('squad', 'node_state', {
         nodeId: node.id,
         status: STATUS.FAILED,
+        retryCount,
         error: error.message,
         timestamp: Date.now(),
     });
@@ -111,7 +116,10 @@ async function runNode(args) {
     try {
         return await executeRetryLoop(node, eventBus, args);
     } catch (error) {
-        emitFailed(eventBus, node, error);
+        if (!error._isMaxRetries) {
+            // Only emit for infrastructure errors (retry loop already emits for limit)
+            emitFailed(eventBus, node, error, -1);
+        }
         throw error;
     }
 }

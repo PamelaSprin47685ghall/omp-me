@@ -69,9 +69,7 @@ export default function App() {
     }
   };
 
-  const sessionList = [...sessions.values()].sort((a, b) =>
-    String(a.sessionId).localeCompare(String(b.sessionId))
-  );
+  const sessionList = [...sessions.values()];
 
   const squadActive = squad !== null;
 

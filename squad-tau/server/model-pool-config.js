@@ -110,6 +110,31 @@ function syncModelPoolFromConfig(modelPool, newConfig) {
             oldCounts.set(key, currentCount - 1);
         }
     }
+
+    // Sync thinkingLevel of remaining slots to match the config file.
+    // Without persistent slot IDs in TOML, we match by position: for each
+    // newConfig entry, find the Nth pool slot with the same key and update.
+    const poolSlots = modelPool.getSlots();
+    const keyCounters = new Map();
+    for (const entry of newConfig) {
+        const key = `${entry.provider}|${entry.modelId}|${entry.role}`;
+        const idx = keyCounters.get(key) || 0;
+        keyCounters.set(key, idx + 1);
+        // Find the (idx)th slot in pool with matching key
+        let matchIdx = 0;
+        for (const poolSlot of poolSlots) {
+            const poolKey = `${poolSlot.provider}|${poolSlot.modelId}|${poolSlot.role}`;
+            if (poolKey === key) {
+                if (matchIdx === idx) {
+                    if (poolSlot.thinkingLevel !== entry.thinkingLevel) {
+                        modelPool.updateSlotThinkingLevel(poolSlot.slotId, entry.thinkingLevel);
+                    }
+                    break;
+                }
+                matchIdx++;
+            }
+        }
+    }
 }
 
 export { CONFIG_PATH, loadModelsConfig, saveModelsConfig, watchConfig, unwatchConfig, syncModelPoolFromConfig };

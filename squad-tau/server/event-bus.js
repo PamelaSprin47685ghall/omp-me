@@ -14,10 +14,14 @@ class EventBus {
             console.error(`[EventBus] Error in handler for ${fullEvent}:`, err);
         }
 
-        for (const [pattern, handlers] of this.wildcardHandlers) {
+        // Snapshot wildcard entries to avoid issues if handlers call off() during iteration
+        const wildcardEntries = Array.from(this.wildcardHandlers);
+        for (const [pattern, handlers] of wildcardEntries) {
             const prefix = pattern.replace('*', '');
             if (pattern === '*' || (prefix && fullEvent.startsWith(prefix))) {
-                for (const handler of handlers) {
+                // Snapshot handlers to avoid issues if off() removes current handler
+                const handlerSnapshot = Array.from(handlers);
+                for (const handler of handlerSnapshot) {
                     try {
                         handler(payload, fullEvent);
                     } catch (err) {

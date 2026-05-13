@@ -68,14 +68,18 @@ function initReviewerState() {
 function linkParentAbort(signal, childAbort) {
     return (session) => {
         if (signal) {
-            signal.addEventListener(
-                'abort',
-                () => {
-                    childAbort.abort();
-                    session?.abort?.();
-                },
-                { once: true },
-            );
+            if (signal.aborted) {
+                childAbort.abort();
+            } else {
+                signal.addEventListener(
+                    'abort',
+                    () => {
+                        childAbort.abort();
+                        session?.abort?.();
+                    },
+                    { once: true },
+                );
+            }
         }
     };
 }

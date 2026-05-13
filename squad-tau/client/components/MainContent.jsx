@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Callout, Tag } from '@blueprintjs/core';
 import { IconNames } from '@blueprintjs/icons';
 import DAGView from './DAGView.jsx';
@@ -61,6 +61,13 @@ export default function MainContent({
   onNodeClick, onOpenModelPool, onOptimisticMessage, send, results
 }) {
   const [bannerDismissed, setBannerDismissed] = useState(false);
+  const prevSquadActive = useRef(squadActive);
+  useEffect(() => {
+    if (squadActive && !prevSquadActive.current) {
+      setBannerDismissed(false);
+    }
+    prevSquadActive.current = squadActive;
+  }, [squadActive]);
   if (!squadActive) return <WelcomeView onOpenModelPool={onOpenModelPool} />;
 
   if (viewMode === 'dag') {

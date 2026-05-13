@@ -2,6 +2,20 @@ import { getReturnResolver } from './session-registry.js';
 import { getCurrentRun } from './plugin-state.js';
 import { processDelegate } from './submit-plan.js';
 
+/**
+ * Link an OMP tool abort signal to the run's abortController.
+ * Called inside delegateTool.execute so that when the parent session
+ * is stopped, the entire DAG cascade cancels (not just the architect).
+ */
+function linkOmpSignal(run, sig) {
+    if (!sig) return;
+    if (sig.aborted) {
+        run.abortController.abort();
+        return;
+    }
+    sig.addEventListener('abort', () => run.abortController.abort(), { once: true });
+}
+
 export const returnTool = {
     name: 'return',
     label: 'Return',
@@ -52,6 +66,10 @@ export const delegateTool = {
     async execute(_id, params, sig, _upd, _ctx) {
         const run = getCurrentRun();
         if (!run) throw new Error('No active squad run');
+        linkOmpSignal(run, sig);
+        if (sig?.aborted) {
+            return { content: [{ type: 'text', text: 'Squad aborted by user.' }], display: false };
+        }
         const result = await processDelegate(params, run);
         return { content: [{ type: 'text', text: result.message || 'Delegated' }], display: false };
     },
