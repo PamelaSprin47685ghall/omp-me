@@ -2,4 +2,4 @@ ref/
 node_modules/
 .pi/
 bun.lock
-
+.aionrs/

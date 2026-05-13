@@ -1,3 +1,9 @@
+function emitSessionEnd(eventBus, sessionId, phase, reason, errorMessage) {
+    if (!eventBus || !sessionId) return;
+    eventBus.emit('session', 'state', { sessionId, phase });
+    eventBus.emit('session', 'end', { sessionId, reason, errorMessage });
+}
+
 function subscribeToSessionEvents(session, eventBus, sessionId) {
     return session.subscribe((event) => {
         try {
@@ -62,4 +68,4 @@ function handleMessageEnd(event, eventBus, sessionId) {
     });
 }
 
-export { subscribeToSessionEvents };
+export { subscribeToSessionEvents, emitSessionEnd };

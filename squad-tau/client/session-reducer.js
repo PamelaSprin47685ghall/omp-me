@@ -28,29 +28,16 @@ function handleSessionMessage(state, payload) {
     const messages = new Map(state.messages);
     const list = messages.get(sessionId) || [];
 
-    // For user messages with real IDs, find and replace the matching optimistic entry
-    let effectiveList = list;
-    if (role === 'user' && !messageId.startsWith('opt_')) {
-        const textContent = content?.[0]?.text || '';
-        const optIdx = list.findIndex(
-            (msg) => msg.role === 'user' && msg.messageId.startsWith('opt_') && msg.content?.[0]?.text === textContent,
-        );
-        if (optIdx !== -1) {
-            // Replace optimistic message's ID with the real one so dedup works
-            effectiveList = list.map((msg, i) => (i === optIdx ? { ...msg, messageId, parentId } : msg));
-        }
-    }
-
-    // Deduplicate by messageId
-    const existingIdx = effectiveList.findIndex((msg) => msg.messageId === messageId);
+    // Deduplicate by messageId (server echoes back the same messageId we sent)
+    const existingIdx = list.findIndex((msg) => msg.messageId === messageId);
 
     if (existingIdx !== -1) {
-        const updated = effectiveList.map((msg, i) =>
+        const updated = list.map((msg, i) =>
             i === existingIdx ? { ...msg, role, content, parentId, messageId, streaming: false } : msg,
         );
         messages.set(sessionId, updated);
     } else {
-        messages.set(sessionId, [...effectiveList, { role, content, messageId, parentId, streaming: false }]);
+        messages.set(sessionId, [...list, { role, content, messageId, parentId, streaming: false }]);
     }
     return { ...state, messages };
 }

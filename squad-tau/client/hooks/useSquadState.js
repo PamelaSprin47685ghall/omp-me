@@ -66,8 +66,8 @@ function squadReducer(state, action) {
             return handleNodeState(state, action.payload);
         case 'SQUAD_COMPLETE':
             return { ...state, results: action.payload.results };
-        case 'OUTER_REVIEW_START':
-        case 'OUTER_REVIEW_RESULT':
+        case 'SQUAD_OUTER_REVIEW_START':
+        case 'SQUAD_OUTER_REVIEW_RESULT':
             return handleOuterReview(state, action);
         case 'SQUAD_ABORT':
             return createInitialState();

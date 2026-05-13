@@ -133,9 +133,7 @@ export default function ModelPoolDrawer({ isOpen, onClose, slots, onUpdateSlot }
   const [deleteSlotId, setDeleteSlotId] = useState(null);
 
   const handleEditSave = (slotId) => {
-    const slot = slots.find(s => s.slotId === slotId);
-    if (!slot) return;
-    onUpdateSlot('edit', { ...slot, thinkingLevel: editingThinkingLevel }, slotId);
+    onUpdateSlot('edit', null, slotId, editingThinkingLevel);
     setEditingSlotId(null);
   };
 

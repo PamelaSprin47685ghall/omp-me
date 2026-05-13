@@ -1,8 +1,8 @@
 import React, { useState, useCallback } from 'react';
-import { TextArea, Button, Callout } from '@blueprintjs/core';
+import { TextArea, Button } from '@blueprintjs/core';
 import { IconNames } from '@blueprintjs/icons';
 
-export function MessageInput({ sessionId, sessionEndReason, send, onOptimisticMessage }) {
+export function MessageInput({ sessionId, send, onOptimisticMessage }) {
   const [text, setText] = useState('');
 
   const handleSend = useCallback(() => {
@@ -23,19 +23,10 @@ export function MessageInput({ sessionId, sessionEndReason, send, onOptimisticMe
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   }, [handleSend]);
 
-  if (sessionEndReason) {
-    return (
-      <Callout intent="none" icon={IconNames.INFO_SIGN} className="banner">
-        Session ended: {sessionEndReason}
-      </Callout>
-    );
-  }
-
   return (
     <div className="input-row">
       <TextArea
         fill
-        growVertically
         placeholder="Type a message... (Enter to send)"
         value={text}
         onChange={e => setText(e.target.value)}

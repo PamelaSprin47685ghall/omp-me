@@ -35,7 +35,7 @@ export async function startServer() {
     const viteMiddlewares = await createViteDevServer();
 
     // 3. Create the WS server on the same raw server.
-    const { wss, unsub } = createWsServer(rawServer, eventBus, {
+    const { wss, unsub } = await createWsServer(rawServer, eventBus, {
         onConnection: (ws) => {
             ws.send(
                 JSON.stringify({

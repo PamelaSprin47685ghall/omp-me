@@ -4,6 +4,7 @@ import ThinkingBlock from './ThinkingBlock.jsx';
 import ToolCall from './ToolCall.jsx';
 
 const ROLE_INTENT = { user: 'primary', worker: 'success', reviewer: 'warning', outer: 'none' };
+const ROLE_ACCENT = { worker: '#238551', reviewer: '#D9822B', outer: '#7157D9' };
 
 function extractText(content) {
   if (!Array.isArray(content)) return '';
@@ -25,9 +26,10 @@ function AssistantMessage({ message, sessionRole }) {
   const text = extractText(message.content);
   const toolCalls = message.content?.filter(b => b.type === 'tool_call') || [];
   const intent = ROLE_INTENT[sessionRole] || 'none';
+  const accent = ROLE_ACCENT[sessionRole] || 'transparent';
 
   return (
-    <div className="msg-assistant">
+    <div className="msg-assistant" style={{ borderLeft: `3px solid ${accent}`, paddingLeft: 8 }}>
       {thinking && <ThinkingBlock content={thinking} isStreaming={message.streaming} />}
       {toolCalls.map(tc => (
         <ToolCall key={tc.toolId} toolCall={tc} sessionRole={sessionRole} />

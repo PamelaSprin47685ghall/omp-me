@@ -91,7 +91,7 @@ test('updateSlot with index', () => {
     expect(sent.length).toBe(1);
     expect(sent[0]).toEqual({
         type: 'model_pool:update',
-        payload: { action: 'edit', slot, index: 1 },
+        payload: { action: 'edit', slot, slotId: 1 },
     });
 });
 

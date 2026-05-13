@@ -115,9 +115,11 @@
  * @property {()=>void} [onPing] */
 
 /** @typedef {Object} SidebarProps
- * @property {{sessionId:string, phase:string, nodeId?:string}[]} sessions
- * @property {string} [activeSessionId]
- * @property {(id:string)=>void} [onSelectSession] */
+ * @property {{sessionId:string, nodeId?:string, status:string}[]} sessions
+ * @property {string} activeSessionId
+ * @property {(id:string)=>void} onSelectSession
+ * @property {'dag'|'session'} viewMode
+ * @property {()=>void} onSelectDAG */
 
 /** @typedef {Object} DAGViewProps
  * @property {{id:string, status:string, depends_on?:string[]}[]} nodes
@@ -134,7 +136,6 @@
 
 /** @typedef {Object} MessageInputProps
  * @property {string|null} sessionId
- * @property {'completed'|'aborted'|'failed'|null} sessionEndReason
  * @property {(message: {type: string, payload: object}) => void} send
  * @property {(msg: {messageId: string, sessionId: string, role: string, content: *}) => void} onOptimisticMessage */
 

@@ -3,13 +3,7 @@ import { buildWorkerPrompt as getWorkerPrompt, buildConfirmPrompt as getConfirmP
 import { MAX_EMPTY_TURNS, createCounter } from './empty-turns.js';
 import { buildWorkerSessionOptions } from './session-options.js';
 import { register, unregister, setReturnResolver } from './session-registry.js';
-import { subscribeToSessionEvents } from './session-events.js';
-
-function emitEnd(eventBus, sessionId, reason, errorMessage) {
-    if (!eventBus || !sessionId) return;
-    eventBus.emit('session', 'state', { sessionId, phase: reason === 'completed' ? 'completed' : reason });
-    eventBus.emit('session', 'end', { sessionId, reason, errorMessage });
-}
+import { subscribeToSessionEvents, emitSessionEnd } from './session-events.js';
 
 async function setupWorkerSession({ node, ctx, pi, modelSlot, eventBus, state }) {
     const { SessionManager } = await getCodingAgentModule();
@@ -141,10 +135,12 @@ async function runWorker(args) {
         // Outer loop: handle redo from self-confirm (phase 1 redo resets phase to 0)
         while (true) {
             await handleFirstReturn(session, state, childAbort, emptyCounter);
-            if (childAbort.signal.aborted && signal?.aborted) return (emitEnd(eventBus, sessionId, 'aborted'), null);
+            if (childAbort.signal.aborted && signal?.aborted)
+                return (emitSessionEnd(eventBus, sessionId, 'aborted', 'aborted'), null);
 
             await handleSecondReturn(session, state, childAbort, emptyCounter);
-            if (childAbort.signal.aborted && signal?.aborted) return (emitEnd(eventBus, sessionId, 'aborted'), null);
+            if (childAbort.signal.aborted && signal?.aborted)
+                return (emitSessionEnd(eventBus, sessionId, 'aborted', 'aborted'), null);
 
             // If self-confirm redo reset phase to 0, loop back to worker phase
             if (state.phase === 0) continue;
@@ -152,7 +148,7 @@ async function runWorker(args) {
         }
 
         const finalResult = await finalPromise;
-        emitEnd(eventBus, sessionId, 'completed');
+        emitSessionEnd(eventBus, sessionId, 'completed', 'completed');
         return {
             reason: finalResult.reason,
             affected_files: finalResult.affected_files,
@@ -160,8 +156,9 @@ async function runWorker(args) {
             sessionFile: session.sessionFile,
         };
     } catch (err) {
-        if (childAbort.signal.aborted && signal?.aborted) return (emitEnd(eventBus, sessionId, 'aborted'), null);
-        emitEnd(eventBus, sessionId, 'error', err.message);
+        if (childAbort.signal.aborted && signal?.aborted)
+            return (emitSessionEnd(eventBus, sessionId, 'aborted', 'aborted'), null);
+        emitSessionEnd(eventBus, sessionId, 'error', 'error', err.message);
         throw err;
     } finally {
         childAbort.abort();

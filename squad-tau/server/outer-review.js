@@ -2,7 +2,7 @@ import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
 import { OUTER_REVIEW_MAX_EMPTY, createCounter } from './empty-turns.js';
 import { buildBaseSessionOptions } from './session-options.js';
 import { register, unregister, setReturnResolver } from './session-registry.js';
-import { subscribeToSessionEvents } from './session-events.js';
+import { subscribeToSessionEvents, emitSessionEnd } from './session-events.js';
 
 function buildOuterReviewPrompt(originalTask, nodeResults, round) {
     const nodeList = nodeResults
@@ -24,12 +24,6 @@ ${nodeList}
 聚合结果是否满足原始任务？
 - 满足：return({ status: "ok", reason: "..." })
 - 不满足：return({ status: "error", reason: "..." }) 附详细修改意见`;
-}
-
-function emitSessionEnd(eventBus, sessionId, phase, reason, errorMessage) {
-    if (!eventBus || !sessionId) return;
-    eventBus.emit('session', 'state', { sessionId, phase });
-    eventBus.emit('session', 'end', { sessionId, reason, errorMessage });
 }
 
 async function runOuterReview(nodeResults, originalTask, round, ctx, pi, signal, eventBus, modelPool) {

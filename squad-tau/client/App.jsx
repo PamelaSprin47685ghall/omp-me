@@ -17,6 +17,8 @@ function useAppEventHandlers(squadDispatch, sessionDispatch, modelPoolDispatch) 
         'squad:init': 'SQUAD_INIT',
         'squad:complete': 'SQUAD_COMPLETE',
         'squad:abort': 'SQUAD_ABORT',
+        'squad:outer_review_start': 'SQUAD_OUTER_REVIEW_START',
+        'squad:outer_review_result': 'SQUAD_OUTER_REVIEW_RESULT',
       };
       const eventType = mapped[type] || type.replace('squad:', '').toUpperCase().replace(/:/g, '_');
       squadDispatch({ type: eventType, payload });
@@ -45,7 +47,12 @@ export default function App() {
   useEffect(() => {
     window.__squadEventBus = handleEvent;
     window.__setActiveSessionId = setActiveSessionId;
-  }, [handleEvent, setActiveSessionId]);
+    // Helper for tests: auto-select latest session to view messages
+    window.__selectLatestSession = () => {
+      const s = Object.values(sessions);
+      if (s.length > 0) selectSession(s[s.length - 1].sessionId);
+    };
+  }, [handleEvent, setActiveSessionId, sessions, selectSession]);
 
   const selectSession = useCallback((sessionId) => {
     setActiveSessionId(sessionId);
@@ -63,7 +70,7 @@ export default function App() {
     String(a.sessionId).localeCompare(String(b.sessionId))
   );
 
-  const squadActive = squad !== null || results !== null;
+  const squadActive = squad !== null;
 
   return (
     <div className={`app-root ${isDark ? Classes.DARK : ''}`}>

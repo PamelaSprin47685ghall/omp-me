@@ -80,7 +80,7 @@ describe('ws-server.js creates wss with clients Set (Bug 1 fixed)', () => {
         const { createServer } = await import('http');
         const httpServer = createServer();
 
-        const result = createWsServer(httpServer);
+        const result = await createWsServer(httpServer);
 
         assert.ok(result.wss, 'must return wss');
         assert.ok(result.wss.clients instanceof Set, 'wss.clients must be a Set');

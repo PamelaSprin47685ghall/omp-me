@@ -410,9 +410,10 @@ describe('Tmux Browser — UI Content', () => {
             // Wait for session A's message to render
             expect(await waitForText(page, 'Result from node A')).toBe(true);
 
-            // Session B — auto-selects to B (latest)
+            // Session B
             eventBus.emit('session', 'start', { sessionId: 'sess-b', nodeId: 'nodeB', phase: 'worker', retryCount: 0 });
             await waitForText(page, 'nodeB', 5000);
+            await page.evaluate(() => window.__selectLatestSession?.());
 
             eventBus.emit('session', 'message_delta', {
                 sessionId: 'sess-b',

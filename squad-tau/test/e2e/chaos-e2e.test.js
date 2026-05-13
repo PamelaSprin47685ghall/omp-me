@@ -85,7 +85,7 @@ describe('Chaos E2E (PRD scenarios)', () => {
         });
 
         // Page still functional
-        const text = await page.$eval('.brand-text', (el) => el.textContent);
+        const text = await page.$eval('.app-title', (el) => el.textContent);
         expect(text).toBe('Squad-Tau');
         await page.close();
     }, 15000);
@@ -141,7 +141,7 @@ describe('Chaos E2E (PRD scenarios)', () => {
         eb.emit('squad', 'complete', { results: [{ nodeId: 'Mix', summary: 'done' }] });
 
         // UI still functional
-        const text = await page.$eval('.brand-text', (el) => el.textContent);
+        const text = await page.$eval('.app-title', (el) => el.textContent);
         expect(text).toBe('Squad-Tau');
         await fetch(`${baseUrl}/api/status`).then((r) => expect(r.status).toBe(200));
         await page.close();

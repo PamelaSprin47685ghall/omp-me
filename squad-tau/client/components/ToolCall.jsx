@@ -5,8 +5,8 @@ import { IconNames } from '@blueprintjs/icons';
 function argsPreview(toolName, params) {
   if (!params) return '';
   if (params.path) return params.path;
-  if (params.command) return params.command.slice(0, 80);
-  if (params.query) return params.query.slice(0, 60);
+  if (typeof params.command === 'string') return params.command.slice(0, 80);
+  if (typeof params.query === 'string') return params.query.slice(0, 60);
   if (params.url) return params.url;
   const first = Object.values(params).find(v => typeof v === 'string' && v.length > 0);
   return first ? first.slice(0, 60) : '';

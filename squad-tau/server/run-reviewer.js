@@ -3,13 +3,7 @@ import { buildReviewerPrompt as getReviewerPrompt } from './run-reviewer-prompt.
 import { REVIEWER_MAX_EMPTY, createCounter } from './empty-turns.js';
 import { buildBaseSessionOptions } from './session-options.js';
 import { register, unregister, setReturnResolver } from './session-registry.js';
-import { subscribeToSessionEvents } from './session-events.js';
-
-function emitSessionEnd(eventBus, sessionId, phase, reason, errorMessage) {
-    if (!eventBus || !sessionId) return;
-    eventBus.emit('session', 'state', { sessionId, phase });
-    eventBus.emit('session', 'end', { sessionId, reason, errorMessage });
-}
+import { subscribeToSessionEvents, emitSessionEnd } from './session-events.js';
 
 async function setupReviewerSession({ node, ctx, pi, modelSlot, eventBus, state }) {
     const { SessionManager } = await getCodingAgentModule();

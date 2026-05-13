@@ -1,25 +1,4 @@
-function formatReviewCriteria(criteria) {
-    if (!criteria) return '';
-    if (Array.isArray(criteria) && criteria.length > 0 && typeof criteria[0] === 'object' && criteria[0] !== null) {
-        return criteria.map((c) => `- ${c.name}: ${c.description}`).join('\n');
-    }
-    if (Array.isArray(criteria)) return criteria.join('\n');
-    return String(criteria);
-}
-
-function buildIterationHistory(history) {
-    if (!history || history.length === 0) return '';
-    const lines = [];
-    for (let i = 0; i < history.length; i++) {
-        const entry = history[i];
-        lines.push(`工作记录 (${i + 1}): ${entry.workRecord?.reason || ''}`);
-        if (entry.workRecord?.affected_files?.length > 0) {
-            lines.push(`  文件: ${entry.workRecord.affected_files.join(', ')}`);
-        }
-        lines.push(`审阅者反馈 (${i + 1}): ${entry.feedback || ''}`);
-    }
-    return lines.join('\n');
-}
+import { formatReviewCriteria, buildIterationHistory } from './prompt-utils.js';
 
 export function buildReviewerPrompt({ node, workerResult, iterationHistory }) {
     const sections = ['你现在是 Squad-Tau 审核专员，负责评审工程师的交付。'];

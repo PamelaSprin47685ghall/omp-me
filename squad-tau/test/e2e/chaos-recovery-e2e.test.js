@@ -134,7 +134,8 @@ describe('Chaos: Destructive / Functional scenarios', () => {
             messageId: 'sw-m2',
         });
 
-        // Session 2 is latest, auto-selected
+        // Select latest session to view its messages
+        await page.evaluate(() => window.__selectLatestSession?.());
         await page.waitForFunction(() => document.body.innerText.includes('Session TWO content'), { timeout: 3000 });
 
         // Both session labels (R1-worker, R1-reviewer) visible in sidebar

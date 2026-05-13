@@ -194,7 +194,8 @@
   payload: {
     action: 'add' | 'remove' | 'edit',
     slot?: { provider: string, modelId: string, role: string, thinkingLevel?: string },
-    index?: number
+    slotId?: string,
+    thinkingLevel?: string
   }
 }
 

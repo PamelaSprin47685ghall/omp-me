@@ -25,49 +25,43 @@
 
 ## 4.4 侧边栏（Sidebar）
 
-### Sessions Tree（双层标准树）
-- Blueprint `Tree` 组件，最多 2 层：节点 → 执行阶段
-- **增量更新**：直接操作 Blueprint Tree 实例的节点增/删/改方法，不重新设 contents
+### Sessions Tree（扁平混合树）
+- Blueprint `Tree` 组件，混合单层结构：顶部的 "DAG Overview" 节点 → 按 nodeId 分组的 Node（一级）→ 阶段子节点（二级）→ 无 nodeId 的游离 session
+- **增量更新**：Tree contents 由 useMemo 从 sessions + nodes 重新计算
 - **排序规则**：两层均按 session 创建时间升序排列（自然数 session ID 递增即创建时间升序）
-  - 第一层（Node）：节点按其第一个 session 的创建时间升序排列
-  - 第二层（Phase）：子节点按每个 phase session 的创建时间升序排列
-- 结构：双层树，第一层 Node（状态图标 + 节点 ID），第二层 Phase（`R<retry>-<role>` + 状态图标）。示例：feature-x 节点下有 R1-Worker、R1-Reviewer、R2-Worker 三个 phase。
-- 第一层（Node）：显示节点 ID + 状态图标（与之前一致）
-- 第二层（Phase）：`R<retry>-<role>` + 阶段状态图标
-  - 角色缩写：Worker, Reviewer, OuterReview
-  - 每个第二层节点可点击，点击切换到该阶段的会话视图
-  - 第二层节点增量更新：新阶段启动时追加到末尾（session 创建时间自然升序）
+  - 第一层（Node）：节点按首次出现的 order 排列
+  - 第二层（Phase）：子节点按 session 创建时间升序排列
+- 结构：顶层 "DAG Overview" → Node 一级 → `R<retryCount+1> <phase>` 二级 → 游离 session
 - 所有图标使用 Blueprint `Icon` 组件 + `@blueprintjs/icons` 的 `IconNames` 枚举
-- 实际挑选图标时查阅 https://blueprintjs.com/docs/#icons/icons-list，选择最贴合语义的图标，不将就
 - 各状态图标意图：
-  - approved → 表示成功/完成
-  - rejected → 表示错误/否定
-  - pending → 表示等待/时钟
-  - authoring/confirming/reviewing → 表示进行中/刷新
-  - failed/blocked → 表示禁止/错误
-  - outer review → 表示总览/审核
+  - approved → tick-circle, rejected → cross-circle, pending → time
+  - active/authoring/confirming/reviewing → refresh
+  - failed/blocked → ban-circle
 
-### 自动切换逻辑
-1. 新会话启动 → 自动切换到该会话
-2. 用户手动点击 → 切换到该会话，锁定（不再自动切换）
-3. 锁定时侧边栏显示小锁图标，点击可解锁恢复自动切换
-4. **多 Tab 互不影响**：每个浏览器 Tab 独立管理自己的锁定状态和自动切换
+### 导航逻辑
+- **从不自动切换**：用户始终手动选择要查看的会话，不存在 auto-follow 或锁定的概念
+- 点击侧边栏树节点 → 切换到该会话
+- 顶部 "DAG Overview" 节点（点击切换到 DAG 视图）→ 节点 Node（一级）→ 阶段 Phase（二级）→ 无 nodeId 的 session 直接作为顶层
+- 二级节点标签：`R<retryCount+1> <phase>`（例如：R1 worker、R2 reviewer）
+- 无 nodeId 的 session 显示为 "Outer Review" 或 "Architect"
+- 所有图标使用 Blueprint `Icon` 组件 + `@blueprintjs/icons` 的 `IconNames` 枚举
+- 各状态图标意图：approved → tick-circle, rejected → cross-circle, pending → time, active/authoring/confirming/reviewing → refresh, failed/blocked → ban-circle
 
 ## 4.5 Header
 
-- **左侧**：`Squad-Tau` 品牌标识 + 切换 DAG 面板折叠的按钮（使用折叠/展开图标）
-- **中间**：连接状态指示器，使用 Blueprint `Icon` 组件，绿色表示已连接，红色表示断连；hover 显示详情
-- **右侧**：模型池配置按钮（用设置/齿轮图标）+ Abort 按钮（用停止/关闭图标，仅在 squad 活跃时显示，点击不可逆）
+- **左侧**：`Squad-Tau` 品牌标识
+- **中间**：连接状态指示器，显示端口号，使用 Blueprint `Tag` + `Icon`，绿色 (SIGNAL_SEARCH) 表示已连接，红色 (OFFLINE) 表示断连
+- **右侧**：模型池配置按钮（Cog 图标）+ Abort 按钮（Stop 图标，仅在 squad 活跃时显示，点击不可逆）
 - **深色**：跟随系统 `prefers-color-scheme`，应用 Blueprint `Classes.DARK`
-- **响应式**：1280px 以下品牌标识隐藏，只保留图标按钮
+- 无 DAG 切换按钮：DAG 通过侧边栏 "DAG Overview" 节点切换
 
 ## 4.6 主内容区（MainContent）
 
-### DAG View（主内容区顶部）
-- DAG（Mermaid）放在主内容区顶部，作为可折叠面板
-- 默认展开，用户可点击 Header 的 DAG 视图切换按钮折叠收起
-- 宽度占满主内容区，不受侧栏窄宽度限制
-- 点击 DAG 节点 → 跳转到对应 worker/reviewer 会话
+### DAG View（全屏视图）
+- 通过侧边栏 "DAG Overview" 节点或点击 DAG 节点进入
+- 占满整个主内容区，使用 `beautiful-mermaid` 渲染 SVG
+- DAG 显示所有节点及其依赖关系，状态变更更新节点颜色
+- 点击 DAG 节点 → 跳转到对应 worker/reviewer 会话（查找该节点的 session 并切换）
 - 状态变更更新：`squad:node_state` 事件触发重绘，不因无关事件触发
 
 ### 消息渲染
@@ -110,22 +104,23 @@
 - 按钮：模型池配置按钮（使用设置图标）
 
 ### 错误状态
-- 当 squad 整体失败（所有节点 blocked/failed）时，主内容区顶部显示全宽错误 banner
-- 使用 Blueprint `Callout` 组件，`intent="danger"`，标题 `Squad Failed`
-- banner 显示失败原因和 blocked/failed 节点数量
-- 用户可手动关闭 banner（`dismissible`）
+- 当 squad 整体失败（节点 blocked/failed）时，DAG 视图顶部显示全宽错误 banner
+- 使用 Blueprint `Alert` 组件，`intent="danger"`，标题 `Squad Failed`
+- banner 显示失败节点数量（failed/blocked 分别计数）、第一个失败节点的 summary 作为原因
+- 用户可手动关闭 banner（`onDismiss`）
+- Squad 成功完成时显示 `success` intent 的 Callout
 - 其他错误（WebSocket 断连、服务端崩溃）通过 Header 连接状态指示器展示
 
 ### 消息输入
 
-当前查看的 session 处于活跃状态时，消息列表底部显示输入区域。
+消息列表底部始终显示输入区域（无论 session 是否结束）。
 
 - Blueprint `TextArea`（支持多行）+ `Button`（发送），支持 Enter 发送，Shift+Enter 换行
 - 输入框占满宽度，发送按钮固定在右侧
 - 发送后清空输入框，用户消息立即出现在消息列表中（无需等待服务端确认）
-- 消息通过 WebSocket 发送 `session:user_message`，payload：`{ sessionId, text }`
+- 消息通过 WebSocket 发送 `session:user_message`，payload：`{ sessionId, text, messageId }`
 - 服务端处理后广播 `session:message`（role=user），各 Tab 同步
-- 当 session 处于结束状态（`completed` / `aborted` / `failed`），输入框禁用并显示占位提示
+- 使用乐观消息（messageId 以 `opt_` 前缀）立即显示
 
 ## 4.7 模型池配置面板
 

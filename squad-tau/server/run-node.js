@@ -23,8 +23,8 @@ async function runWorkerPhase(args) {
 
 async function runReviewerPhase(args, workerResult) {
     const { node, eventBus, modelPool, signal } = args;
-    eventBus.emit('squad', 'node_state', { nodeId: node.nodeId, status: STATUS.CONFIRMING, timestamp: Date.now() });
-    eventBus.emit('squad', 'node_state', { nodeId: node.nodeId, status: STATUS.REVIEWING, timestamp: Date.now() });
+    eventBus.emit('squad', 'node_state', { nodeId: node.id, status: STATUS.CONFIRMING, timestamp: Date.now() });
+    eventBus.emit('squad', 'node_state', { nodeId: node.id, status: STATUS.REVIEWING, timestamp: Date.now() });
 
     const reviewerSlot = await modelPool.acquire('reviewer', signal);
     try {

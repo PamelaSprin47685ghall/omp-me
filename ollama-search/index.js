@@ -7,15 +7,18 @@ const OLLAMA_API_BASE = 'https://ollama.com/api';
 const ENV_KEY = 'OLLAMA_API_KEY';
 
 function keyFile() {
-    return join(process.env.OMP_web_search_HOME || homedir(), '.omp', 'agent', 'ollama.json');
+    return join(process.env.OMP_OLLAMA_SEARCH_HOME || homedir(), '.omp', 'agent', 'ollama.json');
 }
 
 let storedKey = '';
-let loadedFromFile = false;
+let lastLoadedHome = null;
 
 function loadKeyFromFile() {
-    if (loadedFromFile) return;
-    loadedFromFile = true;
+    const currentHome = process.env.OMP_OLLAMA_SEARCH_HOME || null;
+    if (lastLoadedHome === currentHome) return;
+    lastLoadedHome = currentHome;
+    storedKey = '';
+
     const path = keyFile();
     if (existsSync(path)) {
         try {
@@ -50,7 +53,7 @@ function executeOllamaKeyCommand(args, ctx) {
     storedKey = key;
 
     try {
-        mkdirSync(join(process.env.OMP_web_search_HOME || homedir(), '.omp', 'agent'), { recursive: true });
+        mkdirSync(join(process.env.OMP_OLLAMA_SEARCH_HOME || homedir(), '.omp', 'agent'), { recursive: true });
         writeFileSync(keyFile(), JSON.stringify({ [ENV_KEY]: key }, null, 2), 'utf-8');
         try {
             chmodSync(keyFile(), 0o600);

@@ -92,7 +92,8 @@ function bind(server) {
         server.once('error', reject);
         server.listen(0, '127.0.0.1', () => {
             server.removeListener('error', reject);
-            resolve(server.address().port);
+            const addr = server.address();
+            resolve(typeof addr === 'object' ? addr.port : 0);
         });
     });
 }

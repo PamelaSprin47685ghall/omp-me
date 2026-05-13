@@ -3,11 +3,46 @@ import { NonIdealState } from '@blueprintjs/core';
 import { IconNames } from '@blueprintjs/icons';
 import { renderMermaidSVG } from 'beautiful-mermaid';
 
-const STATUS_COLOR = {
-  approved: '#2b9842', rejected: '#cc3440', authoring: '#c1b90d',
-  pending: '#919191', failed: '#8b1919', waiting_deps: '#6f6f6f',
-  confirming: '#c1b90d', reviewing: '#c1b90d', blocked: '#8b1919',
+const HARDCODED_THEME = {
+  bg: '#383e47',
+  fg: '#f6f7f9',
+  accent: '#2d72d2',
+  muted: '#abb2b9',
+  line: '#abb2b9',
+  border: '#f6f7f9',
+  surface: '#535a63',
 };
+
+function readResolvedCSS(varName, fallback) {
+  if (typeof document === 'undefined') return fallback;
+  try {
+    const el = document.createElement('div');
+    el.style.position = 'absolute';
+    el.style.visibility = 'hidden';
+    el.style.background = `var(${varName})`;
+    document.body.appendChild(el);
+    const val = getComputedStyle(el).background;
+    document.body.removeChild(el);
+    const match = val.match(/(rgb[^)]+\))/);
+    return match ? match[1] : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function getMermaidTheme() {
+  if (typeof document === 'undefined') return { ...HARDCODED_THEME };
+  return {
+    bg: readResolvedCSS('--app-mermaid-bg', HARDCODED_THEME.bg),
+    fg: readResolvedCSS('--app-mermaid-fg', HARDCODED_THEME.fg),
+    accent: readResolvedCSS('--app-mermaid-accent', HARDCODED_THEME.accent),
+    muted: readResolvedCSS('--app-mermaid-muted', HARDCODED_THEME.muted),
+    line: readResolvedCSS('--app-mermaid-line', HARDCODED_THEME.line),
+    border: readResolvedCSS('--app-mermaid-border', HARDCODED_THEME.border),
+    surface: readResolvedCSS('--app-mermaid-surface', HARDCODED_THEME.surface),
+    transparent: true,
+  };
+}
 
 function buildDiagram(nodeList, activeNodeId) {
   if (!nodeList?.length) return null;
@@ -43,16 +78,7 @@ export default function DAGView({ nodes, activeNodeId, onNodeClick }) {
     const diagram = buildDiagram(nodeList, activeNodeId);
     if (!diagram) return null;
     try {
-      return renderMermaidSVG(diagram, {
-        bg: 'var(--app-mermaid-bg)',
-        fg: 'var(--app-mermaid-fg)',
-        accent: 'var(--app-mermaid-accent)',
-        muted: 'var(--app-mermaid-muted)',
-        line: 'var(--app-mermaid-line)',
-        border: 'var(--app-mermaid-border)',
-        surface: 'var(--app-mermaid-surface)',
-        transparent: true,
-      });
+      return renderMermaidSVG(diagram, getMermaidTheme());
     } catch { return null; }
   }, [nodeList, activeNodeId]);
 

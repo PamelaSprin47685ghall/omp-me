@@ -161,7 +161,7 @@ describe('Chaos: UI visual correctness', () => {
             eb.emit('squad', 'abort', { reason: `abort ${round}` });
         }
 
-        const brand = await page.$eval('.brand-text', (el) => el.textContent);
+        const brand = await page.$eval('.app-title', (el) => el.textContent);
         expect(brand).toBe('Squad-Tau');
 
         const resp = await fetch(`${baseUrl}/api/status`);

@@ -4,7 +4,7 @@
  * @see PRD/08-testing.md §8.4, PRD/05-event-protocol.md
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { startServer, getGlobalEventBus } from '../../server/server-lifecycle.js';
+import { startServer, stopServer, getGlobalEventBus } from '../../server/server-lifecycle.js';
 import { setupBrowser, teardownBrowser } from '../helpers/puppeteer-setup.js';
 
 const NAV = { waitUntil: 'domcontentloaded', timeout: 8000 };
@@ -26,10 +26,15 @@ describe('Standalone E2E', () => {
 
     afterAll(async () => {
         await teardownBrowser(browser);
-    });
+        try {
+            await stopServer();
+        } catch {
+            /* ignore during cleanup */
+        }
+    }, 30000);
 
     test('page loads and React mounts', async () => {
-        const text = await page.$eval('.brand-text', (el) => el.textContent);
+        const text = await page.$eval('.app-title', (el) => el.textContent);
         expect(text).toBe('Squad-Tau');
     });
 
@@ -110,8 +115,18 @@ describe('Standalone E2E', () => {
         });
         eb.emit('session', 'start', { sessionId: sid, nodeId: 'SNode', phase: 'worker' });
 
-        // Wait for session to be visible (auto-select)
-        await page.waitForFunction(() => document.body.innerText.includes('SNode'), { timeout: 8000 });
+        // Wait for session tree to appear, then click the session node to select it (no auto-follow)
+        await page.waitForFunction(() => document.body.innerText.includes('R1-worker'), { timeout: 8000 });
+        await page.evaluate(() => {
+            const nodeLabel = [...document.querySelectorAll('.bp6-tree-node-label')].find((el) =>
+                el.textContent.includes('R1-worker'),
+            );
+            if (nodeLabel) {
+                nodeLabel.closest('.bp6-tree-node-content')?.click();
+            }
+        });
+        // Wait for the session to be selected and visible in main area
+        await page.waitForFunction(() => document.body.innerText.includes('No messages yet'), { timeout: 5000 });
 
         // Emit both deltas then wait for accumulated text
         eb.emit('session', 'message_delta', {
@@ -141,8 +156,17 @@ describe('Standalone E2E', () => {
         });
         eb.emit('session', 'start', { sessionId: sid, nodeId: 'TNode', phase: 'worker' });
 
-        // Wait for auto-select before emitting tool events
+        // Wait for session tree to appear, then click the session node to select it
         await page.waitForFunction(() => document.body.innerText.includes('R1-worker'), { timeout: 5000 });
+        await page.evaluate(() => {
+            const nodeLabel = [...document.querySelectorAll('.bp6-tree-node-label')].find((el) =>
+                el.textContent.includes('R1-worker'),
+            );
+            if (nodeLabel) {
+                nodeLabel.closest('.bp6-tree-node-content')?.click();
+            }
+        });
+        await page.waitForFunction(() => document.body.innerText.includes('No messages yet'), { timeout: 5000 });
 
         eb.emit('session', 'tool_call', {
             sessionId: sid,
@@ -160,17 +184,12 @@ describe('Standalone E2E', () => {
             result: { output: 'passed' },
         });
 
-        // Wait for Result header to appear (React re-render after tool_result)
-        await page.waitForFunction(() => document.body.innerText.includes('Result'), { timeout: 5000 });
+        // Wait for done tag to appear (React re-render after tool_result)
+        await page.waitForFunction(() => document.body.innerText.includes('done'), { timeout: 5000 });
         // Click to expand the collapsed result section
         await page.evaluate(() => {
-            const headers = document.querySelectorAll('[role="button"]');
-            for (const h of headers) {
-                if (h.textContent.includes('Result')) {
-                    h.click();
-                    break;
-                }
-            }
+            const btn = document.querySelector('.tool-header[role]') || document.querySelector('.tool-header');
+            btn?.click();
         });
         await page.waitForFunction(() => document.body.innerText.includes('output'), { timeout: 5000 });
     }, 15000);

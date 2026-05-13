@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Tree, Icon, Button, Tooltip } from '@blueprintjs/core';
+import React, { useMemo, useCallback } from 'react';
+import { Tree, Icon } from '@blueprintjs/core';
 import { IconNames } from '@blueprintjs/icons';
 
 function statusIcon(status) {
@@ -31,7 +31,7 @@ function statusIntent(status) {
   }
 }
 
-function buildTree(sessions, nodes, viewMode) {
+function buildTree(sessions, nodes, viewMode, activeSessionId) {
   const dagNode = {
     id: '__dag__',
     label: 'DAG Overview',
@@ -50,6 +50,7 @@ function buildTree(sessions, nodes, viewMode) {
         id: sessionId,
         label: phase === 'outer_review' ? 'Outer Review' : 'Architect',
         icon: <Icon icon={statusIcon(status)} intent={statusIntent(status)} size={14} />,
+        isSelected: activeSessionId === sessionId,
         nodeData: { sessionId },
       });
       return;
@@ -68,6 +69,7 @@ function buildTree(sessions, nodes, viewMode) {
       id: sessionId,
       label: `R${(retryCount ?? 0) + 1} ${phase}`,
       icon: <Icon icon={statusIcon(status)} intent={statusIntent(status)} size={12} />,
+      isSelected: activeSessionId === sessionId,
       nodeData: { sessionId },
     });
   });
@@ -76,32 +78,17 @@ function buildTree(sessions, nodes, viewMode) {
 }
 
 export default function Sidebar({ sessions, nodes, activeSessionId, onSelectSession, viewMode, onSelectDAG }) {
-  const [locked, setLocked] = useState(false);
-  const treeNodes = useMemo(() => buildTree(sessions, nodes, viewMode), [sessions, nodes, viewMode]);
-
-  useEffect(() => {
-    if (!locked && sessions.length > 0) {
-      const latest = sessions[sessions.length - 1];
-      if (latest.sessionId !== activeSessionId) onSelectSession(latest.sessionId);
-    }
-  }, [sessions, locked, activeSessionId, onSelectSession]);
+  const treeNodes = useMemo(() => buildTree(sessions, nodes, viewMode, activeSessionId), [sessions, nodes, viewMode, activeSessionId]);
 
   const handleNodeClick = useCallback((node) => {
     if (node.nodeData?.isDag) { onSelectDAG(); return; }
     const sid = node.nodeData?.sessionId;
-    if (sid) { onSelectSession(sid); setLocked(true); }
+    if (sid) { onSelectSession(sid); }
   }, [onSelectSession, onSelectDAG]);
 
   return (
     <div className="app-sidebar">
-      <div className="sidebar-header-row">
-        <span className="sidebar-title">Sessions</span>
-        {locked && (
-          <Tooltip content="Unlock auto-follow" minimal>
-            <Button minimal small icon={IconNames.LOCK} onClick={() => setLocked(false)} />
-          </Tooltip>
-        )}
-      </div>
+      <span className="sidebar-title">Sessions</span>
       <Tree contents={treeNodes} onNodeClick={handleNodeClick} />
     </div>
   );

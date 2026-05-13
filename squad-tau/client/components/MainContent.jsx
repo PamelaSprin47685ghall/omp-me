@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Callout, Tag } from '@blueprintjs/core';
 import { IconNames } from '@blueprintjs/icons';
 import DAGView from './DAGView.jsx';
@@ -28,14 +28,19 @@ function StatusTag({ session }) {
   );
 }
 
-function FailedBanner({ nodes }) {
+function FailedBanner({ nodes, onDismiss }) {
   const failed = useMemo(() =>
     Array.from(nodes.values()).filter(n => n.status === 'failed' || n.status === 'blocked'),
   [nodes]);
+  const failedCount = failed.filter(n => n.status === 'failed').length;
+  const blockedCount = failed.filter(n => n.status === 'blocked').length;
+  const reason = failed.find(n => n.summary)?.summary || 'Unknown error';
   if (!failed.length) return null;
   return (
-    <Callout intent="danger" icon={IconNames.ERROR} className="banner">
-      {failed.length} node(s) failed: {failed.map(n => n.id).join(', ')}
+    <Callout intent="danger" icon={IconNames.ERROR} className="banner"
+      title={`Squad Failed — ${failedCount} failed, ${blockedCount} blocked}`}>
+      {reason}
+      <div style={{ cursor: 'pointer', textAlign: 'right', marginTop: 4 }} onClick={onDismiss}>Dismiss</div>
     </Callout>
   );
 }
@@ -53,12 +58,13 @@ export default function MainContent({
   viewMode, squadActive, nodes, activeSessionId, sessions, messages,
   onNodeClick, onOpenModelPool, onOptimisticMessage, send, results
 }) {
+  const [bannerDismissed, setBannerDismissed] = useState(false);
   if (!squadActive) return <WelcomeView onOpenModelPool={onOpenModelPool} />;
 
   if (viewMode === 'dag') {
     return (
       <div className="app-main">
-        <FailedBanner nodes={nodes} />
+        {!bannerDismissed && <FailedBanner nodes={nodes} onDismiss={() => setBannerDismissed(true)} />}
         <SuccessBanner results={results} />
         <DAGView nodes={Array.from(nodes.values())} activeNodeId={null} onNodeClick={onNodeClick} />
       </div>
@@ -68,8 +74,6 @@ export default function MainContent({
   const activeSession = sessions.find(s => s.sessionId === activeSessionId);
   const activeMessages = messages[activeSessionId] || [];
   const sessionRole = getSessionRole(activeSession);
-  const isEnded = ['completed', 'aborted', 'error'].includes(activeSession?.status)
-    || ['completed', 'aborted', 'error'].includes(activeSession?.phase);
 
   return (
     <div className="app-main">
@@ -78,7 +82,6 @@ export default function MainContent({
       {activeSession && (
         <MessageInput
           sessionId={activeSessionId}
-          sessionEndReason={isEnded ? (activeSession.status !== 'active' ? activeSession.status : activeSession.phase) : null}
           send={send}
           onOptimisticMessage={onOptimisticMessage}
         />
