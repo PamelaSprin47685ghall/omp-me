@@ -239,6 +239,79 @@ describe('semantic-edit plugin', () => {
             assert.strictEqual(result, undefined);
         });
 
+        it('rejects invalid find params with block=true and recommends semantic_find', async () => {
+            const { default: semanticEdit } = await import('../index.js?bust=7find1');
+            const pi = createMockPi();
+            await semanticEdit(pi);
+
+            const handler = pi._handlers['tool_call'][0];
+            // find requires paths (array minItems:1), pass empty
+            const result = await handler({ toolName: 'find', toolCallId: 't1', input: {} }, CTX);
+
+            if (result) {
+                assert.strictEqual(result.block, true);
+                assert.ok(result.reason.includes('semantic_find'), 'block reason should recommend semantic_find');
+            }
+        });
+
+        it('rejects invalid search params with block=true and recommends semantic_find', async () => {
+            const { default: semanticEdit } = await import('../index.js?bust=7search1');
+            const pi = createMockPi();
+            await semanticEdit(pi);
+
+            const handler = pi._handlers['tool_call'][0];
+            // search requires pattern + paths, pass nonsense
+            const result = await handler({ toolName: 'search', toolCallId: 't1', input: { invalidKey: true } }, CTX);
+
+            if (result) {
+                assert.strictEqual(result.block, true);
+                assert.ok(result.reason.includes('semantic_find'), 'block reason should recommend semantic_find');
+            }
+        });
+
+        it('allows valid find params (no block)', async () => {
+            const { default: semanticEdit } = await import('../index.js?bust=7find2');
+            const pi = createMockPi();
+            await semanticEdit(pi);
+
+            const handler = pi._handlers['tool_call'][0];
+            const result = await handler(
+                { toolName: 'find', toolCallId: 't1', input: { paths: ['src/**/*.ts'] } },
+                CTX,
+            );
+
+            if (result) assert.strictEqual(result.block, false);
+            else assert.strictEqual(result, undefined);
+        });
+
+        it('allows valid search params (no block)', async () => {
+            const { default: semanticEdit } = await import('../index.js?bust=7search2');
+            const pi = createMockPi();
+            await semanticEdit(pi);
+
+            const handler = pi._handlers['tool_call'][0];
+            const result = await handler(
+                { toolName: 'search', toolCallId: 't1', input: { pattern: 'foo', paths: ['src/'] } },
+                CTX,
+            );
+
+            if (result) assert.strictEqual(result.block, false);
+            else assert.strictEqual(result, undefined);
+        });
+
+        it('does not intercept semantic_find tool calls', async () => {
+            const { default: semanticEdit } = await import('../index.js?bust=7sf');
+            const pi = createMockPi();
+            await semanticEdit(pi);
+
+            const handler = pi._handlers['tool_call'][0];
+            const result = await handler(
+                { toolName: 'semantic_find', toolCallId: 't1', input: { intent: 'find components' } },
+                CTX,
+            );
+            assert.strictEqual(result, undefined);
+        });
+
         it('rejects invalid edit params with block=true when schema is loaded', async () => {
             const { default: semanticEdit } = await import('../index.js?bust=7c');
             const pi = createMockPi();
