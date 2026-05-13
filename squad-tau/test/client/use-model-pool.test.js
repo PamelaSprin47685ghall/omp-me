@@ -15,7 +15,9 @@ test('model_pool:snapshot sets slots', () => {
     act(() => {
         result.current.dispatch({ type: 'model_pool:snapshot', payload: { slots } });
     });
-    expect(result.current.slots).toEqual(slots);
+    expect(result.current.slots).toHaveLength(1);
+    expect(result.current.slots[0]).toMatchObject(slots[0]);
+    expect(result.current.slots[0].slotId).toBeTruthy();
 });
 
 test('model_pool:changed updates slots', () => {
@@ -31,7 +33,13 @@ test('model_pool:changed updates slots', () => {
     act(() => {
         result.current.dispatch({ type: 'model_pool:changed', payload: { slots: updated } });
     });
-    expect(result.current.slots).toEqual(updated);
+    expect(result.current.slots).toHaveLength(2);
+    expect(result.current.slots[0]).toMatchObject(updated[0]);
+    expect(result.current.slots[0].slotId).toBeTruthy();
+    expect(result.current.slots[1]).toMatchObject(updated[1]);
+    expect(result.current.slots[1].slotId).toBeTruthy();
+    // slotIds should be unique
+    expect(result.current.slots[0].slotId).not.toBe(result.current.slots[1].slotId);
 });
 
 test('openDrawer sets isOpen to true', () => {

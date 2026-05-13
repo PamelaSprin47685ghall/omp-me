@@ -9,7 +9,13 @@ function modelPoolReducer(state, action) {
     switch (action.type) {
         case 'model_pool:snapshot':
         case 'model_pool:changed':
-            return { ...state, slots: action.payload.slots };
+            return {
+                ...state,
+                slots: (action.payload.slots || []).map((s) => ({
+                    ...s,
+                    slotId: s.slotId || Math.random().toString(36).slice(2, 10),
+                })),
+            };
         case 'drawer:open':
             return { ...state, isOpen: true };
         case 'drawer:close':

@@ -410,7 +410,8 @@ describe('Edge Case Stress Tests', () => {
                 isError: false,
             });
 
-            expect(await waitForText(page, 'Thought')).toBe(true);
+            // Thinking block is collapsed by default; header is always visible
+            expect(await waitForText(page, 'Thinking')).toBe(true);
             expect(await waitForText(page, 'Analysis')).toBe(true);
             expect(await waitForText(page, 'search')).toBe(true);
             expect(await waitForText(page, 'Follow-up')).toBe(true);

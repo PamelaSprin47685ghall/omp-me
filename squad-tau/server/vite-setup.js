@@ -54,6 +54,22 @@ async function startVite(_httpServer) {
         server: { middlewareMode: true, appType: 'spa' },
         hmr: false,
         clearScreen: false,
+        customLogger: {
+            info(msg, opts) {
+                if (msg.includes('Re-optimizing dependencies')) return;
+                if (opts?.clear) console.clear();
+                console.log(msg);
+            },
+            warn(msg) {
+                console.warn(msg);
+            },
+            warnOnce(msg) {
+                console.warn(msg);
+            },
+            error(msg) {
+                console.error(msg);
+            },
+        },
         esbuild: {
             jsxFactory: 'React.createElement',
             jsxFragment: 'React.Fragment',

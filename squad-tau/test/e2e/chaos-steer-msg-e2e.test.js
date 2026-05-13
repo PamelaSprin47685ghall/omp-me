@@ -30,6 +30,7 @@ describe('Chaos: Steer messages', () => {
         const page = await browser.newPage();
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
         await page.waitForSelector('#root', { timeout: 3000 });
+        await page.waitForFunction(() => window.__wsConnected, { timeout: 3000 });
 
         const sid = 'steer-s1';
         eb.emit('squad', 'init', {
@@ -39,6 +40,8 @@ describe('Chaos: Steer messages', () => {
         });
         eb.emit('session', 'start', { sessionId: sid, nodeId: 'SteerN', phase: 'worker' });
         await page.waitForFunction(() => document.body.innerText.includes('R1 worker'), { timeout: 3000 });
+        // Select session so its messages render
+        await page.evaluate(() => window.__selectLatestSession?.());
 
         const steerText = 'Actually, use Python instead of JavaScript';
         eb.emit('session', 'message', {
@@ -64,6 +67,7 @@ describe('Chaos: Steer messages', () => {
         const page = await browser.newPage();
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
         await page.waitForSelector('#root', { timeout: 3000 });
+        await page.waitForFunction(() => window.__wsConnected, { timeout: 3000 });
 
         const sid = 'contra-s1';
         eb.emit('squad', 'init', {
@@ -73,6 +77,8 @@ describe('Chaos: Steer messages', () => {
         });
         eb.emit('session', 'start', { sessionId: sid, nodeId: 'ContraN', phase: 'worker' });
         await page.waitForFunction(() => document.body.innerText.includes('R1 worker'), { timeout: 3000 });
+        // Select session so its messages render
+        await page.evaluate(() => window.__selectLatestSession?.());
 
         eb.emit('session', 'message', {
             sessionId: sid,

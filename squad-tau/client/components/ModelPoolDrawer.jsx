@@ -63,7 +63,7 @@ function SlotActions({ slotId, onEdit, onDelete, disabled }) {
 
 function SlotRow({ slot, isEditing, editingLevel, setEditingLevel, onSave, onCancel, onEdit, onDelete }) {
   return (
-    <tr key={slot.slotId}>
+    <tr>
       <td>{slot.provider}</td>
       <td>{slot.modelId}</td>
       <td>{slot.role}</td>

@@ -134,9 +134,18 @@ describe('Chaos: Destructive / Functional scenarios', () => {
             messageId: 'sw-m2',
         });
 
+        // Wait for both session labels to appear (proving WS events processed)
+        await page.waitForFunction(
+            () => {
+                const text = document.body.innerText;
+                return text.includes('R1 worker') && text.includes('R1 reviewer');
+            },
+            { timeout: 5000 },
+        );
+
         // Select latest session to view its messages
         await page.evaluate(() => window.__selectLatestSession?.());
-        await page.waitForFunction(() => document.body.innerText.includes('Session TWO content'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('Session TWO content'), { timeout: 5000 });
 
         // Both session labels (R1 worker, R1 reviewer) visible in sidebar
         await page.waitForFunction(

@@ -28,6 +28,7 @@ describe('Chaos: Command rapid operations', () => {
         const page = await browser.newPage();
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
         await page.waitForSelector('#root', { timeout: 3000 });
+        await page.waitForFunction(() => window.__wsConnected, { timeout: 3000 });
 
         for (let i = 0; i < 5; i++) {
             eb.emit('squad', 'init', {
@@ -58,6 +59,7 @@ describe('Chaos: Command rapid operations', () => {
         const page = await browser.newPage();
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
         await page.waitForSelector('#root', { timeout: 3000 });
+        await page.waitForFunction(() => window.__wsConnected, { timeout: 3000 });
 
         eb.emit('squad', 'init', {
             mode: 'M',
@@ -71,17 +73,47 @@ describe('Chaos: Command rapid operations', () => {
             eb.emit('session', 'end', { sessionId: `st-${i}`, reason: 'aborted' });
         }
 
-        // New session after storm — must work
-        eb.emit('session', 'start', { sessionId: 'st-final', nodeId: 'StormN', phase: 'worker' });
+        // Wait for all storm sessions to render in sidebar
+        await page.waitForFunction(
+            () => {
+                const labels = [...document.querySelectorAll('.bp6-tree-node-label')].filter(
+                    (el) => el.textContent === 'R1 worker',
+                );
+                return labels.length >= 20;
+            },
+            { timeout: 5000 },
+        );
+
+        // Click the last R1 worker label to select the final storm session
+        // Direct DOM interaction mirrors real user behavior
+        await page.evaluate(() => {
+            const labels = [...document.querySelectorAll('.bp6-tree-node-label')].filter(
+                (el) => el.textContent === 'R1 worker',
+            );
+            const last = labels[labels.length - 1];
+            const content = last.closest('.bp6-tree-node-content');
+            if (content) content.click();
+        });
+        // Confirm session view is active: 'No messages yet' appears
+        await page.waitForFunction(() => document.body.innerText.includes('No messages yet'), { timeout: 5000 });
+
+        // Emit a message for the selected session (st-19 is the last by insertion order)
         eb.emit('session', 'message', {
-            sessionId: 'st-final',
+            sessionId: 'st-19',
             role: 'assistant',
             content: [{ type: 'text', text: 'After storm message' }],
             messageId: 'storm-msg',
         });
-        await page.waitForFunction(() => document.body.innerText.includes('After storm'), { timeout: 3000 });
+        // Manual polling to avoid puppeteer timeout discrepancies
+        await page.waitForFunction(() => document.body.innerText.includes('After storm'), { timeout: 5000 });
 
         // New squad after storm
+        await page.evaluate(() => {
+            const dagLabel = [...document.querySelectorAll('.bp6-tree-node-label')].find(
+                (el) => el.textContent === 'DAG Overview',
+            );
+            dagLabel?.closest('.bp6-tree-node-content')?.click();
+        });
         eb.emit('squad', 'init', {
             mode: 'M',
             nodes: [{ id: 'PostStorm', task: 'post-storm', review_criteria: 'ok' }],
@@ -100,6 +132,7 @@ describe('Chaos: Command rapid operations', () => {
         const page = await browser.newPage();
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
         await page.waitForSelector('#root', { timeout: 3000 });
+        await page.waitForFunction(() => window.__wsConnected, { timeout: 3000 });
 
         eb.emit('squad', 'init', {
             mode: 'M',

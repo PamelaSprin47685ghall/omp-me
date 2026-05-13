@@ -54,7 +54,9 @@ describe('Chaos: UI visual correctness', () => {
 
         // Wait for banner and verify total count
         await page.waitForFunction(() => document.body.innerText.includes('Squad Failed'), { timeout: 5000 });
-        const bannerHasCount = await page.evaluate(() => document.body.innerText.includes('3 nodes'));
+        const bannerHasCount = await page.evaluate(
+            () => document.body.innerText.includes('1 failed') && document.body.innerText.includes('2 blocked'),
+        );
         expect(bannerHasCount).toBe(true);
         await page.close();
     }, 15000);

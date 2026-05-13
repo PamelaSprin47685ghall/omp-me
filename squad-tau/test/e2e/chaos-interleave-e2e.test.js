@@ -143,6 +143,7 @@ describe('Chaos: Interleaved concurrent events', () => {
         const page = await browser.newPage();
         await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 5000 });
         await page.waitForSelector('#root', { timeout: 3000 });
+        await page.waitForFunction(() => window.__wsConnected, { timeout: 3000 });
 
         const sid = 'tool-chain-s1';
         eb.emit('squad', 'init', {
@@ -175,7 +176,12 @@ describe('Chaos: Interleaved concurrent events', () => {
             result: { data: 'ok' },
         });
 
-        // Tool name must be visible
+        // Select session to view messages
+        await page.waitForFunction(() => document.body.innerText.includes('R1 worker'), { timeout: 3000 });
+        await page.evaluate(() => window.__selectLatestSession?.());
+        await page.waitForFunction(() => document.body.innerText.includes('R1 worker'), { timeout: 3000 });
+
+        // Tool name must be visible in the message area
         await page.waitForFunction(() => document.body.innerText.includes('fetch_data'), { timeout: 5000 });
 
         eb.emit('squad', 'complete', { results: [{ nodeId: 'ToolChain', summary: 'done' }] });
