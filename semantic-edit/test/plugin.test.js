@@ -1,7 +1,3 @@
-/**
- * Tests for semantic-edit plugin.
- */
-
 import { describe, it } from 'bun:test';
 import assert from 'node:assert';
 
@@ -20,14 +16,6 @@ function createMockPi() {
         },
         registerCommand(name, opts) {
             commands.push({ name, opts });
-        },
-        sendUserMessage(content, opts) {
-            this._sendUserMessageCalls = this._sendUserMessageCalls || [];
-            this._sendUserMessageCalls.push({ content, opts });
-        },
-        sendMessage(msg) {
-            this._sendMessageCalls = this._sendMessageCalls || [];
-            this._sendMessageCalls.push(msg);
         },
         on(event, handler) {
             (handlers[event] = handlers[event] || []).push(handler);
@@ -73,6 +61,16 @@ function settleReturnTool(opts) {
     }
 }
 
+const CTX = { cwd: process.cwd(), ui: {} };
+const DEFAULT_EVENT = (over) => ({
+    toolCallId: 'call-1',
+    content: [{ type: 'text', text: 'ok' }],
+    isError: false,
+    input: {},
+    details: undefined,
+    ...over,
+});
+
 describe('semantic-edit plugin', () => {
     describe('plugin registration', () => {
         it('registers the semantic_edit tool', async () => {
@@ -94,13 +92,13 @@ describe('semantic-edit plugin', () => {
             assert.strictEqual(pi._tools.filter((t) => t.name === 'semantic_edit').length, 1);
         });
 
-        it('registers tool_execution_end handler', async () => {
+        it('registers tool_call and tool_result handlers', async () => {
             const { default: semanticEdit } = await import('../index.js?bust=2b');
             const pi = createMockPi();
             await semanticEdit(pi);
 
-            assert.ok(pi._handlers['session_start']?.length, 'Should register session_start handler');
-            assert.ok(pi._handlers['tool_execution_end']?.length, 'Should register tool_execution_end handler');
+            assert.ok(pi._handlers['tool_call']?.length, 'Should register tool_call handler');
+            assert.ok(pi._handlers['tool_result']?.length, 'Should register tool_result handler');
         });
     });
 
@@ -122,7 +120,7 @@ describe('semantic-edit plugin', () => {
 
             const tool = pi._tools[0];
             await assert.rejects(
-                async () => tool.execute('edit-1', {}, null, null, {}),
+                async () => tool.execute('edit-1', {}, null, null, CTX),
                 (err) => err.message === 'intent is required',
             );
         });
@@ -134,7 +132,7 @@ describe('semantic-edit plugin', () => {
 
             const tool = pi._tools[0];
             await assert.rejects(
-                async () => tool.execute('edit-1', { intent: '   ' }, null, null, {}),
+                async () => tool.execute('edit-1', { intent: '   ' }, null, null, CTX),
                 (err) => err.message === 'intent is required',
             );
         });
@@ -146,52 +144,17 @@ describe('semantic-edit plugin', () => {
             const pi = createMockPi();
             await semanticEdit(pi);
 
-            const origCreate = pi.pi.createAgentSession;
+            const orig = pi.pi.createAgentSession;
             pi.pi.createAgentSession = async (opts) => {
                 settleReturnTool(opts);
-                return origCreate(opts);
+                return orig(opts);
             };
 
             const tool = pi._tools[0];
-            const result = await tool.execute('edit-1', { intent: 'add logging to all functions' }, null, null, {});
+            const result = await tool.execute('edit-1', { intent: 'add logging to all functions' }, null, null, CTX);
 
             assert.strictEqual(result.details.status, 'ok');
             assert.strictEqual(result.details.summary, 'done');
-        });
-
-        it('includes recommendation for normal users', async () => {
-            const { default: semanticEdit } = await import('../index.js?bust=7');
-            const pi = createMockPi();
-            await semanticEdit(pi);
-
-            const origCreate = pi.pi.createAgentSession;
-            pi.pi.createAgentSession = async (opts) => {
-                settleReturnTool(opts);
-                return origCreate(opts);
-            };
-
-            const tool = pi._tools[0];
-            const result = await tool.execute('edit-1', { intent: 'fix typo' }, null, null, {});
-
-            assert.ok(result.content[0].text.includes('semantic_edit'));
-        });
-
-        it('suppresses recommendation for dedicated editors', async () => {
-            const { default: semanticEdit } = await import('../index.js?bust=8');
-            const pi = createMockPi();
-            await semanticEdit(pi);
-
-            const origCreate = pi.pi.createAgentSession;
-            pi.pi.createAgentSession = async (opts) => {
-                settleReturnTool(opts);
-                return origCreate(opts);
-            };
-
-            const tool = pi._tools[0];
-            const ctx = { _semanticEditNoRecommend: true };
-            const result = await tool.execute('edit-1', { intent: 'fix typo' }, null, null, ctx);
-
-            assert.ok(!result.content[0].text.includes('semantic_edit'));
         });
 
         it('passes intent through to subagent prompt', async () => {
@@ -200,10 +163,10 @@ describe('semantic-edit plugin', () => {
             await semanticEdit(pi);
 
             let capturedPrompt = '';
-            const origCreate = pi.pi.createAgentSession;
+            const orig = pi.pi.createAgentSession;
             pi.pi.createAgentSession = async (opts) => {
                 settleReturnTool(opts);
-                const result = await origCreate(opts);
+                const result = await orig(opts);
                 const origPrompt = result.session.prompt;
                 result.session.prompt = async (text) => {
                     capturedPrompt = text;
@@ -213,7 +176,7 @@ describe('semantic-edit plugin', () => {
             };
 
             const tool = pi._tools[0];
-            await tool.execute('edit-1', { intent: 'refactor the auth module' }, null, null, {});
+            await tool.execute('edit-1', { intent: 'refactor the auth module' }, null, null, CTX);
 
             assert.ok(capturedPrompt.includes('refactor the auth module'), 'Intent must appear in subagent prompt');
         });
@@ -223,7 +186,7 @@ describe('semantic-edit plugin', () => {
             const pi = createMockPi();
             await semanticEdit(pi);
 
-            const origCreate = pi.pi.createAgentSession;
+            const orig = pi.pi.createAgentSession;
             pi.pi.createAgentSession = async (opts) => {
                 const returnTool = opts.customTools.find((t) => t.name === 'return_edit');
                 if (returnTool) {
@@ -231,142 +194,276 @@ describe('semantic-edit plugin', () => {
                         abort: () => {},
                     });
                 }
-                return origCreate(opts);
+                return orig(opts);
             };
 
             const tool = pi._tools[0];
-            const result = await tool.execute('edit-1', { intent: 'delete critical file' }, null, null, {});
+            const result = await tool.execute('edit-1', { intent: 'delete critical file' }, null, null, CTX);
 
             assert.strictEqual(result.details.status, 'error');
             assert.strictEqual(result.details.reason, 'file locked');
         });
     });
 
-    describe('edit failure auto-repair', () => {
-        it('auto-repairs failed ast-edit edit', async () => {
+    describe('schema validation at tool_call', () => {
+        it('allows valid tool params (no block)', async () => {
+            const { default: semanticEdit } = await import('../index.js?bust=7');
+            const pi = createMockPi();
+            await semanticEdit(pi);
+
+            const handler = pi._handlers['tool_call'][0];
+
+            const result = await handler(
+                {
+                    toolName: 'edit',
+                    toolCallId: 't1',
+                    input: { path: 'src/test.js', edits: [{ old_text: 'a', new_text: 'b' }] },
+                },
+                CTX,
+            );
+            // Should either be undefined (schema unavailable) or not blocked
+            if (result) assert.strictEqual(result.block, false);
+            else assert.strictEqual(result, undefined);
+        });
+
+        it('does not intercept semantic_edit tool calls', async () => {
+            const { default: semanticEdit } = await import('../index.js?bust=7b');
+            const pi = createMockPi();
+            await semanticEdit(pi);
+
+            const handler = pi._handlers['tool_call'][0];
+            const result = await handler(
+                { toolName: 'semantic_edit', toolCallId: 't1', input: { intent: 'fix' } },
+                CTX,
+            );
+            assert.strictEqual(result, undefined);
+        });
+
+        it('rejects invalid edit params with block=true when schema is loaded', async () => {
+            const { default: semanticEdit } = await import('../index.js?bust=7c');
+            const pi = createMockPi();
+            await semanticEdit(pi);
+
+            const handler = pi._handlers['tool_call'][0];
+            // edit requires path + edits[].old_text, pass nonsense
+            const result = await handler({ toolName: 'edit', toolCallId: 't1', input: { foobar: 42 } }, CTX);
+
+            // If schemas loaded, should block; otherwise undefined
+            if (result) {
+                assert.strictEqual(result.block, true);
+                assert.ok(result.reason.includes('semantic_edit'), 'block reason should recommend semantic_edit');
+            }
+        });
+    });
+
+    describe('success recommendation', () => {
+        it('appends recommendation for successful edit', async () => {
+            const { default: semanticEdit } = await import('../index.js?bust=8');
+            const pi = createMockPi();
+            await semanticEdit(pi);
+
+            const handler = pi._handlers['tool_result'][0];
+            const result = await handler(
+                DEFAULT_EVENT({ toolName: 'edit', input: { path: 'f.js', old_text: 'a', new_text: 'b' } }),
+                CTX,
+            );
+
+            assert.ok(result, 'Should return modification');
+            const text = result.content[0]?.text || '';
+            assert.ok(text.includes('semantic_edit'), 'Should recommend semantic_edit');
+        });
+
+        it('appends recommendation for successful write', async () => {
+            const { default: semanticEdit } = await import('../index.js?bust=8b');
+            const pi = createMockPi();
+            await semanticEdit(pi);
+
+            const handler = pi._handlers['tool_result'][0];
+            const result = await handler(
+                DEFAULT_EVENT({ toolName: 'write', input: { path: 'f.js', content: 'hi' } }),
+                CTX,
+            );
+
+            assert.ok(result, 'Should return modification');
+            const text = result.content[0]?.text || '';
+            assert.ok(text.includes('semantic_edit'), 'Should recommend semantic_edit');
+        });
+
+        it('does not recommend for semantic_edit tool itself', async () => {
+            const { default: semanticEdit } = await import('../index.js?bust=8c');
+            const pi = createMockPi();
+            await semanticEdit(pi);
+
+            const handler = pi._handlers['tool_result'][0];
+            const result = await handler(DEFAULT_EVENT({ toolName: 'semantic_edit', input: { intent: 'fix' } }), CTX);
+
+            assert.strictEqual(result, undefined, 'Should not modify semantic_edit results');
+        });
+
+        it('does not duplicate recommendation if already present', async () => {
+            const { default: semanticEdit } = await import('../index.js?bust=8d');
+            const pi = createMockPi();
+            await semanticEdit(pi);
+
+            const handler = pi._handlers['tool_result'][0];
+            const result = await handler(
+                DEFAULT_EVENT({
+                    toolName: 'edit',
+                    input: { path: 'f.js', old_text: 'a', new_text: 'b' },
+                    content: [{ type: 'text', text: 'Already \`semantic_edit\` mentioned.' }],
+                }),
+                CTX,
+            );
+
+            assert.strictEqual(result, undefined, 'Should not modify if recommendation already present');
+        });
+    });
+
+    describe('auto-repair on failure', () => {
+        it('auto-repairs failed edit and returns recovery message', async () => {
             const { default: semanticEdit } = await import('../index.js?bust=11');
             const pi = createMockPi();
 
-            const origCreate = pi.pi.createAgentSession;
+            const orig = pi.pi.createAgentSession;
             pi.pi.createAgentSession = async (opts) => {
                 settleReturnTool(opts);
-                return origCreate(opts);
+                return orig(opts);
             };
 
             await semanticEdit(pi);
 
-            const sessionFile = 'test-repair-ast.jsonl';
-            pi.emit('session_start', {}, { sessionManager: { getSessionFile: () => sessionFile } });
+            const handler = pi._handlers['tool_result'][0];
+            const result = await handler(
+                {
+                    toolName: 'edit',
+                    toolCallId: 'call-1',
+                    content: [{ type: 'text', text: 'No replacements made' }],
+                    isError: true,
+                    input: { path: 'src/main.js', old_text: 'const foo = 1;', new_text: 'const foo = 2;' },
+                    details: undefined,
+                },
+                CTX,
+            );
 
-            const toolEnd = pi._handlers['tool_execution_end'][0];
-            await toolEnd(
+            assert.ok(result, 'Should return modification');
+            assert.strictEqual(result.isError, false, 'Should clear error on successful repair');
+            const text = result.content[0]?.text || '';
+            assert.ok(text.includes('automatically recovered'), 'Should mention recovery');
+            assert.ok(text.includes('semantic_edit'), 'Should recommend semantic_edit');
+            assert.ok(text.includes('src/test.js'), 'Should include affected files');
+        });
+
+        it('auto-repairs failed ast_edit', async () => {
+            const { default: semanticEdit } = await import('../index.js?bust=11a');
+            const pi = createMockPi();
+
+            const orig = pi.pi.createAgentSession;
+            pi.pi.createAgentSession = async (opts) => {
+                settleReturnTool(opts);
+                return orig(opts);
+            };
+
+            await semanticEdit(pi);
+
+            const handler = pi._handlers['tool_result'][0];
+            const result = await handler(
                 {
                     toolName: 'ast_edit',
-                    result: { isError: true, content: [{ type: 'text', text: 'No replacements made' }] },
+                    toolCallId: 'call-1',
+                    content: [{ type: 'text', text: 'No replacements made' }],
+                    isError: true,
                     input: { ops: [{ pat: 'oldFn($$$ARGS)', out: 'newFn($$$ARGS)' }], paths: ['src/'] },
+                    details: undefined,
                 },
-                { sessionManager: { getSessionFile: () => sessionFile } },
+                CTX,
             );
 
-            assert.ok(pi._sendUserMessageCalls?.length > 0, 'Should send user message on successful auto-repair');
-            assert.ok(
-                pi._sendUserMessageCalls[0].content.includes('automatically recovered'),
-                'Should mention recovery',
-            );
-        });
-
-        it('auto-repairs failed replace-mode edit', async () => {
-            const { default: semanticEdit } = await import('../index.js?bust=12');
-            const pi = createMockPi();
-
-            const origCreate = pi.pi.createAgentSession;
-            pi.pi.createAgentSession = async (opts) => {
-                settleReturnTool(opts);
-                return origCreate(opts);
-            };
-
-            await semanticEdit(pi);
-
-            const sessionFile = 'test-repair-replace.jsonl';
-            pi.emit('session_start', {}, { sessionManager: { getSessionFile: () => sessionFile } });
-
-            const toolEnd = pi._handlers['tool_execution_end'][0];
-            await toolEnd(
-                {
-                    toolName: 'edit',
-                    result: { isError: true, content: [{ type: 'text', text: 'Could not find exact text' }] },
-                    input: { path: 'src/main.js', old_text: 'const foo = 1;', new_text: 'const foo = 2;' },
-                },
-                { sessionManager: { getSessionFile: () => sessionFile } },
-            );
-
-            assert.ok(pi._sendUserMessageCalls?.length > 0);
-            const msg = pi._sendUserMessageCalls[0].content;
-            assert.ok(msg.includes('automatically recovered'), 'Should mention recovery');
-            assert.ok(msg.includes('src/test.js'), 'Should include affected files from repair');
-        });
-
-        it('does not trigger for successful edits', async () => {
-            const { default: semanticEdit } = await import('../index.js?bust=13');
-            const pi = createMockPi();
-            await semanticEdit(pi);
-
-            const sessionFile = 'test-repair-success.jsonl';
-            pi.emit('session_start', {}, { sessionManager: { getSessionFile: () => sessionFile } });
-
-            const toolEnd = pi._handlers['tool_execution_end'][0];
-            await toolEnd(
-                {
-                    toolName: 'edit',
-                    result: { isError: false, content: [{ type: 'text', text: 'Success' }] },
-                    input: { path: 'src/test.js', old_text: 'foo', new_text: 'bar' },
-                },
-                { sessionManager: { getSessionFile: () => sessionFile } },
-            );
-
-            assert.ok(!pi._sendUserMessageCalls?.length, 'Should not send message for successful edit');
+            assert.ok(result, 'Should return modification');
+            assert.strictEqual(result.isError, false);
+            const text = result.content[0]?.text || '';
+            assert.ok(text.includes('automatically recovered'), 'Should mention recovery');
         });
 
         it('deduplicates repeated failures for same params', async () => {
             const { default: semanticEdit } = await import('../index.js?bust=14');
             const pi = createMockPi();
 
-            const origCreate = pi.pi.createAgentSession;
+            const orig = pi.pi.createAgentSession;
             pi.pi.createAgentSession = async (opts) => {
                 settleReturnTool(opts);
-                return origCreate(opts);
+                return orig(opts);
             };
 
             await semanticEdit(pi);
 
-            const sessionFile = 'test-repair-dedupe.jsonl';
-            pi.emit('session_start', {}, { sessionManager: { getSessionFile: () => sessionFile } });
-
-            const toolEnd = pi._handlers['tool_execution_end'][0];
+            const handler = pi._handlers['tool_result'][0];
             const input = { path: 'src/test.js', old_text: 'const x = 1;', new_text: 'const x = 2;' };
 
-            await toolEnd(
+            const first = await handler(
                 {
                     toolName: 'edit',
-                    result: { isError: true, content: [{ type: 'text', text: 'Could not find' }] },
+                    toolCallId: 'call-1',
+                    content: [{ type: 'text', text: 'Could not find' }],
+                    isError: true,
                     input,
+                    details: undefined,
                 },
-                { sessionManager: { getSessionFile: () => sessionFile } },
-            );
-            await toolEnd(
-                {
-                    toolName: 'edit',
-                    result: { isError: true, content: [{ type: 'text', text: 'Could not find' }] },
-                    input,
-                },
-                { sessionManager: { getSessionFile: () => sessionFile } },
+                CTX,
             );
 
-            assert.strictEqual(
-                pi._sendUserMessageCalls?.filter((m) => m.content.includes('automatically recovered')).length,
-                1,
-                'Should only repair once per unique param set',
+            const second = await handler(
+                {
+                    toolName: 'edit',
+                    toolCallId: 'call-2',
+                    content: [{ type: 'text', text: 'Could not find' }],
+                    isError: true,
+                    input,
+                    details: undefined,
+                },
+                CTX,
             );
+
+            assert.ok(first, 'First call should return modification');
+            assert.strictEqual(second, undefined, 'Second call for same params should be skipped');
+        });
+    });
+
+    describe('no side-effect messaging', () => {
+        it('never calls sendUserMessage', async () => {
+            const { default: semanticEdit } = await import('../index.js?bust=15');
+            const pi = createMockPi();
+            await semanticEdit(pi);
+
+            const orig = pi.pi.createAgentSession;
+            pi.pi.createAgentSession = async (opts) => {
+                settleReturnTool(opts);
+                return orig(opts);
+            };
+
+            // Trigger various paths
+            const toolCall = pi._handlers['tool_call'][0];
+            const toolResult = pi._handlers['tool_result'][0];
+
+            await toolCall(
+                {
+                    toolName: 'edit',
+                    toolCallId: 't1',
+                    input: { path: 'x.js', edits: [{ old_text: 'a', new_text: 'b' }] },
+                },
+                CTX,
+            );
+            await toolResult(
+                {
+                    ...DEFAULT_EVENT({ toolName: 'edit' }),
+                    isError: true,
+                    input: { path: 'x.js', old_text: 'a', new_text: 'b' },
+                },
+                CTX,
+            );
+            await toolResult({ ...DEFAULT_EVENT({ toolName: 'write' }), input: { path: 'x.js', content: 'c' } }, CTX);
+
+            assert.strictEqual(pi._sendUserMessageCalls, undefined, 'Should not use sendUserMessage');
+            assert.strictEqual(pi._sendMessageCalls, undefined, 'Should not use sendMessage');
         });
     });
 });

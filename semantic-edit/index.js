@@ -1,7 +1,17 @@
-import { getCodingAgentModule } from '@oh-my-pi/resolve-pi';
+import { getCodingAgentModule, getPiBase } from '@oh-my-pi/resolve-pi';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { Value as ValueCheck } from '@sinclair/typebox/value';
 
 const MAX_EMPTY = 30;
 const registered = new WeakSet();
+const EDIT_TOOL_NAMES = new Set(['edit', 'ast_edit', 'write']);
+const AUTO_REPAIR_TOOL_NAMES = new Set(['edit', 'ast_edit']);
+
+const RECOMMENDATION =
+    '\n\n💡 For future edits, strongly consider using the `semantic_edit` tool — just describe what you want and it handles the rest.';
+
+let subEditDepth = 0;
 
 function buildReturnEditTool(resolve, state) {
     return {
@@ -13,7 +23,11 @@ function buildReturnEditTool(resolve, state) {
             properties: {
                 status: { type: 'string', enum: ['ok', 'error'], description: 'ok = success, error = failure' },
                 summary: { type: 'string', description: 'Brief summary of changes made' },
-                affected_files: { type: 'array', items: { type: 'string' }, description: 'Files modified or created' },
+                affected_files: {
+                    type: 'array',
+                    items: { type: 'string' },
+                    description: 'Files modified or created',
+                },
                 reason: { type: 'string' },
             },
             required: ['status', 'summary'],
@@ -27,20 +41,18 @@ function buildReturnEditTool(resolve, state) {
     };
 }
 
-function buildSessionOptions(ctx, pi) {
+function buildSessionOptions(ctx) {
     const options = {
         cwd: ctx?.cwd ?? process.cwd(),
         hasUI: false,
         toolNames: ['read', 'edit', 'write', 'find', 'search', 'bash', 'lsp'],
     };
-
     if (ctx?.modelRegistry) options.modelRegistry = ctx.modelRegistry;
     if (ctx?.model) options.model = ctx.model;
     if (ctx?.agentsMdSearch) options.agentsMdSearch = ctx.agentsMdSearch;
     if (ctx?.workspaceTree) options.workspaceTree = ctx.workspaceTree;
     if (ctx?.getThinkingLevel) options.thinkingLevel = ctx.getThinkingLevel();
     if (ctx?.getSystemPrompt) options.systemPrompt = ctx.getSystemPrompt();
-
     return options;
 }
 
@@ -52,21 +64,31 @@ async function runEditSession(pi, intent, signal, ctx) {
     const childAbort = new AbortController();
     if (signal) signal.addEventListener('abort', () => childAbort.abort(), { once: true });
 
+    let unsubInput = null;
+    if (typeof ctx?.ui?.onTerminalInput === 'function') {
+        unsubInput = ctx.ui.onTerminalInput((data) => {
+            if (data === 'escape' || data === 'esc' || data === 'ctrl+c' || data === 'ctrl+d') {
+                childAbort.abort();
+                return { consume: true };
+            }
+            return undefined;
+        });
+    }
+
     const { promise: resultPromise, resolve } = Promise.withResolvers();
     const state = { settled: false };
     const returnEditTool = buildReturnEditTool(resolve, state);
+    const options = buildSessionOptions(ctx);
 
-    const options = buildSessionOptions(ctx, pi);
-    const sessionOpts = {
+    const factoryResult = await createAgentSession({
         ...options,
         sessionManager: SessionManager.create(options.cwd),
         customTools: [returnEditTool],
-    };
-
-    const factoryResult = await createAgentSession(sessionOpts);
+    });
     const session = factoryResult.session;
 
     let empty = 0;
+    subEditDepth++;
     try {
         await session.prompt(
             `You are an autonomous code editor. Perform the following edit based on the user's intent.\n\n` +
@@ -96,9 +118,11 @@ async function runEditSession(pi, intent, signal, ctx) {
         session?.abort?.();
         throw err;
     } finally {
+        subEditDepth--;
         childAbort.abort();
         session?.abort?.();
         factoryResult?.dispose?.();
+        unsubInput?.();
     }
 }
 
@@ -107,76 +131,212 @@ function paramsToIntent(params) {
         const ops = params.ops.map((op) => `\n  pat: \`${op.pat}\`\n  → \`${op.out}\``).join('');
         return `In files matching "${params.paths.join('", "')}":${ops}`;
     }
-
     const file = params.path || params.file;
     if (params.old_text != null) {
         return `Edit "${file}":\n\nFIND:\n${params.old_text}\n\nREPLACE WITH:\n${params.new_text}`;
     }
-
     if (params.content?.trim()) {
         return `Write to "${file}":\n\n\`\`\`\n${params.content}\n\`\`\``;
     }
-
     return JSON.stringify(params);
 }
 
-const RECOMMENDATION =
-    '\n\n💡 For future edits, strongly consider using the `semantic_edit` tool — just describe what you want and it handles the rest.';
+function extractErrorText(content) {
+    const block = Array.isArray(content) ? content.find((c) => c.type === 'text') : undefined;
+    return block?.text || 'Edit failed';
+}
+
+function hasRecommendation(text) {
+    return typeof text === 'string' && text.includes('`semantic_edit`');
+}
+
+function appendRecommendation(content) {
+    const blocks = Array.isArray(content) ? content : [{ type: 'text', text: '' }];
+    const result = [];
+    let added = false;
+    for (const block of blocks) {
+        if (!added && block.type === 'text' && typeof block.text === 'string') {
+            if (hasRecommendation(block.text)) {
+                result.push(block);
+            } else {
+                result.push({ ...block, text: block.text + RECOMMENDATION });
+            }
+            added = true;
+        } else {
+            result.push(block);
+        }
+    }
+    if (!added) result.push({ type: 'text', text: RECOMMENDATION.trimStart() });
+    return result;
+}
+
+// ── Schema validation ────────────────────────────────────────────────────
+
+let schemaCache = null;
+
+async function getToolSchemas() {
+    if (schemaCache) return schemaCache;
+    const PI_BASE = getPiBase();
+    const baseUrl = pathToFileURL(join(PI_BASE, 'pi-coding-agent/src')).href + '/';
+
+    const settingsStub = {
+        get(key) {
+            const map = {
+                'edit.mode': 'replace',
+                'edit.fuzzyMatch': true,
+                'edit.fuzzyThreshold': 0.8,
+                'lsp.formatOnWrite': false,
+                'lsp.diagnosticsOnEdit': false,
+                'lsp.diagnosticsOnWrite': false,
+                'edit.updateMode': 'replace',
+            };
+            return map[key];
+        },
+        getEditVariantForModel: () => null,
+    };
+    const sessionStub = {
+        cwd: process.cwd(),
+        hasUI: false,
+        enableLsp: false,
+        settings: settingsStub,
+        getSessionFile: () => null,
+        getSessionSpawns: () => null,
+        getActiveModelString: () => undefined,
+    };
+
+    let edit, write, astEdit;
+    try {
+        const editMod = await import(baseUrl + 'edit/index.ts');
+        edit = new editMod.EditTool(sessionStub).parameters;
+    } catch {
+        edit = null;
+    }
+    try {
+        const writeMod = await import(baseUrl + 'tools/write.ts');
+        write = new writeMod.WriteTool(sessionStub).parameters;
+    } catch {
+        write = null;
+    }
+    try {
+        const astMod = await import(baseUrl + 'tools/ast-edit.ts');
+        astEdit = new astMod.AstEditTool(sessionStub).parameters;
+    } catch {
+        astEdit = null;
+    }
+
+    schemaCache = { edit, write, ast_edit: astEdit };
+    return schemaCache;
+}
+
+function formatSchemaErrors(errors) {
+    const msgs = [];
+    for (const err of errors) {
+        msgs.push(`${err.path}: ${err.message}`);
+        if (msgs.length >= 3) break;
+    }
+    return msgs.join('; ');
+}
+
+// ── Plugin ───────────────────────────────────────────────────────────────
 
 export default async function semanticEditExtension(pi) {
     if (registered.has(pi)) return;
     registered.add(pi);
 
-    const sessionFiles = new Set();
-
-    pi.on('session_start', (_evt, ctx) => {
-        const sf = ctx?.sessionManager?.getSessionFile?.();
-        if (sf) sessionFiles.add(sf);
-    });
-
     const pendingRepairs = new Set();
 
-    pi.on('tool_execution_end', async (evt, ctx) => {
-        const toolName = evt?.toolName;
-        if (toolName !== 'edit' && toolName !== 'ast_edit') return;
-        if (!evt?.result?.isError) return;
+    pi.on('tool_call', async (evt, ctx) => {
+        if (subEditDepth > 0) return;
+        const toolName = evt.toolName;
+        if (!EDIT_TOOL_NAMES.has(toolName)) return;
 
-        const sf = ctx?.sessionManager?.getSessionFile?.();
-        if (sf && !sessionFiles.has(sf)) return;
-
-        const params = evt?.input;
-        if (!params) return;
-        if (pendingRepairs.has(toolName + '_' + JSON.stringify(params).slice(0, 100))) return;
-
-        const errorText = evt?.result?.content?.find((c) => c.type === 'text')?.text || evt?.error || 'Edit failed';
-        pendingRepairs.add(toolName + '_' + JSON.stringify(params).slice(0, 100));
-
-        const intent = paramsToIntent(params);
+        if (!evt.input || typeof evt.input !== 'object') return;
 
         try {
-            const result = await runEditSession(
-                pi,
-                `Auto-repair failed edit: ${errorText}\n\nContext: ${intent}`,
-                null,
-                ctx,
-            );
-            if (result.status === 'ok') {
-                const files = result.affected_files?.join(', ') || '(unknown)';
-                pi.sendUserMessage(
-                    `The previous edit attempt failed, but it has been automatically recovered via semantic-edit. Changes applied to: ${files}. Summary: ${result.summary}`,
-                    { deliverAs: 'steer' },
-                );
-            } else {
-                pi.sendUserMessage(
-                    `The previous edit also failed to auto-recover: ${result.reason || result.summary}`,
-                    { deliverAs: 'steer' },
-                );
+            const schemas = await getToolSchemas();
+            const schema = schemas[toolName];
+            if (!schema) return;
+
+            if (!ValueCheck.Check(schema, evt.input)) {
+                const errors = ValueCheck.Errors(schema, evt.input);
+                const formatted = formatSchemaErrors(errors);
+                return {
+                    block: true,
+                    reason: [
+                        `Invalid parameters for "${toolName}": ${formatted}`,
+                        '',
+                        `💡 Use the \`semantic_edit\` tool instead — just describe your intent and let it handle the details.`,
+                    ].join('\n'),
+                };
             }
-        } catch (err) {
-            pi.sendUserMessage(`The previous edit could not be automatically recovered: ${err.message}`, {
-                deliverAs: 'steer',
-            });
+        } catch {
+            // schema validation unavailable — allow call through
         }
+    });
+
+    pi.on('tool_result', async (evt, ctx) => {
+        if (subEditDepth > 0) return;
+        const toolName = evt.toolName;
+        if (!EDIT_TOOL_NAMES.has(toolName)) return;
+
+        // ── Success: append recommendation ──
+        if (!evt.isError) {
+            if (Array.isArray(evt.content) && evt.content.some((b) => b.type === 'text' && hasRecommendation(b.text))) {
+                return undefined;
+            }
+            return { content: appendRecommendation(evt.content) };
+        }
+
+        // ── Failure: auto-repair for edit/ast_edit ──
+        if (AUTO_REPAIR_TOOL_NAMES.has(toolName)) {
+            const params = evt.input;
+            const dedupeKey = toolName + '_' + JSON.stringify(params).slice(0, 100);
+            if (!params || pendingRepairs.has(dedupeKey)) return undefined;
+            pendingRepairs.add(dedupeKey);
+
+            try {
+                const errorText = extractErrorText(evt.content);
+                const intent = `Auto-repair failed edit: ${errorText}\n\nContext: ${paramsToIntent(params)}`;
+                const result = await runEditSession(pi, intent, null, ctx);
+                if (result.status === 'ok') {
+                    const files = result.affected_files?.join(', ') || '(unknown)';
+                    return {
+                        isError: false,
+                        content: [
+                            {
+                                type: 'text',
+                                text: `The previous edit attempt failed, but it has been automatically recovered via semantic-edit. Changes applied to: ${files}. Summary: ${result.summary}.${RECOMMENDATION}`,
+                            },
+                        ],
+                    };
+                }
+                return {
+                    isError: false,
+                    content: [
+                        {
+                            type: 'text',
+                            text: `The previous edit could not be auto-repaired: ${result.reason || result.summary}.${RECOMMENDATION}`,
+                        },
+                    ],
+                };
+            } catch (err) {
+                return {
+                    isError: false,
+                    content: [
+                        {
+                            type: 'text',
+                            text: `The previous edit could not be auto-repaired: ${err.message}.${RECOMMENDATION}`,
+                        },
+                    ],
+                };
+            }
+        }
+
+        // ── Failure for other edit tools (write): clear error + recommend ──
+        if (Array.isArray(evt.content) && evt.content.some((b) => b.type === 'text' && hasRecommendation(b.text))) {
+            return undefined;
+        }
+        return { isError: false, content: appendRecommendation(evt.content) };
     });
 
     pi.registerTool({
@@ -201,11 +361,8 @@ export default async function semanticEditExtension(pi) {
                 ...(result.affected_files?.length ? [`Files: ${result.affected_files.join(', ')}`] : []),
             ].join('\n');
 
-            const includeRecommendation = !ctx?._semanticEditNoRecommend;
-            const finalText = includeRecommendation ? text + RECOMMENDATION : text;
-
             return {
-                content: [{ type: 'text', text: finalText }],
+                content: [{ type: 'text', text }],
                 details: { ...result },
             };
         },
