@@ -14,7 +14,7 @@ import {
     syncModelPoolFromConfig,
 } from './model-pool-config.js';
 import { buildSnapshot } from './model-pool-events.js';
-import { getCurrentRun } from './plugin-state.js';
+import { getCurrentRun, getSquadSnapshot } from './plugin-state.js';
 
 let _server = null;
 let _close = null;
@@ -44,6 +44,43 @@ export async function startServer() {
                     timestamp: Date.now(),
                 }),
             );
+
+            const squadSnap = getSquadSnapshot();
+            if (squadSnap) {
+                ws.send(
+                    JSON.stringify({
+                        type: 'squad:init',
+                        payload: {
+                            mode: squadSnap.mode,
+                            nodes: squadSnap.nodes,
+                            originalTask: squadSnap.originalTask,
+                        },
+                        timestamp: Date.now(),
+                    }),
+                );
+                for (const node of squadSnap.nodes) {
+                    ws.send(
+                        JSON.stringify({
+                            type: 'squad:node_state',
+                            payload: {
+                                nodeId: node.id,
+                                status: node.status,
+                                retryCount: node.retryCount,
+                            },
+                            timestamp: Date.now(),
+                        }),
+                    );
+                }
+                if (squadSnap.completed) {
+                    ws.send(
+                        JSON.stringify({
+                            type: 'squad:complete',
+                            payload: { results: squadSnap.results },
+                            timestamp: Date.now(),
+                        }),
+                    );
+                }
+            }
         },
         onMessage: async (msg, ws) => {
             await routeMessage(msg, modelPool, { loadModelsConfig, saveModelsConfig }, eventBus, ws);

@@ -6,16 +6,12 @@ const PROVIDERS = ['anthropic', 'openai', 'google', 'ollama'];
 const ROLES = ['worker', 'reviewer'];
 const THINKING_LEVELS = ['none', 'low', 'medium', 'high'];
 
-const TABLE_CONTAINER_STYLE = { overflowX: 'auto', marginTop: '16px' };
-const EMPTY_STYLE = { textAlign: 'center', padding: '32px', color: '#5C7080', fontStyle: 'italic' };
-const ADD_FORM_STYLE = { display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'flex-end' };
-const FORM_FIELD_STYLE = { display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '120px' };
-const LABEL_STYLE = { fontSize: '12px', fontWeight: 600, color: '#5C7080' };
+const FORM_FIELD_CLASS = 'model-pool-field';
 
 function SelectField({ label, value, onChange, options }) {
   return (
-    <div style={FORM_FIELD_STYLE}>
-      <label style={LABEL_STYLE}>{label}</label>
+    <div className={FORM_FIELD_CLASS}>
+      <label className="model-pool-label">{label}</label>
       <HTMLSelect
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -43,10 +39,10 @@ function AddSlotForm({ onAdd }) {
   const disabled = !provider || !modelId || !role;
 
   return (
-    <div style={ADD_FORM_STYLE}>
+    <div className="model-pool-add-form">
       <SelectField label="Provider" value={provider} onChange={setProvider} options={PROVIDERS} />
-      <div style={{ ...FORM_FIELD_STYLE, flex: 1 }}>
-        <label style={LABEL_STYLE}>Model ID</label>
+      <div className="model-pool-field-flex">
+        <label className="model-pool-label">Model ID</label>
         <InputGroup value={modelId} onChange={(e) => setModelId(e.target.value)} placeholder="e.g. claude-3-5-sonnet" />
       </div>
       <SelectField label="Role" value={role} onChange={setRole} options={ROLES} />
@@ -73,7 +69,7 @@ function SlotRow({ slot, isEditing, editingLevel, setEditingLevel, onSave, onCan
       <td>{slot.role}</td>
       <td>
         {isEditing ? (
-          <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+          <div className="model-pool-edit-row">
             <HTMLSelect
               value={editingLevel}
               onChange={(e) => setEditingLevel(e.target.value)}
@@ -92,11 +88,11 @@ function SlotRow({ slot, isEditing, editingLevel, setEditingLevel, onSave, onCan
 
 function SlotTable({ slots, editingSlotId, editingLevel, setEditingLevel, onSave, onCancel, onEdit, onDelete }) {
   if (slots.length === 0) {
-    return <div style={EMPTY_STYLE}>No models configured. Add one above.</div>;
+    return <div className="model-pool-empty">No models configured. Add one above.</div>;
   }
   return (
-    <div style={TABLE_CONTAINER_STYLE}>
-      <HTMLTable striped interactive style={{ width: '100%' }}>
+    <div className="model-pool-table-wrap">
+      <HTMLTable striped interactive className="model-pool-table">
         <thead>
           <tr>
             <th>Provider</th><th>Model ID</th><th>Role</th>
@@ -151,7 +147,7 @@ export default function ModelPoolDrawer({ isOpen, onClose, slots, onUpdateSlot }
   return (
     <>
       <Drawer isOpen={isOpen} onClose={onClose} title="Model Pool Configuration" size="600px" position="right">
-        <div style={{ padding: '16px' }}>
+        <div className="model-pool-drawer-body">
           <AddSlotForm onAdd={(data) => onUpdateSlot('add', data)} />
           <SlotTable
             slots={slots} editingSlotId={editingSlotId}

@@ -1,151 +1,79 @@
-import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
-import { Card, Collapse, Icon } from '@blueprintjs/core';
+import React, { useMemo, useCallback, useRef } from 'react';
+import { NonIdealState } from '@blueprintjs/core';
 import { IconNames } from '@blueprintjs/icons';
-import mermaid from 'mermaid';
-
-mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'loose' });
-
-const PANEL_STYLE = { marginBottom: 12 };
-
-const TOGGLE_STYLE = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 6,
-  cursor: 'pointer',
-  userSelect: 'none',
-  padding: '6px 0',
-  fontSize: 13,
-  fontWeight: 500,
-};
-
-const DAG_WRAPPER_STYLE = { padding: '8px 16px 16px', overflowX: 'auto' };
-
-const DAG_CONTAINER_STYLE = {
-  display: 'flex',
-  justifyContent: 'center',
-  minHeight: 120,
-};
+import { renderMermaidSVG } from 'beautiful-mermaid';
 
 const STATUS_COLOR = {
-  approved: '#2b9842',
-  rejected: '#cc3440',
-  authoring: '#c1b90d',
-  pending: '#919191',
-  failed: '#8b1919',
-  waiting_deps: '#6f6f6f',
-  confirming: '#c1b90d',
-  reviewing: '#c1b90d',
-  blocked: '#8b1919',
+  approved: '#2b9842', rejected: '#cc3440', authoring: '#c1b90d',
+  pending: '#919191', failed: '#8b1919', waiting_deps: '#6f6f6f',
+  confirming: '#c1b90d', reviewing: '#c1b90d', blocked: '#8b1919',
 };
 
 function buildDiagram(nodeList, activeNodeId) {
-  if (!nodeList?.length) return 'graph LR\n    Empty["No nodes"]';
-  const nodeMap = new Map(nodeList.map(n => [n.id, n]));
+  if (!nodeList?.length) return null;
   const lines = ['graph TD'];
+  const nodeMap = new Map(nodeList.map(n => [n.id, n]));
   nodeList.forEach(n => {
-    const color = STATUS_COLOR[n.status] ?? STATUS_COLOR.pending;
     const shape = n.id === activeNodeId ? `(${n.id})` : `[${n.id}]`;
+    const statusColor = STATUS_COLOR[n.status] || STATUS_COLOR.pending;
     lines.push(`    ${n.id}${shape}`);
-    lines.push(`    style ${n.id} fill:${color},stroke:${color},color:#fff`);
+    lines.push(`    style ${n.id} fill:${statusColor}22,stroke:${statusColor},stroke-width:${n.id === activeNodeId ? 3 : 2}px`);
   });
+  lines.push('    linkStyle default stroke:var(--app-mermaid-line),stroke-width:2px');
   nodeList.forEach(n => {
-    if (n.depends_on?.length) {
-      n.depends_on.forEach(depId => {
-        if (nodeMap.has(depId)) lines.push(`    ${depId} --> ${n.id}`);
-      });
-    }
+    (n.depends_on || []).forEach(dep => {
+      if (nodeMap.has(dep)) lines.push(`    ${dep} --> ${n.id}`);
+    });
   });
   return lines.join('\n');
 }
 
-function nodeStateKey(nodes, activeNodeId) {
-  if (!nodes) return '';
-  return nodes.map(n => `${n.id}:${n.status}`).join('|') + `!!active:${activeNodeId}`;
+function toNodeList(nodes) {
+  if (Array.isArray(nodes)) return nodes;
+  if (nodes instanceof Map) return Array.from(nodes.values());
+  return [];
 }
 
-function attachClickHandlers(container, onNodeClickRef) {
-  if (!container) return;
-  const svg = container.querySelector('svg');
-  if (!svg) return;
-  svg.style.maxWidth = '100%';
-  svg.querySelectorAll('g.node').forEach(g => {
-    g.style.cursor = 'pointer';
-    const label = g.querySelector('text');
-    if (label) label.style.fontFamily = 'inherit';
-    // Extract node ID from g.id (Mermaid format: "flowchart-{id}-{suffix}")
-    // Fallback to text content parsing for robustness
-    let nodeId = '';
-    if (g.id) {
-      const match = g.id.match(/^[^-]+-(.+)-\d+$/);
-      if (match) nodeId = match[1];
-    }
-    if (!nodeId && label) {
-      nodeId = label.textContent?.replace(/[()\[\]\s]/g, '').trim() ?? '';
-    }
-    g.onclick = () => nodeId && onNodeClickRef.current?.(nodeId);
-  });
-}
-
-function useMermaidRender(nodeList, activeNodeId, onNodeClick) {
-  const onNodeClickRef = useRef(onNodeClick);
-  onNodeClickRef.current = onNodeClick;
-  const containerRef = useRef(null);
-  const renderKeyRef = useRef(0);
-  const stateKey = nodeStateKey(nodeList, activeNodeId);
-
-  const renderDiagram = useCallback(async (list, key) => {
-    const el = containerRef.current;
-    if (!el) return;
-    const diagram = buildDiagram(list, activeNodeId);
-    const id = `d-${Date.now()}`;
-    try {
-      const { svg } = await mermaid.render(id, diagram);
-      // Discard stale results if a newer render was requested
-      if (key !== renderKeyRef.current) return;
-      if (containerRef.current) containerRef.current.innerHTML = svg;
-      attachClickHandlers(containerRef.current, onNodeClickRef);
-    } catch (err) {
-      console.error('[DAGView] mermaid render error:', err);
-    }
-  }, [activeNodeId]);
-
-  useEffect(() => {
-    renderKeyRef.current++;
-    const key = renderKeyRef.current;
-    renderDiagram(nodeList, key);
-  }, [stateKey, nodeList, renderDiagram]);
-
-  return containerRef;
-}
-
-/**
- * Renders a Mermaid DAG visualization for squad nodes.
- * @param {import('../types').DAGViewProps} props
- */
 export default function DAGView({ nodes, activeNodeId, onNodeClick }) {
-  const [expanded, setExpanded] = useState(true);
-  const nodeList = useMemo(() => {
-    if (!nodes) return [];
-    if (Array.isArray(nodes)) return nodes;
-    if (nodes instanceof Map) return Array.from(nodes.values());
-    return [];
-  }, [nodes]);
+  const onClickRef = useRef(onNodeClick);
+  onClickRef.current = onNodeClick;
+  const nodeList = useMemo(() => toNodeList(nodes), [nodes]);
 
-  const containerRef = useMermaidRender(nodeList, activeNodeId, onNodeClick);
+  const svg = useMemo(() => {
+    const diagram = buildDiagram(nodeList, activeNodeId);
+    if (!diagram) return null;
+    try {
+      return renderMermaidSVG(diagram, {
+        bg: 'var(--app-mermaid-bg)',
+        fg: 'var(--app-mermaid-fg)',
+        accent: 'var(--app-mermaid-accent)',
+        muted: 'var(--app-mermaid-muted)',
+        line: 'var(--app-mermaid-line)',
+        border: 'var(--app-mermaid-border)',
+        surface: 'var(--app-mermaid-surface)',
+        transparent: true,
+      });
+    } catch { return null; }
+  }, [nodeList, activeNodeId]);
+
+  const handleClick = useCallback((e) => {
+    const node = e.target.closest('[data-id]');
+    if (node) onClickRef.current?.(node.dataset.id);
+  }, []);
+
+  if (!nodeList.length) {
+    return <NonIdealState icon={IconNames.GRAPH} description="No nodes in DAG" />;
+  }
+
+  if (!svg) {
+    return <NonIdealState icon={IconNames.WARNING_SIGN} description="Failed to render DAG" />;
+  }
 
   return (
-    <Card style={PANEL_STYLE} elevation={2}>
-      <div style={TOGGLE_STYLE} onClick={() => setExpanded(v => !v)} role="button" aria-expanded={expanded}>
-        <Icon icon={expanded ? IconNames.CHEVRON_DOWN : IconNames.CHEVRON_RIGHT} size={14} />
-        <span>DAG View</span>
-      </div>
-      <Collapse isOpen={expanded}>
-        <div style={DAG_WRAPPER_STYLE}>
-          <div style={DAG_CONTAINER_STYLE}>
-            <div ref={containerRef} />
-          </div>
-        </div>
-      </Collapse>
-    </Card>
+    <div
+      className="dag-container"
+      onClick={handleClick}
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
   );
 }

@@ -127,7 +127,7 @@ describe('WebSocket Integration', () => {
         ws.send(
             JSON.stringify({
                 type: 'session:user_message',
-                payload: { sessionId, text: userText },
+                payload: { sessionId, text: userText, messageId: `test-msg-${Date.now()}` },
             }),
         );
 

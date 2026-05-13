@@ -6,7 +6,13 @@ import SquadFSM from './squad-fsm.js';
 import { register, unregister } from './session-registry.js';
 import { subscribeToSessionEvents } from './session-events.js';
 import { startServer, getGlobalEventBus, getGlobalModelPool, getServerPort } from './server-lifecycle.js';
-import { setCurrentRun, clearCurrentRun } from './plugin-state.js';
+import {
+    setCurrentRun,
+    clearCurrentRun,
+    setSquadSnapshot,
+    getSquadSnapshot,
+    clearSquadSnapshot,
+} from './plugin-state.js';
 import { delegateTool, returnTool } from './lifecycle-tools.js';
 import path from 'path';
 import fs from 'fs';
@@ -19,6 +25,16 @@ export default function squadPlugin(pi) {
     const serverPromise = startServer().catch((err) => {
         console.error('[squad] Failed to start server:', err);
         return null;
+    });
+
+    let notified = false;
+    pi.on('session_start', async (_event, ctx) => {
+        if (notified) return;
+        notified = true;
+        const result = await serverPromise;
+        if (result) {
+            ctx.ui.setWorkingMessage(`Waiting — Squad UI: http://127.0.0.1:${result.port}`);
+        }
     });
 
     registerSquadCommand(pi, () => serverPromise);
@@ -78,7 +94,7 @@ function registerSquadCommand(pi, getServer) {
 }
 
 function setupCurrentRun({ fsm, ctx, pi, signal, eventBus, modelPool, onComplete, task, startTime, abortController }) {
-    setCurrentRun({
+    const run = {
         fsm,
         executeDAG: async ({ nodes }) => executeDAG({ nodes, ctx, pi, signal, eventBus, modelPool }),
         ctx,
@@ -90,7 +106,44 @@ function setupCurrentRun({ fsm, ctx, pi, signal, eventBus, modelPool, onComplete
         originalTask: task,
         startTime,
         abortController,
-    });
+        _unsubSnapshot: [],
+    };
+
+    if (eventBus) {
+        run._unsubSnapshot.push(
+            eventBus.on('squad:init', (payload) => {
+                setSquadSnapshot({
+                    mode: payload.mode,
+                    nodes: payload.nodes.map((n) => ({
+                        ...n,
+                        status: n.depends_on?.length ? 'waiting_deps' : 'pending',
+                        retryCount: 0,
+                    })),
+                    originalTask: payload.originalTask,
+                    completed: false,
+                    results: null,
+                });
+            }),
+            eventBus.on('squad:node_state', (payload) => {
+                const snap = getSquadSnapshot();
+                if (!snap) return;
+                const node = snap.nodes.find((n) => n.id === payload.nodeId);
+                if (node) {
+                    node.status = payload.status;
+                    if (payload.retryCount !== undefined) node.retryCount = payload.retryCount;
+                }
+                setSquadSnapshot({ ...snap });
+            }),
+            eventBus.on('squad:complete', (payload) => {
+                const snap = getSquadSnapshot();
+                if (!snap) return;
+                setSquadSnapshot({ ...snap, completed: true, results: payload.results });
+            }),
+            eventBus.on('squad:abort', clearSquadSnapshot),
+        );
+    }
+
+    setCurrentRun(run);
 }
 
 async function runSquadSession(pi, ctx, task, fsm, eventBus) {

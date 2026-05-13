@@ -37,6 +37,17 @@ export async function routeMessage(msg, modelPool, configModule, eventBus, ws) {
                 return true;
             }
 
+            if (!messageId) {
+                ws.send(
+                    JSON.stringify({
+                        type: 'error',
+                        payload: { message: 'session:user_message requires messageId' },
+                        timestamp: Date.now(),
+                    }),
+                );
+                return true;
+            }
+
             const entry = sessionRegistry.get(sessionId);
             if (!entry || !sessionRegistry.isActive(sessionId)) {
                 ws.send(
@@ -54,7 +65,7 @@ export async function routeMessage(msg, modelPool, configModule, eventBus, ws) {
                 sessionId,
                 role: 'user',
                 content: [{ type: 'text', text }],
-                messageId: messageId || `user-${Date.now()}`,
+                messageId,
                 parentId: parentId,
                 timestamp: Date.now(),
             });

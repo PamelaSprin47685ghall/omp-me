@@ -1,167 +1,55 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { Card, Collapse, Spinner, Icon } from '@blueprintjs/core';
+import React, { useState, useCallback } from 'react';
+import { Card, Collapse, Icon, Tag, Pre } from '@blueprintjs/core';
 import { IconNames } from '@blueprintjs/icons';
 
-/** @typedef {import('../types').SessionToolCall} SessionToolCall */
-/** @typedef {import('../types').SessionToolResult} SessionToolResult */
+function argsPreview(toolName, params) {
+  if (!params) return '';
+  if (params.path) return params.path;
+  if (params.command) return params.command.slice(0, 80);
+  if (params.query) return params.query.slice(0, 60);
+  if (params.url) return params.url;
+  const first = Object.values(params).find(v => typeof v === 'string' && v.length > 0);
+  return first ? first.slice(0, 60) : '';
+}
 
-/**
- * @typedef {Object} ToolCallProps
- * @property {SessionToolCall} toolCall
- * @property {SessionToolResult} [toolResult]
- * @property {boolean} [isLatest]
- * @property {string} [borderColor]
- */
-
-const JSON_STYLE = {
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-word',
-  fontFamily: 'monospace',
-  fontSize: '12px',
-  margin: 0,
-};
-
-const CARD_STYLE = (borderColor) => ({
-  marginBottom: '8px',
-  borderLeft: `3px solid ${borderColor || '#2B95D6'}`,
-});
-
-const ERROR_STYLE = {
-  color: '#CD4246',
-  backgroundColor: 'rgba(205, 66, 70, 0.08)',
-  padding: '8px',
-  borderRadius: '3px',
-};
-
-const HEADER_STYLE = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
-  cursor: 'pointer',
-  userSelect: 'none',
-};
-
-const SECTION_HEADER_STYLE = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: '6px',
-  cursor: 'pointer',
-  padding: '4px 0',
-  userSelect: 'none',
-};
-
-const SECTION_BODY_STYLE = {
-  paddingLeft: '24px',
-  paddingBottom: '8px',
-};
-
-/**
- * Format value as pretty-printed JSON string.
- * @param {*} value
- * @returns {string}
- */
-function formatJson(value) {
-  try {
-    return JSON.stringify(value, null, 2);
-  } catch {
-    return String(value);
+function formatResult(result) {
+  if (!result) return '';
+  if (Array.isArray(result)) return result.map(b => b.type === 'text' ? b.text : JSON.stringify(b)).join('\n');
+  if (result.content && Array.isArray(result.content)) {
+    return result.content.map(b => b.type === 'text' ? b.text : JSON.stringify(b)).join('\n');
   }
+  return JSON.stringify(result, null, 2);
 }
 
-function ToolHeader({ expanded, onToggle, toolName, hasResult, isError }) {
-  const expandIcon = expanded ? IconNames.CHEVRON_DOWN : IconNames.CHEVRON_RIGHT;
-  return (
-    <div style={HEADER_STYLE} onClick={onToggle} role="button" tabIndex={0}>
-      <Icon icon={expandIcon} size={14} />
-      <Icon icon={IconNames.CODE_BLOCK} size={14} />
-      <span style={{ fontWeight: 600 }}>{toolName}</span>
-      {!hasResult && <Spinner size={14} />}
-      {isError && <Icon icon={IconNames.ERROR} intent="danger" size={14} />}
-    </div>
-  );
-}
+export default function ToolCall({ toolCall }) {
+  const { toolName, params, result, isError } = toolCall;
+  const [open, setOpen] = useState(false);
+  const toggle = useCallback(() => setOpen(v => !v), []);
+  const hasResult = result !== undefined;
+  const preview = argsPreview(toolName, params);
 
-function ToolResultSection({ hasResult, isError, open, onToggle, result }) {
-  if (!hasResult) return null;
   return (
-    <>
-      <div style={SECTION_HEADER_STYLE} onClick={onToggle} role="button" tabIndex={0}>
+    <Card elevation={0} className="msg-tool tool-card">
+      <button type="button" className="tool-header" onClick={toggle}>
         <Icon icon={open ? IconNames.CHEVRON_DOWN : IconNames.CHEVRON_RIGHT} size={12} />
-        <Icon icon={isError ? IconNames.ERROR : IconNames.TICK} size={12} />
-        <span style={{ fontSize: '12px', fontWeight: 600 }}>Result</span>
-      </div>
+        <Icon icon={IconNames.CODE} size={12} />
+        <span className="tool-name">{toolName}</span>
+        {preview && <span className="tool-preview">{preview}</span>}
+        <span className="tool-state">
+          {isError && <Tag minimal intent="danger">error</Tag>}
+          {hasResult && !isError && <Tag minimal intent="success">done</Tag>}
+          {!hasResult && <Tag minimal>running</Tag>}
+        </span>
+      </button>
       <Collapse isOpen={open}>
-        <pre style={isError ? { ...JSON_STYLE, ...ERROR_STYLE } : JSON_STYLE}>
-          {formatJson(result)}
-        </pre>
-      </Collapse>
-    </>
-  );
-}
-
-function ToolParamsSection({ open, onToggle, params }) {
-  return (
-    <>
-      <div style={SECTION_HEADER_STYLE} onClick={onToggle} role="button" tabIndex={0}>
-        <Icon icon={open ? IconNames.CHEVRON_DOWN : IconNames.CHEVRON_RIGHT} size={12} />
-        <Icon icon={IconNames.PROPERTIES} size={12} />
-        <span style={{ fontSize: '12px', fontWeight: 600 }}>Parameters</span>
-      </div>
-      <Collapse isOpen={open}>
-        <pre style={JSON_STYLE}>{formatJson(params)}</pre>
-      </Collapse>
-    </>
-  );
-}
-
-/**
- * Tool call card renderer.
- * @param {ToolCallProps} props
- */
-export default function ToolCall({ toolCall, toolResult, isLatest, borderColor }) {
-  const hasResult = toolResult !== undefined;
-  const isError = toolResult?.isError ?? false;
-
-  const [expanded, setExpanded] = useState(isLatest ?? false);
-  const [paramsOpen, setParamsOpen] = useState(true);
-  const [resultOpen, setResultOpen] = useState(isError || hasResult);
-
-  // When result becomes available, auto-expand the result section
-  useEffect(() => {
-    if (hasResult && !resultOpen) setResultOpen(true);
-  }, [hasResult]);
-  useEffect(() => {
-    if (isLatest && !expanded) setExpanded(true);
-  }, [isLatest]);
-
-  const toggleExpanded = useCallback(() => setExpanded((v) => !v), []);
-  const toggleParams = useCallback(() => setParamsOpen((v) => !v), []);
-  const toggleResult = useCallback(() => setResultOpen((v) => !v), []);
-
-  return (
-    <Card style={CARD_STYLE(borderColor)} compact>
-      <ToolHeader
-        expanded={expanded}
-        onToggle={toggleExpanded}
-        toolName={toolCall.toolName}
-        hasResult={hasResult}
-        isError={isError}
-      />
-      <Collapse isOpen={expanded}>
-        <div style={SECTION_BODY_STYLE}>
-          <ToolParamsSection
-            open={paramsOpen}
-            onToggle={toggleParams}
-            params={toolCall.params}
-          />
-          <ToolResultSection
-            hasResult={hasResult}
-            isError={isError}
-            open={resultOpen}
-            onToggle={toggleResult}
-            result={toolResult?.result}
-          />
-        </div>
+        {params && Object.keys(params).length > 0 && (
+          <Pre className="tool-pre">{JSON.stringify(params, null, 2)}</Pre>
+        )}
+        {hasResult && (
+          <Pre className={isError ? 'tool-pre tool-pre-error' : 'tool-pre'}>
+            {formatResult(result)}
+          </Pre>
+        )}
       </Collapse>
     </Card>
   );

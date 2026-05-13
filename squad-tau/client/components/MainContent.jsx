@@ -1,21 +1,10 @@
 import React, { useMemo } from 'react';
-import { Button, Icon, Card } from '@blueprintjs/core';
+import { Callout, Tag } from '@blueprintjs/core';
 import { IconNames } from '@blueprintjs/icons';
 import DAGView from './DAGView.jsx';
-import MessageItem from './MessageItem.jsx';
-import { MessageInput } from './MessageInput.jsx';
-import StatusBar from './StatusBar.jsx';
-import ErrorBanner from './ErrorBanner.jsx';
 import MessageList from './MessageList.jsx';
+import { MessageInput } from './MessageInput.jsx';
 import WelcomeView from './WelcomeView.jsx';
-
-const MAIN_STYLE = {
-  flex: 1,
-  display: 'flex',
-  flexDirection: 'column',
-  height: '100%',
-  overflow: 'hidden'
-};
 
 function getSessionRole(session) {
   if (!session) return 'user';
@@ -26,174 +15,74 @@ function getSessionRole(session) {
   return 'user';
 }
 
-function useMessageDetails(activeMessages, activeSessionId) {
-  return useMemo(() => {
-    const deltas = [];
-    const toolCalls = [];
-    const toolResults = [];
-    
-    activeMessages.forEach(msg => {
-      if (!msg.content || !Array.isArray(msg.content)) return;
-      
-      // If message is still streaming, add a synthetic delta so children
-      // see isStreaming=true for ThinkingBlock breathing animation.
-      if (msg.streaming) {
-        deltas.push({ messageId: msg.messageId, delta: { type: 'thinking_delta', text: '' } });
-      }
-      
-      msg.content.forEach(block => {
-        if (block.type === 'tool_call') {
-          toolCalls.push({
-            sessionId: activeSessionId,
-            messageId: msg.messageId,
-            toolName: block.toolName,
-            toolId: block.toolId,
-            params: block.params
-          });
-          
-          if (block.result !== undefined) {
-            toolResults.push({
-              sessionId: activeSessionId,
-              toolId: block.toolId,
-              result: block.result,
-              isError: block.isError || false
-            });
-          }
-        }
-      });
-    });
-    
-    return { deltas, toolCalls, toolResults };
-  }, [activeMessages, activeSessionId]);
-}
-
-function WelcomeOrErrorSection({ squadActive, onOpenModelPool, failedNodes, results, nodes }) {
-  // Show ErrorBanner even when squad is completed but has failures
-  if (failedNodes.length > 0) return <ErrorBanner nodes={failedNodes} />;
-  
-  // Show success banner when squad completed successfully (results present, no failures)
-  if (results && results.length > 0) {
-    return (
-      <Card style={{ marginBottom: 12 }} elevation={2}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#0F9960' }}>
-          <Icon icon={IconNames.TICK_CIRCLE} size={20} />
-          <span style={{ fontWeight: 600 }}>Squad Completed Successfully</span>
-        </div>
-      </Card>
-    );
-  }
-  
-  // Welcome view when not active and no results
-  if (!squadActive) {
-    return (
-      <div style={MAIN_STYLE}>
-        <WelcomeView onOpenModelPool={onOpenModelPool} />
-      </div>
-    );
-  }
-  
-  return null;
-}
-
-function StatusBarSection({ activeSession }) {
-  if (!activeSession) return null;
+function StatusTag({ session }) {
+  if (!session) return null;
+  const { nodeId, retryCount, phase, status } = session;
   return (
-    <StatusBar
-      nodeId={activeSession.nodeId}
-      retryCount={activeSession.retryCount}
-      phase={activeSession.phase}
-      status={activeSession.status}
-      mode={null}
-      currentLayer={null}
-      totalLayers={null}
-    />
-  );
-}
-
-function MessageListSection({ activeMessages, sessionRole, details }) {
-  return (
-    <MessageList 
-      messages={activeMessages} 
-      sessionRole={sessionRole}
-      deltas={details.deltas}
-      toolCalls={details.toolCalls}
-      toolResults={details.toolResults}
-    />
-  );
-}
-
-function InputSection({ activeSession, activeSessionId, send, onOptimisticMessage }) {
-  if (!activeSession) return null;
-  const reason = (['completed', 'aborted', 'error'].includes(activeSession.status) || 
-                  ['completed', 'aborted', 'error'].includes(activeSession.phase))
-    ? (activeSession.status !== 'active' ? activeSession.status : activeSession.phase) 
-    : null;
-    
-  return (
-    <MessageInput
-      sessionId={activeSessionId}
-      sessionEndReason={reason}
-      send={send}
-      onOptimisticMessage={onOptimisticMessage}
-    />
-  );
-}
-
-function useFailedNodes(nodes) {
-  return useMemo(() => {
-    const failed = [];
-    nodes.forEach(node => {
-      if (node.status === 'failed' || node.status === 'blocked') {
-        failed.push(node);
-      }
-    });
-    return failed;
-  }, [nodes]);
-}
-
-function DAGSection({ nodes, activeSession, dagCollapsed, onNodeClick }) {
-  if (dagCollapsed) return null;
-  return (
-    <DAGView
-      nodes={Array.from(nodes.values())}
-      activeNodeId={activeSession?.nodeId}
-      onNodeClick={onNodeClick}
-    />
-  );
-}
-
-export default function MainContent({
-  squadActive, nodes, activeSessionId, sessions, messages,
-  dagCollapsed, onToggleDAG, onNodeClick, onOpenModelPool,
-  onOptimisticMessage, send, results
-}) {
-  const activeSession = Array.isArray(sessions)
-    ? sessions.find(s => s.sessionId === activeSessionId)
-    : sessions[activeSessionId];
-  const activeMessages = messages[activeSessionId] || [];
-  const sessionRole = getSessionRole(activeSession);
-  const details = useMessageDetails(activeMessages, activeSessionId);
-  const failedNodes = useFailedNodes(nodes);
-  
-  if (!squadActive) {
-    return <WelcomeOrErrorSection squadActive={false} onOpenModelPool={onOpenModelPool} />;
-  }
-  
-  return (
-    <div style={MAIN_STYLE}>
-      <WelcomeOrErrorSection squadActive={true} failedNodes={failedNodes} results={results} nodes={nodes} />
-      <DAGSection
-        nodes={nodes} activeSession={activeSession}
-        dagCollapsed={dagCollapsed} onNodeClick={onNodeClick}
-      />
-      <StatusBarSection activeSession={activeSession} />
-      <MessageListSection activeMessages={activeMessages} sessionRole={sessionRole} details={details} />
-      <InputSection
-        activeSession={activeSession} activeSessionId={activeSessionId}
-        send={send} onOptimisticMessage={onOptimisticMessage}
-      />
+    <div className="status-bar">
+      {nodeId && <Tag minimal>Node: {nodeId}</Tag>}
+      {retryCount > 0 && <Tag minimal intent="warning">Retry #{retryCount}</Tag>}
+      <Tag minimal>{phase}</Tag>
+      <Tag minimal>{status}</Tag>
     </div>
   );
 }
 
+function FailedBanner({ nodes }) {
+  const failed = useMemo(() =>
+    Array.from(nodes.values()).filter(n => n.status === 'failed' || n.status === 'blocked'),
+  [nodes]);
+  if (!failed.length) return null;
+  return (
+    <Callout intent="danger" icon={IconNames.ERROR} className="banner">
+      {failed.length} node(s) failed: {failed.map(n => n.id).join(', ')}
+    </Callout>
+  );
+}
 
+function SuccessBanner({ results }) {
+  if (!results?.length) return null;
+  return (
+    <Callout intent="success" icon={IconNames.TICK_CIRCLE} className="banner">
+      Squad completed successfully
+    </Callout>
+  );
+}
+
+export default function MainContent({
+  viewMode, squadActive, nodes, activeSessionId, sessions, messages,
+  onNodeClick, onOpenModelPool, onOptimisticMessage, send, results
+}) {
+  if (!squadActive) return <WelcomeView onOpenModelPool={onOpenModelPool} />;
+
+  if (viewMode === 'dag') {
+    return (
+      <div className="app-main">
+        <FailedBanner nodes={nodes} />
+        <SuccessBanner results={results} />
+        <DAGView nodes={Array.from(nodes.values())} activeNodeId={null} onNodeClick={onNodeClick} />
+      </div>
+    );
+  }
+
+  const activeSession = sessions.find(s => s.sessionId === activeSessionId);
+  const activeMessages = messages[activeSessionId] || [];
+  const sessionRole = getSessionRole(activeSession);
+  const isEnded = ['completed', 'aborted', 'error'].includes(activeSession?.status)
+    || ['completed', 'aborted', 'error'].includes(activeSession?.phase);
+
+  return (
+    <div className="app-main">
+      <StatusTag session={activeSession} />
+      <MessageList messages={activeMessages} sessionRole={sessionRole} />
+      {activeSession && (
+        <MessageInput
+          sessionId={activeSessionId}
+          sessionEndReason={isEnded ? (activeSession.status !== 'active' ? activeSession.status : activeSession.phase) : null}
+          send={send}
+          onOptimisticMessage={onOptimisticMessage}
+        />
+      )}
+    </div>
+  );
+}

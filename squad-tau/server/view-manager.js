@@ -41,13 +41,9 @@ export function createViewManager(eventBus, ctx) {
     function cleanup() {
         for (const unsub of unsubs) unsub?.();
         unsubs = [];
-        if (typeof ctx?.ui?.setWidget === 'function') {
-            ctx.ui.setWidget('squad_status', undefined);
-        }
     }
 
     function render() {
-        if (typeof ctx?.ui?.setWidget !== 'function') return;
         if (nodeMap.size === 0) return;
 
         const parts = [];
@@ -79,11 +75,11 @@ export function createViewManager(eventBus, ctx) {
         const done = [...nodeMap.values()].filter((n) => n.status === 'approved').length;
         const total = nodeMap.size;
         const line = `squad: ${parts.join(', ')}`;
-
-        // When everything is done, show a compact summary
         const output = done === total ? `squad: \u2713 ${done}/${total}` : line;
 
-        ctx.ui.setWidget('squad_status', [output]);
+        if (typeof ctx?.ui?.notify === 'function') {
+            ctx.ui.notify(output, 'info');
+        }
     }
 
     function start() {

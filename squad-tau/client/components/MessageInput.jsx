@@ -1,81 +1,52 @@
-// NOTE: PRD/04-web-ui.md sect 4.6 specifies "Blueprint InputGroup (single-line) + Button" for
-// message input. However, the acceptance criteria explicitly requires "Enter sends, Shift+Enter
-// adds newline" — a multiline capability that InputGroup cannot provide (single-line only).
-// We prioritize the acceptance criteria and use TextArea, which satisfies the functional requirement.
-import { useState, useCallback } from 'react';
-import { TextArea, Button } from '@blueprintjs/core';
+import React, { useState, useCallback } from 'react';
+import { TextArea, Button, Callout } from '@blueprintjs/core';
 import { IconNames } from '@blueprintjs/icons';
 
-export const END_PLACEHOLDER = {
-  completed: 'Session completed',
-  aborted: 'Session aborted',
-  error: 'Session failed',
-};
-
-let _msgCounter = 0;
-export function nextId() {
-  return `opt_${Date.now()}_${++_msgCounter}`;
-}
-
-export function getDisabled(sessionEndReason) {
-  return sessionEndReason !== null && sessionEndReason !== undefined;
-}
-
-export function getPlaceholder(sessionEndReason) {
-  if (sessionEndReason === null || sessionEndReason === undefined) {
-    return 'Type a message...';
-  }
-  return END_PLACEHOLDER[sessionEndReason] ?? 'Session ended';
-}
-
-export function buildOptimisticMessage(sessionId, text) {
-  return {
-    messageId: nextId(),
-    sessionId,
-    role: 'user',
-    content: [{ type: 'text', text }]
-  };
-}
-
 export function MessageInput({ sessionId, sessionEndReason, send, onOptimisticMessage }) {
-  const [value, setValue] = useState('');
-  const disabled = getDisabled(sessionEndReason);
-  const placeholder = getPlaceholder(sessionEndReason);
+  const [text, setText] = useState('');
 
   const handleSend = useCallback(() => {
-    if (!value.trim() || !sessionId || disabled) return;
-    const msg = buildOptimisticMessage(sessionId, value.trim());
-    send({ type: 'session:user_message', payload: { sessionId, text: value.trim(), messageId: msg.messageId } });
-    onOptimisticMessage(msg);
-    setValue('');
-  }, [value, sessionId, disabled, send, onOptimisticMessage]);
+    const trimmed = text.trim();
+    if (!trimmed || !sessionId) return;
+    const messageId = `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    onOptimisticMessage({
+      sessionId,
+      role: 'user',
+      content: [{ type: 'text', text: trimmed }],
+      messageId,
+    });
+    send({ type: 'session:user_message', payload: { sessionId, text: trimmed, messageId } });
+    setText('');
+  }, [text, sessionId, send, onOptimisticMessage]);
 
-  const handleKeyDown = useCallback(e => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
-    }
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
   }, [handleSend]);
 
+  if (sessionEndReason) {
+    return (
+      <Callout intent="none" icon={IconNames.INFO_SIGN} className="banner">
+        Session ended: {sessionEndReason}
+      </Callout>
+    );
+  }
+
   return (
-    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', padding: '8px 16px' }}>
+    <div className="input-row">
       <TextArea
-        autoFocus
         fill
-        autoResize
-        value={value}
-        onChange={e => setValue(e.target.value)}
+        growVertically
+        placeholder="Type a message... (Enter to send)"
+        value={text}
+        onChange={e => setText(e.target.value)}
         onKeyDown={handleKeyDown}
-        placeholder={placeholder}
-        disabled={disabled}
-        style={{ minHeight: 38, maxHeight: 120, resize: 'none', flex: 1 }}
+        className="input-textarea"
       />
       <Button
         intent="primary"
         icon={IconNames.SEND_MESSAGE}
         onClick={handleSend}
-        disabled={disabled || !value.trim()}
-        style={{ flexShrink: 0, height: 38 }}
+        disabled={!text.trim()}
       />
     </div>
   );

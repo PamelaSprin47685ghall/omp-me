@@ -74,7 +74,7 @@ describe('routeMessage', () => {
     test('session:user_message returns error for non-existent session', async () => {
         const ws = createMockWs();
         const result = await routeMessage(
-            { type: 'session:user_message', payload: { sessionId: 'nonexistent', text: 'hello' } },
+            { type: 'session:user_message', payload: { sessionId: 'nonexistent', text: 'hello', messageId: 'msg-1' } },
             modelPool,
             configModule,
             eventBus,
@@ -113,7 +113,10 @@ describe('routeMessage', () => {
         });
 
         const result = await routeMessage(
-            { type: 'session:user_message', payload: { sessionId: 'active-session', text: 'hello agent' } },
+            {
+                type: 'session:user_message',
+                payload: { sessionId: 'active-session', text: 'hello agent', messageId: 'msg-2' },
+            },
             modelPool,
             configModule,
             eventBus,
@@ -132,7 +135,7 @@ describe('routeMessage', () => {
         sessionRegistry.register('s1', { sendUserMessage: () => {}, status: 'active' });
 
         await routeMessage(
-            { type: 'session:user_message', payload: { sessionId: 's1', text: 'hi' } },
+            { type: 'session:user_message', payload: { sessionId: 's1', text: 'hi', messageId: 'msg-3' } },
             modelPool,
             configModule,
             eventBus,

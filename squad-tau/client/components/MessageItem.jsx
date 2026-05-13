@@ -1,77 +1,48 @@
 import React from 'react';
-import { Card, Intent } from '@blueprintjs/core';
+import { Card, Tag } from '@blueprintjs/core';
 import ThinkingBlock from './ThinkingBlock.jsx';
 import ToolCall from './ToolCall.jsx';
-import {
-  ROLE_COLORS, USER_CARD_STYLE, SYSTEM_CONTAINER_STYLE,
-  SYSTEM_TEXT_STYLE, ASSISTANT_TEXT_STYLE
-} from '../styles/messageStyles.js';
-import { extractText } from '../utils/messageUtils.js';
 
-/** @typedef {import('../types').SessionMessage} SessionMessage */
-/** @typedef {import('../types').SessionMessageDelta} SessionMessageDelta */
-/** @typedef {import('../types').SessionToolCall} SessionToolCall */
-/** @typedef {import('../types').SessionToolResult} SessionToolResult */
+const ROLE_INTENT = { user: 'primary', worker: 'success', reviewer: 'warning', outer: 'none' };
 
-/**
- * @typedef {Object} MessageItemProps
- * @property {SessionMessage} message
- * @property {SessionMessageDelta[]} [deltas]
- * @property {SessionToolCall[]} [toolCalls]
- * @property {SessionToolResult[]} [toolResults]
- * @property {'user'|'worker'|'reviewer'|'outer'} [sessionRole]
- */
+function extractText(content) {
+  if (!Array.isArray(content)) return '';
+  return content.filter(b => b.type === 'text').map(b => b.text).join('');
+}
 
-const ASSISTANT_OUTER_STYLE = (borderColor) => ({
-  display: 'flex',
-  flexDirection: 'column',
-  justifyContent: 'flex-start',
-  marginBottom: '12px',
-  borderLeft: `4px solid ${borderColor}`
-});
-
-/**
- * @param {{ deltas: SessionMessageDelta[], toolCalls: SessionToolCall[], toolResults: SessionToolResult[], message: SessionMessage, borderColor: string }} props
- */
-function AssistantMessage({ deltas, toolCalls, toolResults, message, borderColor }) {
-  const msgDeltas = deltas.filter(d => d.messageId === message.messageId);
-  const deltaThinking = msgDeltas.filter(d => d.delta.type === 'thinking_delta').map(d => d.delta.text).join('');
-  const contentThinking = message.content?.filter(b => b.type === 'thinking').map(b => b.text).join('') || '';
-  const thinkingContent = contentThinking + deltaThinking;
-  
-  const deltaText = msgDeltas.filter(d => d.delta.type === 'text_delta').map(d => d.delta.text).join('');
-  const textContent = extractText(message.content) + deltaText;
-  const msgToolCalls = toolCalls.filter(tc => tc.messageId === message.messageId);
+function UserMessage({ message }) {
   return (
-    <div style={ASSISTANT_OUTER_STYLE(borderColor)}>
-      {thinkingContent && <ThinkingBlock content={thinkingContent} isStreaming={msgDeltas.length > 0} messageId={message.messageId} />}
-      {msgToolCalls.map((tc, i) => (
-        <ToolCall key={tc.toolId} toolCall={tc} toolResult={toolResults.find(r => r.toolId === tc.toolId)} isLatest={i === msgToolCalls.length - 1} borderColor={borderColor} />
-      ))}
-      {textContent && <Card style={ASSISTANT_TEXT_STYLE} intent={Intent.NONE}>{textContent}</Card>}
+    <div className="msg-user">
+      <Card interactive={false} elevation={0} className="msg-user-card">
+        {extractText(message.content)}
+      </Card>
     </div>
   );
 }
 
-/**
- * Individual message renderer with role-based styling.
- * @param {MessageItemProps} props
- */
-export default function MessageItem({ message, deltas = [], toolCalls = [], toolResults = [], sessionRole = 'user' }) {
-  const borderColor = ROLE_COLORS[sessionRole];
-  if (message.role === 'user') {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
-        <Card style={USER_CARD_STYLE(borderColor)} intent={Intent.PRIMARY}>{extractText(message.content)}</Card>
-      </div>
-    );
-  }
-  if (message.role === 'system') {
-    return (
-      <div style={SYSTEM_CONTAINER_STYLE(borderColor)}>
-        <span style={SYSTEM_TEXT_STYLE}>{extractText(message.content)}</span>
-      </div>
-    );
-  }
-  return <AssistantMessage deltas={deltas} toolCalls={toolCalls} toolResults={toolResults} message={message} borderColor={borderColor} />;
+function AssistantMessage({ message, sessionRole }) {
+  const thinking = message.content?.filter(b => b.type === 'thinking').map(b => b.text).join('') || '';
+  const text = extractText(message.content);
+  const toolCalls = message.content?.filter(b => b.type === 'tool_call') || [];
+  const intent = ROLE_INTENT[sessionRole] || 'none';
+
+  return (
+    <div className="msg-assistant">
+      {thinking && <ThinkingBlock content={thinking} isStreaming={message.streaming} />}
+      {toolCalls.map(tc => (
+        <ToolCall key={tc.toolId} toolCall={tc} sessionRole={sessionRole} />
+      ))}
+      {text && (
+        <div className="assistant-text-block">
+          {message.streaming && <Tag minimal round intent={intent} className="streaming-tag">streaming</Tag>}
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function MessageItem({ message, sessionRole = 'user' }) {
+  if (message.role === 'user') return <UserMessage message={message} />;
+  return <AssistantMessage message={message} sessionRole={sessionRole} />;
 }
