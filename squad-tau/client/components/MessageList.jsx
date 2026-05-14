@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { Center, Text, Flex, IconButton, Icon } from '@chakra-ui/react';
+import { Center, Text, VStack, IconButton, Icon } from '@chakra-ui/react';
 import { ArrowDown, MessageCircle } from 'lucide-react';
 import MessageItem from './MessageItem.jsx';
 import { useAutoScroll } from '../hooks/useAutoScroll.js';
@@ -18,12 +18,12 @@ export default function MessageList({ messages, sessionRole, ...rest }) {
   }
 
   return (
-    <Flex
+    <VStack
       ref={containerRef}
       overflowY="auto"
       p={4}
-      direction="column"
       gap={5}
+      align="stretch"
       {...rest}
     >
       {messages.map((msg) => (
@@ -40,6 +40,6 @@ export default function MessageList({ messages, sessionRole, ...rest }) {
             <Icon as={ArrowDown} boxSize={4} />
           </IconButton>
       )}
-    </Flex>
+    </VStack>
   );
 }

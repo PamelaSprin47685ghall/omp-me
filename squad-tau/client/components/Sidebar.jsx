@@ -1,5 +1,5 @@
 import React, { useMemo, useCallback, useState } from 'react';
-import { VStack, Flex, Text, Icon, Box, Collapsible } from '@chakra-ui/react';
+import { VStack, HStack, Text, Icon, Box, Collapsible } from '@chakra-ui/react';
 import { CheckCircle, XCircle, Clock, RefreshCw, Ban, Circle, Network } from 'lucide-react';
 
 const STATUS_ICONS = { approved: CheckCircle, rejected: XCircle, pending: Clock, active: RefreshCw, authoring: RefreshCw, confirming: RefreshCw, reviewing: RefreshCw, failed: Ban, blocked: Ban };
@@ -16,9 +16,8 @@ function SessionRow({ isSelected, sessionData, onClick }) {
   const phase = sessionData.phase || 'worker';
   const label = `R${round} ${phase.replace(/_/g, ' ')}`;
   return (
-      <Flex
+      <HStack
       gap={1}
-      alignItems="center"
       px={1}
       py="0.5"
       cursor="pointer"
@@ -32,7 +31,7 @@ function SessionRow({ isSelected, sessionData, onClick }) {
     >
       <TreeIcon status={status} />
       <Text fontSize="sm" truncate data-session-label>{label}</Text>
-    </Flex>
+    </HStack>
   );
 }
 
@@ -41,10 +40,10 @@ function NodeGroup({ node, children }) {
   const label = node?.label || node?.id || '';
   return (
     <Box>
-        <Flex alignItems="center" px={1} py="0.5" cursor="pointer" borderRadius="md" onClick={() => setExpanded(!expanded)} gap={1}>
+        <HStack px={1} py="0.5" cursor="pointer" borderRadius="md" onClick={() => setExpanded(!expanded)} gap={1}>
         <TreeIcon status={node?.status} />
         <Text fontSize="sm" truncate data-node-label>{label}</Text>
-      </Flex>
+      </HStack>
       <Collapsible.Root open={expanded}>
         <Collapsible.Content>
           <Box pl={3} borderLeft="1px solid" borderColor="border">
@@ -75,8 +74,7 @@ export default function Sidebar({ sessions, nodes, activeSessionId, onSelectSess
 
   return (
     <VStack gap={1} p={4} flex="0 0 320px" minH={0} borderRight="1px solid" borderColor="border" overflowY="auto">
-      <Flex
-        alignItems="center"
+      <HStack
         px={1}
         py="0.5"
         cursor="pointer"
@@ -90,7 +88,7 @@ export default function Sidebar({ sessions, nodes, activeSessionId, onSelectSess
       >
         <Icon as={Network} boxSize={3} color="fg.subtle" />
         <Text fontSize="sm">DAG Overview</Text>
-      </Flex>
+      </HStack>
       {treeData.map(node => {
         if (node.type === 'group') {
           return (

@@ -26,7 +26,7 @@ export default function ToolCall({ toolCall }) {
       >
         {open ? <Icon as={ChevronDown} boxSize={3} /> : <Icon as={ChevronRight} boxSize={3} />}
         <Icon as={Code} boxSize={3} />
-        <Text as="span" fontFamily="mono">{toolName}</Text>
+        <Box as="span" fontFamily="mono">{toolName}</Box>
         {preview && (
           <Text
             flex={1}

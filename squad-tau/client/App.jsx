@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Flex, Box } from '@chakra-ui/react';
+import { Flex } from '@chakra-ui/react';
 import Header from './components/Header.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import MainContent from './components/MainContent.jsx';
@@ -103,8 +103,7 @@ export default function App() {
           viewMode={viewMode}
           onSelectDAG={() => setViewMode('dag')}
         />
-        <Box flex={1} minW={0} minH={0}>
-          <MainContent
+        <MainContent
             viewMode={viewMode}
             squadActive={squadActive}
             nodes={nodes}
@@ -117,7 +116,6 @@ export default function App() {
             send={send}
             results={results}
           />
-        </Box>
       </Flex>
       <ModelPoolDrawer
         isOpen={modelPoolOpen}
