@@ -1,58 +1,48 @@
 import React from 'react';
-import { Card, Tag } from '@blueprintjs/core';
+import { Card, Callout, Tag } from '@blueprintjs/core';
 import ThinkingBlock from './ThinkingBlock.jsx';
 import ToolCall from './ToolCall.jsx';
 
 const ROLE_INTENT = { user: 'primary', worker: 'success', reviewer: 'warning', outer: 'none' };
-const ROLE_ACCENT = { worker: '#238551', reviewer: '#D9822B', outer: '#7157D9' };
 
 function extractText(content) {
   if (!Array.isArray(content)) return '';
-  return content.filter(b => b.type === 'text').map(b => b.text).join('');
+  return content.filter((block) => block.type === 'text').map((block) => block.text).join('');
 }
 
 function UserMessage({ message }) {
   return (
-    <div className="msg-user">
-      <Card interactive={false} elevation={0} className="msg-user-card">
-        {extractText(message.content)}
-      </Card>
+    <div className="bp6-align-right" style={{ overflow: 'hidden' }}>
+      <Card interactive={false} elevation={0} className="bp6-padded bp6-margin-bottom" style={{ maxWidth: '80%', marginLeft: 'auto', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>{extractText(message.content)}</Card>
     </div>
   );
 }
 
 function AssistantMessage({ message, sessionRole }) {
   const content = message.content || [];
-  const toolCalls = content.filter(b => b.type === 'tool_call');
-  const nonToolBlocks = content.filter(b => b.type !== 'tool_call');
-  const thinking = nonToolBlocks.filter(b => b.type === 'thinking').map(b => b.text).join('') || '';
+  const toolCalls = content.filter((block) => block.type === 'tool_call');
+  const nonToolBlocks = content.filter((block) => block.type !== 'tool_call');
+  const thinking = nonToolBlocks.filter((block) => block.type === 'thinking').map((block) => block.text).join('') || '';
   const text = extractText(nonToolBlocks);
   const intent = ROLE_INTENT[sessionRole] || 'none';
-  const accent = ROLE_ACCENT[sessionRole] || 'transparent';
-
-  // Pure tool-call messages (created by handleSessionToolCall/handleSessionToolResult)
-  // are rendered here. Full assistant messages (from message_end) may also embed
-  // tool_call blocks, but those lack results — skip them to avoid duplication.
-  if (!text && !thinking && toolCalls.length > 0) {
-    return (
-      <div className="msg-assistant" style={{ borderLeft: `3px solid ${accent}`, paddingLeft: 8 }}>
-        {toolCalls.map(tc => (
-          <ToolCall key={tc.toolId} toolCall={tc} sessionRole={sessionRole} />
-        ))}
-      </div>
-    );
-  }
 
   return (
-    <div className="msg-assistant" style={{ borderLeft: `3px solid ${accent}`, paddingLeft: 8 }}>
+    <Callout intent={intent} className="bp6-padded bp6-margin-bottom" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
       {thinking && <ThinkingBlock content={thinking} isStreaming={message.streaming} />}
       {text && (
-        <div className="assistant-text-block">
-          {message.streaming && <Tag minimal round intent={intent} className="streaming-tag">streaming</Tag>}
+        <div>
+          {message.streaming && <Tag minimal round intent={intent}>streaming</Tag>}
           {text}
         </div>
       )}
-    </div>
+      {toolCalls.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {toolCalls.map((toolCall) => (
+            <ToolCall key={toolCall.toolId} toolCall={toolCall} sessionRole={sessionRole} />
+          ))}
+        </div>
+      )}
+    </Callout>
   );
 }
 

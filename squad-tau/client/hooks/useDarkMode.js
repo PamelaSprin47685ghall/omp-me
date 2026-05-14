@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react';
-import { Classes } from '@blueprintjs/core';
 
 export function useDarkMode() {
     const [isDark, setIsDark] = useState(() => {
         if (typeof window === 'undefined') return false;
         try {
             const matches = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            document.documentElement.classList.toggle(Classes.DARK, matches);
+            document.documentElement.classList.toggle('bp6-dark', matches);
             return matches;
         } catch {
             return false;
@@ -15,7 +14,7 @@ export function useDarkMode() {
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
-        document.documentElement.classList.toggle(Classes.DARK, isDark);
+        document.documentElement.classList.toggle('bp6-dark', isDark);
     }, [isDark]);
 
     useEffect(() => {
@@ -32,7 +31,7 @@ export function useDarkMode() {
         query.addEventListener('change', handler);
         return () => {
             query.removeEventListener('change', handler);
-            document.documentElement.classList.remove(Classes.DARK);
+            document.documentElement.classList.remove('bp6-dark');
         };
     }, []);
 

@@ -87,8 +87,8 @@ export default function Sidebar({ sessions, nodes, activeSessionId, onSelectSess
   }, [onSelectSession, onSelectDAG]);
 
   return (
-    <div className="app-sidebar">
-      <span className="sidebar-title">Sessions</span>
+    <div className="bp6-padded">
+      <span className="bp6-text-small bp6-text-muted">Sessions</span>
       <Tree contents={treeNodes} onNodeClick={handleNodeClick} />
     </div>
   );

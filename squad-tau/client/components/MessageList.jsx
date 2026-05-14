@@ -10,22 +10,24 @@ export default function MessageList({ messages, sessionRole }) {
 
   if (!messages?.length) {
     return (
-      <div className="msg-scroll" ref={containerRef}>
+      <div className="bp6-fill bp6-padded msg-scroll" ref={containerRef}>
         <NonIdealState icon={IconNames.CHAT} description="No messages yet" />
       </div>
     );
   }
 
   return (
-    <div className="msg-scroll" ref={containerRef}>
-      {messages.map(msg => (
+    <div className="bp6-fill bp6-padded msg-scroll" ref={containerRef}>
+      {messages.map((msg) => (
         <MessageItem key={msg.messageId} message={msg} sessionRole={sessionRole} />
       ))}
       {!isAtBottom && (
         <div className="scroll-down-wrap">
           <Button
             icon={<Icon icon={IconNames.ARROW_DOWN} />}
-            minimal round small
+            minimal
+            round
+            small
             onClick={scrollToBottom}
           />
         </div>

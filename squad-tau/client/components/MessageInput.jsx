@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { TextArea, Button } from '@blueprintjs/core';
+import { Button, ControlGroup, TextArea } from '@blueprintjs/core';
 import { IconNames } from '@blueprintjs/icons';
 
 export function MessageInput({ sessionId, send, onOptimisticMessage }) {
@@ -24,18 +24,20 @@ export function MessageInput({ sessionId, send, onOptimisticMessage }) {
   }, [handleSend]);
 
   return (
-    <div className="input-row">
+    <div className="bp6-padding" style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
       <TextArea
         fill
+        growVertically
         placeholder="Type a message... (Enter to send)"
         value={text}
         onChange={e => setText(e.target.value)}
         onKeyDown={handleKeyDown}
-        className="input-textarea"
+        style={{ flex: 1, minHeight: 40, maxHeight: 200 }}
       />
       <Button
         intent="primary"
         icon={IconNames.SEND_MESSAGE}
+        text="Send"
         onClick={handleSend}
         disabled={!text.trim()}
       />
