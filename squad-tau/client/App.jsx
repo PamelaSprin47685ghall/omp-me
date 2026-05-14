@@ -47,7 +47,7 @@ export default function App() {
   const { isDark } = useDarkMode();
 
   useEffect(() => {
-    document.documentElement.classList.toggle('bp6-dark', isDark);
+    document.documentElement.classList.toggle('dark', isDark);
   }, [isDark]);
 
   const { squad, nodes, results, dispatch: squadDispatch } = useSquadState();
@@ -85,7 +85,6 @@ export default function App() {
 
   const sessionList = [...sessions.values()];
   const squadActive = squad !== null;
-  const sidebarBorderColor = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(16,22,26,0.15)';
 
   return (
     <Flex direction="column" minH="100vh" w="full">
@@ -96,23 +95,14 @@ export default function App() {
         onAbort={() => send({ type: 'abort', payload: {} })}
       />
       <Flex flex={1} minH={0}>
-        <Box
-          w="320px"
-          flex="0 0 320px"
-          minH={0}
-          borderRight="1px solid"
-          borderColor={sidebarBorderColor}
-          overflowY="auto"
-        >
-          <Sidebar
-            sessions={sessionList}
-            nodes={nodes}
-            activeSessionId={activeSessionId}
-            onSelectSession={selectSession}
-            viewMode={viewMode}
-            onSelectDAG={() => setViewMode('dag')}
-          />
-        </Box>
+        <Sidebar
+          sessions={sessionList}
+          nodes={nodes}
+          activeSessionId={activeSessionId}
+          onSelectSession={selectSession}
+          viewMode={viewMode}
+          onSelectDAG={() => setViewMode('dag')}
+        />
         <Box flex={1} minW={0} minH={0}>
           <MainContent
             viewMode={viewMode}

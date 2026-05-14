@@ -1,49 +1,45 @@
 import React, { useRef } from 'react';
-import { Box, Center, Text, IconButton } from '@chakra-ui/react';
+import { Center, Text, Flex, IconButton, Icon } from '@chakra-ui/react';
 import { ArrowDown, MessageCircle } from 'lucide-react';
 import MessageItem from './MessageItem.jsx';
 import { useAutoScroll } from '../hooks/useAutoScroll.js';
 
-export default function MessageList({ messages, sessionRole }) {
+export default function MessageList({ messages, sessionRole, ...rest }) {
   const containerRef = useRef(null);
   const { isAtBottom, scrollToBottom } = useAutoScroll(containerRef, messages);
 
   if (!messages?.length) {
     return (
-      <Box ref={containerRef} overflowY="auto" p={4} h="full">
-        <Center flexDirection="column" gap={4} py={12} color="gray.500" _dark={{ color: 'gray.400' }}>
-          <MessageCircle size={32} />
-          <Text>No messages yet</Text>
-        </Center>
-      </Box>
+      <Center ref={containerRef} overflowY="auto" p={4} flexDirection="column" gap={4} py={12} color="fg.subtle" {...rest}>
+        <Icon as={MessageCircle} boxSize={8} />
+        <Text>No messages yet</Text>
+      </Center>
     );
   }
 
   return (
-    <Box
+    <Flex
       ref={containerRef}
       overflowY="auto"
       p={4}
-      h="full"
-      display="flex"
-      flexDirection="column"
+      direction="column"
       gap={5}
+      {...rest}
     >
       {messages.map((msg) => (
         <MessageItem key={msg.messageId} message={msg} sessionRole={sessionRole} />
       ))}
       {!isAtBottom && (
-        <Box className="scroll-down-wrap">
           <IconButton
             aria-label="Scroll to latest"
-            icon={<ArrowDown size={16} />}
             variant="outline"
             size="sm"
             borderRadius="full"
             onClick={scrollToBottom}
-          />
-        </Box>
+          >
+            <Icon as={ArrowDown} boxSize={4} />
+          </IconButton>
       )}
-    </Box>
+    </Flex>
   );
 }

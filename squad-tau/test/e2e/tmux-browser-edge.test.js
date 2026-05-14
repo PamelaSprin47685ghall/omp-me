@@ -301,7 +301,7 @@ describe('Edge Case Stress Tests', () => {
                 originalTask: 'test',
             });
             await waitForText(page, 'n1', 5000);
-            expect(await page.evaluate(() => !!document.querySelector('.bp6-tree'))).toBe(true);
+            expect(await page.evaluate(() => !!document.querySelector('[role="treeitem"]'))).toBe(true);
             expect(getRelevant(errs.get()).length).toBe(0);
         } finally {
             await page.close();

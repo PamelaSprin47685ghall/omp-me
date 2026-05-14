@@ -1,6 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Box, Flex, Text, Badge } from '@chakra-ui/react';
-import Collapse from './Collapse.jsx';
+import { HStack, Text, Badge, Collapsible, Icon, Box } from '@chakra-ui/react';
 import { ChevronDown, ChevronRight, Lightbulb } from 'lucide-react';
 
 export default function ThinkingBlock({ content, isStreaming = false }) {
@@ -8,41 +7,38 @@ export default function ThinkingBlock({ content, isStreaming = false }) {
   const toggle = useCallback(() => setOpen((value) => !value), []);
 
   return (
-    <Box>
-      <Flex
+    <>
+      <HStack
         onClick={toggle}
         role="button"
         tabIndex={0}
         cursor="pointer"
         p={2}
-        alignItems="center"
-        gap={2}
         borderRadius="sm"
-        _hover={{ bg: 'blackAlpha.50' }}
-        _dark={{ _hover: { bg: 'whiteAlpha.50' } }}
+        _hover={{ bg: 'bg.muted' }}
         fontSize="sm"
       >
-        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        <Lightbulb size={12} color="var(--chakra-colors-blue-500)" />
+        {open ? <Icon as={ChevronDown} boxSize={3} /> : <Icon as={ChevronRight} boxSize={3} />}
+        <Icon as={Lightbulb} boxSize={3} color="blue.solid" />
         <Text>Thinking</Text>
-        {isStreaming && <Badge colorScheme="blue" variant="subtle" borderRadius="full" px={2}>live</Badge>}
-      </Flex>
-      <Collapse in={open} animateOpacity>
-        <Box
-          as="pre"
-          fontFamily="mono"
-          p={3}
-          m={0}
-          bg="blackAlpha.50"
-          _dark={{ bg: 'whiteAlpha.100' }}
-          borderRadius="sm"
-          overflowX="auto"
-          fontSize="sm"
-          whiteSpace="pre-wrap"
-        >
-          {content}
-        </Box>
-      </Collapse>
-    </Box>
+        {isStreaming && <Badge colorPalette="blue">live</Badge>}
+      </HStack>
+      <Collapsible.Root open={open}>
+        <Collapsible.Content>
+          <Box
+            as="pre"
+            fontFamily="mono"
+            p={3}
+            bg="bg.muted"
+            borderRadius="sm"
+            overflowX="auto"
+            fontSize="sm"
+            whiteSpace="pre-wrap"
+          >
+            {content}
+          </Box>
+        </Collapsible.Content>
+      </Collapsible.Root>
+    </>
   );
 }

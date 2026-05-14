@@ -88,7 +88,7 @@ describe('Chaos: Command abuse', () => {
 
         // Empty node list — verify brand element still exists
         eb.emit('squad', 'init', { mode: 'L', nodes: [], originalTask: 'empty' });
-        await page.waitForFunction(() => document.querySelector('.app-title')?.textContent === 'Squad-Tau', {
+        await page.waitForFunction(() => document.querySelector('[data-app-title]')?.textContent === 'Squad-Tau', {
             timeout: 3000,
         });
 
@@ -101,7 +101,7 @@ describe('Chaos: Command abuse', () => {
             ],
             originalTask: 'cyclic',
         });
-        await page.waitForFunction(() => document.querySelector('.app-title')?.textContent === 'Squad-Tau', {
+        await page.waitForFunction(() => document.querySelector('[data-app-title]')?.textContent === 'Squad-Tau', {
             timeout: 3000,
         });
 
@@ -127,7 +127,7 @@ describe('Chaos: Command abuse', () => {
             ],
             originalTask: 'dup',
         });
-        await page.waitForFunction(() => document.querySelector('.app-title')?.textContent === 'Squad-Tau', {
+        await page.waitForFunction(() => document.querySelector('[data-app-title]')?.textContent === 'Squad-Tau', {
             timeout: 3000,
         });
 

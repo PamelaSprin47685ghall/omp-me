@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Button, Flex, Textarea } from '@chakra-ui/react';
+import { Button, HStack, Textarea, Icon } from '@chakra-ui/react';
 import { SendHorizonal } from 'lucide-react';
 
 export function MessageInput({ sessionId, send, onOptimisticMessage }) {
@@ -24,25 +24,25 @@ export function MessageInput({ sessionId, send, onOptimisticMessage }) {
   }, [handleSend]);
 
   return (
-    <Flex gap={3} alignItems="flex-end">
+    <HStack alignItems="flex-end">
       <Textarea
         flex={1}
         placeholder="Type a message... (Enter to send)"
         value={text}
         onChange={e => setText(e.target.value)}
         onKeyDown={handleKeyDown}
-        minHeight={12}
-        maxHeight={56}
+        minH={12}
+        maxH={56}
         resize="vertical"
       />
       <Button
-        colorScheme="blue"
-        leftIcon={<SendHorizonal />}
+        colorPalette="blue"
         onClick={handleSend}
         disabled={!text.trim()}
       >
+        <Icon as={SendHorizonal} boxSize={4} />
         Send
       </Button>
-    </Flex>
+    </HStack>
   );
 }

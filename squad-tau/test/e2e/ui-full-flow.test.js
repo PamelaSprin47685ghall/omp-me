@@ -372,7 +372,7 @@ describe('UI Full Flow', () => {
         await waitForAppWebSocket(page, 10000);
         await page.waitForFunction(
             () =>
-                document.documentElement.classList.contains('bp6-dark') ||
+                document.documentElement.classList.contains('dark') ||
                 window.matchMedia('(prefers-color-scheme: dark)').matches,
             { timeout: 5000 },
         );

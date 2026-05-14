@@ -90,11 +90,15 @@ describe('extension registration', () => {
     });
 
     it('/ollama-key stores key and uses it for requests', async () => {
+        const originalHome = process.env.OMP_OLLAMA_SEARCH_HOME;
+        const tempHome = mkdtempSync(join(tmpdir(), 'ollama-search-test-'));
+        process.env.OMP_OLLAMA_SEARCH_HOME = tempHome;
+
         const notifications = [];
         const commands = {};
         const pi = {
             on: () => {},
-            registerTool: (tool) => {},
+            registerTool: () => {},
             registerCommand: (name, config) => {
                 commands[name] = config;
             },
@@ -108,10 +112,16 @@ describe('extension registration', () => {
             },
         };
 
-        await ollamaSearchExtension(pi);
+        try {
+            await ollamaSearchExtension(pi);
 
-        await commands['ollama-key'].handler('ollama-test-key-123', { ui: pi.ui });
-        assert.ok(notifications.some((n) => n.includes('saved')));
+            await commands['ollama-key'].handler('ollama-test-key-123', { ui: pi.ui });
+            assert.ok(notifications.some((n) => n.includes('saved')));
+        } finally {
+            if (originalHome) process.env.OMP_OLLAMA_SEARCH_HOME = originalHome;
+            else delete process.env.OMP_OLLAMA_SEARCH_HOME;
+            rmSync(tempHome, { recursive: true, force: true });
+        }
     });
 
     it('defines ollama_search with query as required parameter', async () => {

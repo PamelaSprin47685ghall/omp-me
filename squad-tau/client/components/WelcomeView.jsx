@@ -1,28 +1,26 @@
 import React from 'react';
-import { Center, VStack, Heading, Text, Box, Button } from '@chakra-ui/react';
+import { Center, VStack, Heading, Text, Button, Icon } from '@chakra-ui/react';
 import { Users, Settings } from 'lucide-react';
 
 export default function WelcomeView({ onOpenModelPool }) {
   return (
     <Center h="full" p={8}>
-      <VStack spacing={8} maxW="md" textAlign="center">
-        <VStack spacing={4}>
-          <Box color="blue.500" _dark={{ color: 'blue.300' }}>
-            <Users size={48} />
-          </Box>
-          <Heading size="lg" color="gray.800" _dark={{ color: 'gray.100' }}>
+      <VStack gap={8} maxW="md" textAlign="center">
+        <VStack>
+          <Icon as={Users} boxSize={12} color="blue.solid" />
+          <Heading size="lg">
             Welcome to Squad-Tau
           </Heading>
-          <Text color="gray.600" _dark={{ color: 'gray.400' }} fontSize="md">
+          <Text color="fg.muted">
             Type /squad {'<task>'} in your terminal to start a multi-agent orchestrated task.
           </Text>
         </VStack>
         <Button
-          colorScheme="blue"
-          leftIcon={<Settings size={16} />}
+          colorPalette="blue"
           size="lg"
           onClick={onOpenModelPool}
         >
+          <Icon as={Settings} boxSize={4} />
           Configure Model Pool
         </Button>
       </VStack>

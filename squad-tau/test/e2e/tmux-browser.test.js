@@ -49,13 +49,11 @@ async function clickSidebarNode(page, textPattern) {
     }, textPattern);
 }
 
-/** Find abort button (has aria-label "Abort Squad" or contains Square icon) */
+/** Find abort button (the button containing a Square/lucide-square icon) */
 async function findAbortButton(page) {
     return page.evaluate(() => {
         const buttons = [...document.querySelectorAll('button')];
-        const abortBtn = buttons.find((b) => b.getAttribute('aria-label') === 'Abort Squad');
-        if (abortBtn) return true;
-        return false;
+        return buttons.some((b) => b.innerHTML.includes('lucide-square'));
     });
 }
 
@@ -63,7 +61,7 @@ async function findAbortButton(page) {
 async function clickAbortButton(page) {
     await page.evaluate(() => {
         const buttons = [...document.querySelectorAll('button')];
-        const abortBtn = buttons.find((b) => b.getAttribute('aria-label') === 'Abort Squad');
+        const abortBtn = buttons.find((b) => b.innerHTML.includes('lucide-square'));
         if (abortBtn) abortBtn.click();
     });
 }
@@ -511,11 +509,11 @@ describe('Tmux Browser — UI Content', () => {
                 );
                 if (btn) btn.click();
             });
-            expect(await waitForText(page, 'Configured Slots')).toBe(true);
+            expect(await waitForText(page, 'Model Pool Configuration')).toBe(true);
 
             await page.keyboard.press('Escape');
             const closed = await page
-                .waitForFunction(() => !document.body.textContent.includes('Configured Slots'), {
+                .waitForFunction(() => !document.body.textContent.includes('Model Pool Configuration'), {
                     timeout: 5000,
                 })
                 .then(() => true)

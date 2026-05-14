@@ -58,10 +58,14 @@ describe('Dark mode on root element (PRD §4.8)', () => {
         );
     });
 
-    it('useDarkMode hook must use document.documentElement', async () => {
+    it('App.jsx toggles dark on document.documentElement via useDarkMode', async () => {
         const fs = await import('fs');
-        const src = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'client/hooks/useDarkMode.js'), 'utf8');
-        assert.ok(src.includes('document.documentElement'), 'useDarkMode must target document.documentElement');
+        const appSrc = fs.readFileSync(path.join(OMP_ME_HOME, 'squad-tau', 'client/App.jsx'), 'utf8');
+        // App.jsx uses useDarkMode() and applies dark class to document.documentElement
+        assert.ok(
+            appSrc.includes("classList.toggle('dark'"),
+            'App.jsx must toggle dark class on document.documentElement',
+        );
     });
 });
 

@@ -190,9 +190,17 @@ describe('Standalone E2E', () => {
 
     test('dark mode class toggles with media query', async () => {
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
-        await page.waitForFunction(() => document.documentElement.className.includes('-dark'), { timeout: 5000 });
+        await page.evaluate(() => {
+            const mq = window.matchMedia('(prefers-color-scheme: dark)');
+            mq.dispatchEvent(new MediaQueryListEvent('change', { matches: mq.matches, media: mq.media }));
+        });
+        await page.waitForFunction(() => document.documentElement.classList.contains('dark'), { timeout: 5000 });
 
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
-        await page.waitForFunction(() => !document.documentElement.className.includes('-dark'), { timeout: 5000 });
+        await page.evaluate(() => {
+            const mq = window.matchMedia('(prefers-color-scheme: dark)');
+            mq.dispatchEvent(new MediaQueryListEvent('change', { matches: mq.matches, media: mq.media }));
+        });
+        await page.waitForFunction(() => !document.documentElement.classList.contains('dark'), { timeout: 5000 });
     }, 10000);
 });
