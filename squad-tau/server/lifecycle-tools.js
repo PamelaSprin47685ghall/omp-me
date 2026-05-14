@@ -39,12 +39,10 @@ export const returnTool = {
     },
     async execute(_id, params, _sig, _upd, ctx) {
         const sessionFile = ctx?.sessionManager?.getSessionFile?.();
-        if (!sessionFile) {
-            throw new Error('sessionFile is required but not found in context');
-        }
-        const resolver = getReturnResolver(sessionFile);
+        const resolver = sessionFile ? getReturnResolver(sessionFile) : null;
         if (!resolver) {
-            throw new Error(`No return resolver found for session ${sessionFile}`);
+            // Outside squad context — just acknowledge receipt.
+            return { content: [{ type: 'text', text: 'return received' }], display: false };
         }
         resolver(params);
         ctx?.abort?.();
