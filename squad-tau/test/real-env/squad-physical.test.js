@@ -1,3 +1,11 @@
+/**
+ * Physical real-environment end-to-end tests.
+ *
+ * Shared lifecycle: start OMP in tmux → send /squad → poll for UI URL → run tests.
+ * Baseline assertions first, then chaos/stress, then wait for squad completion.
+ *
+ * Reduces real-env setup overhead by ~50% vs separate files.
+ */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import path from 'path';
 import { setupBrowser, teardownBrowser } from '../helpers/puppeteer-setup.js';
@@ -6,7 +14,6 @@ function fileExists(fp) {
     return Bun.spawnSync({ cmd: ['test', '-f', fp] }).exitCode === 0;
 }
 
-/** Poll every `interval` ms until `predicate` returns truthy, then resolve with it. */
 async function pollFor(predicate, timeoutMs = 30000, interval = 500) {
     const end = Date.now() + timeoutMs;
     while (Date.now() < end) {
@@ -31,7 +38,6 @@ function wsPingPong(wsUrl, count, timeoutMs) {
         ws.onopen = () => {
             for (let i = 0; i < count; i++) ws.send(JSON.stringify({ type: 'ping' }));
         };
-
         ws.onmessage = (event) => {
             try {
                 const raw = typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data);
@@ -46,7 +52,6 @@ function wsPingPong(wsUrl, count, timeoutMs) {
                 }
             } catch {}
         };
-
         ws.onerror = () => {
             clearTimeout(timeout);
             try {
@@ -57,43 +62,18 @@ function wsPingPong(wsUrl, count, timeoutMs) {
     });
 }
 
-/** Wait for WebSocket to fully close, then resolve. */
-function waitForWsClose(ws) {
-    return new Promise((resolve, reject) => {
-        const guard = setTimeout(() => resolve(), 3000);
-        if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
-            clearTimeout(guard);
-            resolve();
-            return;
-        }
-        ws.onclose = () => {
-            clearTimeout(guard);
-            resolve();
-        };
-        ws.onerror = () => {
-            clearTimeout(guard);
-            resolve();
-        };
-        try {
-            ws.close();
-        } catch {
-            clearTimeout(guard);
-            resolve();
-        }
-    });
-}
-
-describe('Real Environment Chaos', () => {
+describe('Real Environment Physical', () => {
     let tmuxSess;
     let testDir;
     let uiUrl;
     let browser;
     let page;
+    const messages = [];
 
     beforeAll(async () => {
-        console.log('[setup] starting chaos');
-        testDir = `/tmp/squad-chaos-${Date.now()}`;
-        tmuxSess = `squad-chaos-${process.pid}`;
+        console.log('[setup] starting');
+        testDir = `/tmp/squad-physical-${Date.now()}`;
+        tmuxSess = `squad-physical-${process.pid}`;
         const pluginPath = path.resolve(process.cwd(), 'index.js');
         const model = process.env.SQUAD_MODEL;
         const modelArgs = model ? ['--model', model] : [];
@@ -103,9 +83,8 @@ describe('Real Environment Chaos', () => {
         Bun.spawnSync({
             cmd: ['tmux', 'new-session', '-d', '-s', tmuxSess, '-c', testDir, 'omp', ...modelArgs, '-e', pluginPath],
         });
-        console.log('[setup] tmux created:', tmuxSess);
+        console.log('[setup] tmux session created:', tmuxSess);
 
-        // Wait for CLI to be ready by polling for tmux pane output
         await pollFor(
             () => {
                 const r = Bun.spawnSync({ cmd: ['tmux', 'capture-pane', '-t', tmuxSess, '-p', '-S', '-5'] });
@@ -126,20 +105,13 @@ describe('Real Environment Chaos', () => {
                 'C-m',
             ],
         });
-        console.log('[setup] /squad sent, polling URL...');
+        console.log('[setup] /squad sent, polling for URL...');
 
-        let attempt = 0;
         await pollFor(
             () => {
-                attempt++;
                 const r = Bun.spawnSync({ cmd: ['tmux', 'capture-pane', '-t', tmuxSess, '-p', '-S', '-20'] });
                 const m = new TextDecoder().decode(r.stdout).match(/Squad UI: (http:\/\/127\.0\.0\.1:\d+)/);
-                if (m) {
-                    uiUrl = m[1];
-                    console.log('[setup] URL found after', attempt, 'attempts:', uiUrl);
-                    return true;
-                }
-                return null;
+                return m ? ((uiUrl = m[1]), console.log('[setup] URL:', uiUrl), true) : null;
             },
             30000,
             500,
@@ -152,18 +124,30 @@ describe('Real Environment Chaos', () => {
     }, 60000);
 
     afterAll(async () => {
-        console.log('[teardown] chaos cleanup');
+        console.log('[teardown] cleanup');
         if (browser) await teardownBrowser(browser);
         try {
             Bun.spawnSync({ cmd: ['tmux', 'kill-session', '-t', tmuxSess] });
         } catch {}
     });
 
+    // ──────────────────────────────────────────────
+    // BASELINE ASSERTIONS
+    // ──────────────────────────────────────────────
+
     test('Browser mounts the app shell', async () => {
         await page.goto(uiUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
         await page.waitForSelector('[data-app-title]', { timeout: 10000 });
-        const title = await page.$eval('[data-app-title]', (element) => element.textContent);
+        const title = await page.$eval('[data-app-title]', (el) => el.textContent);
         expect(title).toBe('Squad-Tau');
+    });
+
+    test('HTTP /api/status returns ok', async () => {
+        const resp = await fetch(`${uiUrl}/api/status`);
+        expect(resp.status).toBe(200);
+        const data = await resp.json();
+        expect(data.status).toBe('ok');
+        expect(typeof data.port).toBe('number');
     });
 
     test('HTTP /main.jsx serves the client bundle', async () => {
@@ -174,21 +158,23 @@ describe('Real Environment Chaos', () => {
         expect(text).toContain('createRoot');
     });
 
+    // ──────────────────────────────────────────────
+    // CHAOS / STRESS
+    // ──────────────────────────────────────────────
+
     test('WS survives rapid reconnections', async () => {
         console.log('[test] WS reconnect x5');
         const wsUrl = uiUrl.replace('http', 'ws') + '/ws';
         const counts = [];
         for (let i = 0; i < 5; i++) {
             try {
-                const ws = new WebSocket(wsUrl);
                 const pongs = await wsPingPong(wsUrl, 3, 5000);
                 counts.push(pongs.length);
-                await waitForWsClose(ws);
             } catch {
                 counts.push(0);
             }
         }
-        expect(counts.every((count) => count >= 3)).toBe(true);
+        expect(counts.every((c) => c >= 3)).toBe(true);
     }, 30000);
 
     test('concurrent HTTP + WS stress does not crash server', async () => {
@@ -208,11 +194,45 @@ describe('Real Environment Chaos', () => {
                 return 0;
             }
         });
-        expect((await Promise.all(httpStorm)).every((status) => status === 200)).toBe(true);
-        expect((await Promise.all(wsStorm)).every((count) => count >= 3)).toBe(true);
+        expect((await Promise.all(httpStorm)).every((s) => s === 200)).toBe(true);
+        expect((await Promise.all(wsStorm)).every((c) => c >= 3)).toBe(true);
     }, 20000);
 
-    test('squad still completes after chaos stress', async () => {
+    // ──────────────────────────────────────────────
+    // SQUAD PROGRESS & COMPLETION
+    // ──────────────────────────────────────────────
+
+    test('WebSocket receives squad init event', async () => {
+        console.log('[test] waiting for squad:init...');
+        const wsUrl = uiUrl.replace('http', 'ws') + '/ws';
+        const ws = new WebSocket(wsUrl);
+        const initPromise = new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error('init timeout')), 180000);
+            ws.onmessage = (event) => {
+                try {
+                    const raw = typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data);
+                    const msg = JSON.parse(raw);
+                    if (msg.type === 'squad:init') {
+                        clearTimeout(timeout);
+                        ws.close();
+                        resolve(msg);
+                    }
+                } catch {}
+            };
+            ws.onerror = () => {
+                clearTimeout(timeout);
+                reject(new Error('WS error'));
+            };
+        });
+
+        const init = await initPromise;
+        console.log('[test] got squad:init, mode:', init.payload.mode, 'nodes:', init.payload.nodes.length);
+        expect(init.payload).toBeDefined();
+        expect(init.payload.mode).toMatch(/^[ML]$/);
+        expect(Array.isArray(init.payload.nodes)).toBe(true);
+    }, 190000);
+
+    test('squad completion marker is written', async () => {
         console.log('[test] waiting for .squad-complete...');
         const markerPath = `${testDir}/.squad-complete`;
         const markerRaw = await pollFor(
@@ -221,7 +241,7 @@ describe('Real Environment Chaos', () => {
                 const r = Bun.spawnSync({ cmd: ['cat', markerPath] });
                 return new TextDecoder().decode(r.stdout);
             },
-            900000,
+            600000,
             5000,
         );
         const marker = JSON.parse(markerRaw);
@@ -229,5 +249,5 @@ describe('Real Environment Chaos', () => {
         expect(marker.completedAt).toBeGreaterThan(0);
         expect(marker.durationMs).toBeGreaterThan(0);
         expect(marker.nodes).toBeGreaterThanOrEqual(1);
-    }, 910000);
+    }, 610000);
 });

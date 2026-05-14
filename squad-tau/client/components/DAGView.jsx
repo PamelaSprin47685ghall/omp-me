@@ -20,7 +20,7 @@ const MERMAID_THEME = THEMES['github-light'];
 export default function DAGView({ nodes, activeNodeId, onNodeClick }) {
   const onClickRef = useRef(onNodeClick);
   onClickRef.current = onNodeClick;
-  const nodeList = useMemo(() => Array.isArray(nodes) ? nodes : (nodes instanceof Map ? [...nodes.values()] : []), [nodes]);
+  const nodeList = nodes || [];
 
   const svg = useMemo(() => {
     if (!nodeList?.length) return null;

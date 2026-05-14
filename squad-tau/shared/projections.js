@@ -94,12 +94,14 @@ export function applyEvent(state, type, payload) {
             break;
 
         case Events.SESSION_START:
-            state.sessions[payload.sessionId] = {
-                ...payload,
-                role: payload.phase,
-                status: 'active',
-                messages: [],
-            };
+            if (!state.sessions[payload.sessionId]) {
+                state.sessions[payload.sessionId] = {
+                    ...payload,
+                    role: payload.phase,
+                    status: 'active',
+                    messages: [],
+                };
+            }
             // Reverse-write sessionId into node's phase field for Reactor fast-path
             if (payload.nodeId) {
                 const node = state.squad.nodes.find((n) => n.id === payload.nodeId);
@@ -201,10 +203,11 @@ export function applyEvent(state, type, payload) {
             break;
         case Events.SESSION_TOOL_CALL:
             if (state.sessions[payload.sessionId]) {
+                const { sessionId, ...toolFields } = payload;
                 state.sessions[payload.sessionId].messages.push({
                     role: 'assistant',
                     messageId: payload.toolId,
-                    content: [{ type: 'tool_call', ...payload }],
+                    content: [{ type: 'tool_call', ...toolFields }],
                 });
             }
             break;
@@ -234,19 +237,6 @@ export function applyEvent(state, type, payload) {
             break;
         case Events.MODEL_POOL_RELEASE:
             delete state.modelPool.usage[payload.slotId];
-            break;
-        case Events.MODEL_POOL_CONFIG_UPDATE:
-            if (payload.action === 'add') {
-                state.modelPool.slots.push({
-                    ...payload.slot,
-                    slotId: payload.slot.slotId || `slot-${payload.slot.role}-${Date.now()}`,
-                });
-            } else if (payload.action === 'remove') {
-                state.modelPool.slots = state.modelPool.slots.filter((s) => s.slotId !== payload.slotId);
-            } else if (payload.action === 'edit') {
-                const slot = state.modelPool.slots.find((s) => s.slotId === payload.slotId);
-                if (slot) slot.thinkingLevel = payload.thinkingLevel;
-            }
             break;
     }
     return state;

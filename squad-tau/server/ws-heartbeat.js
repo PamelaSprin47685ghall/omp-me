@@ -5,8 +5,9 @@
  * @see PRD/07-architecture.md §7.2.1
  */
 
-import { DEFAULTS } from './constants.js';
 import { getConnectionState } from './connection-state.js';
+
+export const HEARTBEAT_INTERVAL = 30000;
 
 const OPEN = 1;
 
@@ -17,7 +18,7 @@ const OPEN = 1;
  * @returns {() => void} Cleanup function
  */
 export function startHeartbeat(clients, opts = {}) {
-    const interval = opts.interval || DEFAULTS.HEARTBEAT_INTERVAL;
+    const interval = opts.interval || HEARTBEAT_INTERVAL;
 
     const ticker = setInterval(() => {
         for (const ws of clients) {

@@ -1,5 +1,5 @@
 import { streamingManager } from './streaming-manager.js';
-import { project } from '@shared/projections.js';
+import { applyEvent, project } from '../shared/projections.js';
 
 /**
  * Client-side Event Store and Projections (CQRS).
@@ -26,7 +26,7 @@ class EventStore {
         }
 
         this.log.push({ type, payload, seq });
-        this.state = project(this.log);
+        applyEvent(this.state, type, payload);
         this.notify();
     }
 
@@ -42,11 +42,17 @@ class EventStore {
             list.push({
                 role: 'assistant',
                 messageId: payload.messageId,
-                content: [{ type: blockType, text: '' }],
+                content: [{ type: blockType, text: payload.delta.text || '' }],
                 streaming: true,
             });
-        } else if (!list[msgIdx].streaming) {
-            list[msgIdx] = { ...list[msgIdx], streaming: true };
+        } else {
+            const msg = list[msgIdx];
+            if (!msg.streaming) msg.streaming = true;
+            // Add thinking block if thinking_delta arrives for an existing text message
+            if (payload.delta.type === 'thinking_delta') {
+                const hasThinking = msg.content.some((c) => c.type === 'thinking');
+                if (!hasThinking) msg.content.push({ type: 'thinking', text: '' });
+            }
         }
     }
 

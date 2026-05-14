@@ -10,13 +10,7 @@ import { startHeartbeat } from './ws-heartbeat.js';
 import { routeMessage } from './ws-handler.js';
 import { EventLog } from './event-log.js';
 import { createViteDevServer, closeViteServer, CLIENT_ROOT } from './vite-setup.js';
-import {
-    loadModelsConfig,
-    saveModelsConfig,
-    watchConfig,
-    unwatchConfig,
-    syncModelPoolFromConfig,
-} from './model-pool-config.js';
+import { loadModelsConfig, saveModelsConfig, watchConfig, unwatchConfig } from './model-pool-config.js';
 import { buildSnapshot } from './model-pool-events.js';
 import { setupEngine } from './engine.js';
 
@@ -107,7 +101,12 @@ export async function startServer({ skipVite = false } = {}) {
     });
 
     watchConfig((newConfig) => {
-        syncModelPoolFromConfig(eventLog, newConfig, engine.getState);
+        eventLog.append('model_pool:snapshot', {
+            slots: newConfig.map((s, i) => ({
+                ...s,
+                slotId: s.slotId || `slot-${i}-${s.role}-${s.provider}-${s.modelId}`,
+            })),
+        });
         eventLog.append('model_pool:changed', buildSnapshot(engine.getState()));
     });
 
