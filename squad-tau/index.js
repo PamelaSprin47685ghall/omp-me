@@ -1,2 +1,2 @@
-import squadPlugin from './server/squad-engine.js';
+import squadPlugin from './server/plugin.js';
 export default squadPlugin;

@@ -1,14 +1,22 @@
-import { useReducer, useState } from 'react';
-import { INITIAL_STATE, sessionReducer } from '../session-reducer.js';
+import { useSyncExternalStore, useState } from 'react';
+import { eventStore } from '../event-store.js';
 
 export function useSessionState() {
-    const [state, dispatch] = useReducer(sessionReducer, INITIAL_STATE);
+    const state = useSyncExternalStore(
+        (l) => eventStore.subscribe(l),
+        () => eventStore.getState(),
+    );
     const [activeSessionId, setActiveSessionId] = useState(null);
+
     return {
         sessions: state.sessions,
         activeSessionId,
         setActiveSessionId,
-        messages: state.messages,
-        dispatch,
+        messages: activeSessionId ? state.sessions[activeSessionId]?.messages || [] : [],
+        dispatch: (action) => {
+            if (action.type === 'SESSION_MESSAGE') {
+                eventStore.dispatch('session:message', action.payload);
+            }
+        },
     };
 }

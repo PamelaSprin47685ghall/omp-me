@@ -9,6 +9,73 @@
 - 纯 JavaScript（JSX），无 TypeScript
 - 所有图标使用 lucide-react SVG 图标
 
+### 数据流铁律
+
+- **绝对的数据流单向性**。副作用函数（SideEffects）禁止包含任何 `async/await` 业务挂起。副作用必须是 Fire-and-Forget，结果仅通过向全局 EventLog 追加事实来反馈。
+- **禁止历史扫描（No History Scanning）**。Reactor 绝对禁止调用 `eventLog.getSince()` 或 `.find()` 扫描历史。一切推导只能基于 `shared/projections.js` 折叠后的扁平 `State` 对象。Reactor 的函数签名必须是 `f(state) → Action[]`，其中 state 是纯投影树，无日志引用。
+- **禁止兜底**。出现兜底就是掩盖根因，必须追踪到消息 ID 为何缺失、状态为何丢失，在源头修复。
+- **不要防御性编程**。`if (x) x.startsWith(...)` 这种代码说明上游契约被破坏，去上游修。
+
+### 禁用词汇（Lexicon Ban）
+
+以下词汇在本项目中永久禁用。新文档、代码注释、变量命名、内部讨论中均不得使用：
+
+| 禁用词 | 禁用原因 | 正确替代 |
+|--------|----------|----------|
+| 状态机实例 (FSM Instance) | 隐含了手动流转的图模型 | Engine Pulse + Reactor 推导 |
+| 事件总线 (EventBus) | 总线是连接组件的中介，层级扁平不推演 | EventLog 追加订阅 |
+| 挂起 (Suspend) | 暗示异步等待队列 | 上下文切换到 Engine 微任务 |
+| 等待队列 (Wait Queue) | 队列是命令式原语 | 静态槽位计数 | Model Pool 投影 |
+| 编排器 (Orchestrator) | 编排器主动"拉动"流程 | Reactor 纯函数推导 "推动" |
+| 拓扑排序 (Topological Sort) | 排序是批处理思维，不适用于增量事件流 | 声明式依赖规则 (Reactor 条件) |
+| 防抖节流定时器 (Debounce/Throttle Timers) | 定时器掩盖事件分发问题 | 微任务批处理 (queueMicrotask) |
+
+## 核心架构
+
+系统由四大模块构成，严格遵循单向数据流：
+
+```mermaid
+graph TD
+    subgraph Truth
+        EL[(EventLog\nAppend-Only Facts)]
+    end
+    subgraph Nervous System
+        PROJ((Projections\nIncremental Fold))
+    end
+    subgraph Brain
+        REACT{Reactor\nPure f(State)}
+    end
+    subgraph Muscle
+        SE[Side Effects\nFire & Forget]
+    end
+    subgraph UI
+        DOM[React View\nf(State)]
+    end
+    EL -->|1. Trigger Pulse| PROJ
+    PROJ -->|2. Emit State| REACT
+    PROJ -->|Sync| DOM
+    REACT -->|3. Yield CMDs| SE
+    REACT -->|3. Yield Facts| EL
+    SE -->|4. Call APIs| OMP[LLM / FS]
+    OMP -->|5. Async Callbacks| EL
+```
+
+| 模块 | 文件 | 职责 | 禁止行为 |
+|------|------|------|----------|
+| **真理源** | `server/event-log.js` | 全局追加式不可变事实日志 | 不允许删除/修改/回滚已有条目 |
+| **物化视图** | `shared/projections.js` | 纯函数增量折叠：`f(prevState, Event) → nextState` | 不允许有 side effect、不查日志 |
+| **推导大脑** | `server/reactor.js` | 纯函数：`f(State) → Action[]` | 不允许调用 `getSince()`、`find()` |
+| **失忆的肌肉** | `server/side-effects.js` | 执行 CMD（创建 session、发 prompt）、结果追加到 EventLog | 不允许持有业务状态、不做推导决策 |
+
+### 事件分类
+
+| 类别 | 示例 | 存储位置 |
+|------|------|----------|
+| **事实 (Fact)** | `squad:node_state`、`session:start`、`model_pool:acquire` | EventLog（永存） |
+| **意图 (Command)** | `cmd:create_session`、`cmd:prompt` | 内存中瞬态（Engine Pulse 生命周期内） |
+| **过渡态事实** | `session:creating`、`session:prompting` | EventLog（防止 Reactor 重复推导） |
+| **流式事件** | `session:message_delta`、`session:thinking_delta` | 仅广播，不入 EventLog |
+
 ## 参考项目
 
 各项目详细文件级索引见 `PRD/REF-*.md`：
@@ -17,7 +84,6 @@
 |------|------|------|
 | `REF-01-tau-mirror-core.md` | `../node_modules/tau-mirror/` | 原生 tau-mirror：`extensions/mirror-server.ts`(WS 服务端/用户消息路由)、`public/`(前端全量) |
 | `REF-02-oh-tau-mirror.md` | `../oh-tau-mirror/` | 适配层：`proxy.js`(MITM/多会话路由/透明转发)、`index.js`(桥接)、`injected.js`(浏览器注入) |
-| `REF-03-squad-engine.md` | `../squad/` | Squad 引擎：`state-machine.js`(节点状态机)、`review-fsm.js`(执行器)、`dag-engine.js`(DAG)、`outer-review.js`、`model-pool.js`、`squad-fsm.js` |
 | `REF-04-omp-extension-api.md` | `~/.bun/install/global/node_modules/@oh-my-pi/pi-coding-agent/` + `../shim-packages/` | OMP 扩展 API：`ExtensionAPI`、`sendUserMessage`、`SessionManager`、`createAgentSession`、shim 格式 |
 | `REF-05-plugin-structure.md` | `../block-head-tail/`、`../ollama-search/` | 标准插件结构（`index.js` + `test/`） |
 
@@ -159,7 +225,7 @@ description = "[此处省略 300 字]"
 <prompt name="outer-review">
 你现在是 Squad-Tau 最终审核者，负责评审多节点协作的聚合结果。
 
-原始任务: 
+原始任务:
 {originalTask}
 
 节点结果:
@@ -175,12 +241,12 @@ description = "[此处省略 300 字]"
 
 ### 修 Bug 原则
 - **不准兜底**。出现兜底就是掩盖根因，必须追踪到消息 ID 为何缺失、状态为何丢失，在源头修复。
-- **不要防御性编程**。`if (x) x.startsWith(...)` 这种代码说明上游契约被破坏，去上游修。
+- **不准防御性编程**。`if (x) x.startsWith(...)` 这种代码说明上游契约被破坏，去上游修。
 
 ### 测试原则
-- **纯手工点击**。不准写脚本批量触发事件，不准通过事件总线注入事件来「假装测试」。
-- **纯视觉观察**。不准 `console.log` 偷看 DOM，不准用 `page.evaluate` 读状态，只许截图和肉眼判断。
-- **仿照原测试报告**。他怎么测，你怎么测——分辨率、点击顺序、等待时间都要对齐。
+- **底层代数断言**：给定静态 State 树，断言 Reactor 必然输出的 Action[]。0 毫秒执行，覆盖 100% 边界。
+- **中层时空折叠**：用内存 while 循环 + 伪造 SideEffect，瞬间推演多步流转，验证 DAG 因果律不变量。
+- **顶层真实混沌**：保留物理链路测试，验证 WebSocket 水位线同步在断网、乱序中绝不丢失状态。
 
 ### 代码审查原则
 - **出现兜底两个字就是垃圾**。review 时看到 fallback / guard / 防御性检查，直接打回。

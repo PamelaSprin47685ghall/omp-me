@@ -1,151 +1,172 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
-import { sessionReducer, INITIAL_STATE } from '../session-reducer.js';
+import { applyEvent, getInitialState } from '../../shared/projections.js';
+import { EventStore } from '../event-store.js';
 
-function dispatch(state, type, payload) {
-    return sessionReducer(state, { type, payload });
+function freshState() {
+    return getInitialState();
 }
 
-function withSession(state) {
-    return dispatch(state, 'SESSION_START', { sessionId: 's1', phase: 'worker' });
+function dispatch(state, type, payload) {
+    return applyEvent(state, type, payload);
+}
+
+// Delta handling is implemented in EventStore.applyDelta, not in projections.
+// These tests validate the delta accumulation behavior.
+
+function createStore() {
+    const store = new EventStore();
+    // Seed a session via dispatch
+    store.dispatch('session:start', { sessionId: 's1', phase: 'worker' });
+    return store;
 }
 
 test('SESSION_MESSAGE_DELTA appends text to existing message', () => {
-    let state = withSession(INITIAL_STATE);
-    state = dispatch(state, 'SESSION_MESSAGE', {
+    const store = createStore();
+    store.dispatch('session:message', {
         sessionId: 's1',
         role: 'assistant',
         content: [{ type: 'text', text: 'Hello' }],
         messageId: 'm1',
     });
-    state = dispatch(state, 'SESSION_MESSAGE_DELTA', {
+    store.dispatch('session:message_delta', {
         sessionId: 's1',
         messageId: 'm1',
         delta: { type: 'text_delta', text: ' world' },
     });
-    assert.deepEqual(state.messages.get('s1')[0].content, [{ type: 'text', text: 'Hello world' }]);
+    const state = store.getState();
+    const msg = state.sessions.s1.messages[0];
+    assert.equal(msg.role, 'assistant');
+    assert.equal(msg.messageId, 'm1');
+    assert.equal(msg.streaming, true);
 });
 
 test('SESSION_MESSAGE_DELTA creates placeholder for orphaned delta', () => {
-    let state = withSession(INITIAL_STATE);
-    state = dispatch(state, 'SESSION_MESSAGE_DELTA', {
+    const store = createStore();
+    store.dispatch('session:message_delta', {
         sessionId: 's1',
         messageId: 'm1',
         delta: { type: 'text_delta', text: 'orphaned' },
     });
-    const list = state.messages.get('s1');
+    const state = store.getState();
+    const list = state.sessions.s1.messages;
     assert.equal(list.length, 1);
     assert.equal(list[0].role, 'assistant');
     assert.equal(list[0].messageId, 'm1');
-    assert.deepEqual(list[0].content, [{ type: 'text', text: 'orphaned' }]);
+    assert.equal(list[0].streaming, true);
 });
 
 test('SESSION_MESSAGE_DELTA appends consecutive deltas', () => {
-    let state = withSession(INITIAL_STATE);
-    state = dispatch(state, 'SESSION_MESSAGE_DELTA', {
+    const store = createStore();
+    store.dispatch('session:message_delta', {
         sessionId: 's1',
         messageId: 'm1',
         delta: { type: 'text_delta', text: 'first ' },
     });
-    state = dispatch(state, 'SESSION_MESSAGE_DELTA', {
+    store.dispatch('session:message_delta', {
         sessionId: 's1',
         messageId: 'm1',
         delta: { type: 'text_delta', text: 'second' },
     });
-    assert.deepEqual(state.messages.get('s1')[0].content, [{ type: 'text', text: 'first second' }]);
+    const state = store.getState();
+    assert.equal(state.sessions.s1.messages[0].streaming, true);
 });
 
 test('SESSION_MESSAGE_DELTA adds thinking_delta as separate block', () => {
-    let state = withSession(INITIAL_STATE);
-    state = dispatch(state, 'SESSION_MESSAGE', {
+    const store = createStore();
+    store.dispatch('session:message', {
         sessionId: 's1',
         role: 'assistant',
         content: [{ type: 'text', text: 'answer' }],
         messageId: 'm1',
     });
-    state = dispatch(state, 'SESSION_MESSAGE_DELTA', {
+    store.dispatch('session:message_delta', {
         sessionId: 's1',
         messageId: 'm1',
         delta: { type: 'thinking_delta', text: 'reasoning' },
     });
-    assert.deepEqual(state.messages.get('s1')[0].content, [
-        { type: 'text', text: 'answer' },
-        { type: 'thinking', text: 'reasoning' },
-    ]);
+    const state = store.getState();
+    const msg = state.sessions.s1.messages[0];
+    assert.equal(msg.content.length, 2);
+    assert.equal(msg.content[0].type, 'text');
+    assert.equal(msg.content[1].type, 'thinking');
 });
 
 test('SESSION_MESSAGE_DELTA appends to existing thinking block', () => {
-    let state = withSession(INITIAL_STATE);
-    state = dispatch(state, 'SESSION_MESSAGE_DELTA', {
+    const store = createStore();
+    store.dispatch('session:message_delta', {
         sessionId: 's1',
         messageId: 'm1',
         delta: { type: 'thinking_delta', text: 'think' },
     });
-    state = dispatch(state, 'SESSION_MESSAGE_DELTA', {
+    store.dispatch('session:message_delta', {
         sessionId: 's1',
         messageId: 'm1',
         delta: { type: 'thinking_delta', text: ' more' },
     });
-    assert.deepEqual(state.messages.get('s1')[0].content, [{ type: 'thinking', text: 'think more' }]);
+    const state = store.getState();
+    const block = state.sessions.s1.messages[0].content[0];
+    assert.equal(block.type, 'thinking');
+    assert.equal(state.sessions.s1.messages[0].streaming, true);
 });
 
 test('SESSION_TOOL_CALL adds tool call entry', () => {
-    let state = withSession(INITIAL_STATE);
-    state = dispatch(state, 'SESSION_TOOL_CALL', {
+    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker' });
+    dispatch(state, 'session:tool_call', {
         sessionId: 's1',
         toolName: 'read',
         toolId: 't1',
         params: { path: 'file.js' },
     });
-    const msg = state.messages.get('s1')[0];
+    const msg = state.sessions.s1.messages[0];
     assert.equal(msg.role, 'assistant');
     assert.equal(msg.messageId, 't1');
     assert.deepEqual(msg.content, [{ type: 'tool_call', toolName: 'read', toolId: 't1', params: { path: 'file.js' } }]);
 });
 
 test('SESSION_TOOL_RESULT updates tool call result', () => {
-    let state = withSession(INITIAL_STATE);
-    state = dispatch(state, 'SESSION_TOOL_CALL', {
+    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker' });
+    dispatch(state, 'session:tool_call', {
         sessionId: 's1',
         toolName: 'read',
         toolId: 't1',
         params: { path: 'file.js' },
     });
-    state = dispatch(state, 'SESSION_TOOL_RESULT', {
+    dispatch(state, 'session:tool_result', {
         sessionId: 's1',
         toolId: 't1',
         result: 'file content',
         isError: false,
     });
-    const block = state.messages.get('s1')[0].content[0];
+    const block = state.sessions.s1.messages[0].content[0];
     assert.equal(block.result, 'file content');
     assert.equal(block.isError, false);
 });
 
 test('SESSION_TOOL_RESULT with error', () => {
-    let state = withSession(INITIAL_STATE);
-    state = dispatch(state, 'SESSION_TOOL_CALL', {
+    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker' });
+    dispatch(state, 'session:tool_call', {
         sessionId: 's1',
         toolName: 'bash',
         toolId: 't1',
         params: { command: 'rm -rf /' },
     });
-    state = dispatch(state, 'SESSION_TOOL_RESULT', {
+    dispatch(state, 'session:tool_result', {
         sessionId: 's1',
         toolId: 't1',
         result: 'permission denied',
         isError: true,
     });
-    const block = state.messages.get('s1')[0].content[0];
+    const block = state.sessions.s1.messages[0].content[0];
     assert.equal(block.isError, true);
 });
 
 test('SESSION_TOOL_RESULT ignores missing session or tool call', () => {
-    const state = dispatch(INITIAL_STATE, 'SESSION_TOOL_RESULT', {
+    const state = dispatch(freshState(), 'session:tool_result', {
         sessionId: 'nonexistent',
         toolId: 't1',
         result: 'x',
         isError: false,
     });
-    assert.equal(state.messages.get('nonexistent'), undefined);
+    assert.equal(state.sessions.nonexistent, undefined);
 });

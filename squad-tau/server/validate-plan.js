@@ -5,7 +5,34 @@ function validatePlan(plan) {
     const seenIds = new Set();
     validateNodes(plan, errors, seenIds);
 
+    // Cycle detection via DFS
+    if (hasCycle(plan.nodes)) {
+        errors.push('plan contains a cyclic dependency');
+    }
+
     return { valid: errors.length === 0, errors };
+}
+
+function hasCycle(nodes) {
+    const adj = {};
+    for (const n of nodes) adj[n.id] = n.depends_on || [];
+    const visited = new Set(),
+        stack = new Set();
+    function dfs(id) {
+        if (stack.has(id)) return true;
+        if (visited.has(id)) return false;
+        visited.add(id);
+        stack.add(id);
+        for (const dep of adj[id] || []) {
+            if (dfs(dep)) return true;
+        }
+        stack.delete(id);
+        return false;
+    }
+    for (const n of nodes) {
+        if (dfs(n.id)) return true;
+    }
+    return false;
 }
 
 function validateBasicPlanStructure(plan, errors) {
@@ -116,7 +143,7 @@ function validateReviewCriteriaItem(item, j, prefix, errors) {
 }
 
 function validateDependencies(mode, node, prefix, errors, seenIds) {
-    if (mode === 'M' && node.depends_on) {
+    if (mode === 'M' && node.depends_on && node.depends_on.length > 0) {
         errors.push(`${prefix}.depends_on is not allowed in M mode`);
     }
     if (node.depends_on !== undefined) {

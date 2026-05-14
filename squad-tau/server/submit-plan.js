@@ -1,7 +1,7 @@
 import { validatePlan } from './validate-plan.js';
-import { runOuterReview } from './outer-review.js';
 import fs from 'fs';
 import path from 'path';
+import { Events } from '../shared/events.js';
 
 function readNodesFromDir(plan_dir) {
     const tomlFiles = listTomlFiles(plan_dir);
@@ -47,128 +47,40 @@ function parseTomlNode(plan_dir, file) {
         id: path.basename(file, '.toml'),
         task: parsed.task,
         review_criteria: parsed.review_criteria || [],
-        ...(parsed.depends_on !== undefined && { depends_on: parsed.depends_on }),
+        depends_on: parsed.depends_on || [],
     };
 }
 
-function buildNodeResults(results) {
-    return results.map((r) => ({
-        id: r.nodeId,
-        status: r.status,
-        summary: r.summary || '',
-        affectedFiles: r.affectedFiles || [],
-    }));
-}
-
-async function runOuterReviewLoop({ nodeResults, originalTask, ctx, pi, signal, eventBus, modelPool, fsm }) {
-    const result = await runOuterReview(nodeResults, originalTask, 1, ctx, pi, signal, eventBus, modelPool);
-    if (!result) {
-        eventBus?.emit('squad', 'abort', { reason: 'Outer review aborted' });
-        return { done: true, payload: { success: false, message: 'Outer review was aborted.' } };
-    }
-    if (result.approved) return { done: false };
-    const feedback = result.reason || 'Revise and resubmit.';
-    return {
-        done: true,
-        payload: {
-            success: true,
-            outerReviewRejected: true,
-            outerRound: 1,
-            feedback,
-            message: `Outer review rejected. Feedback: ${feedback}`,
-        },
-    };
-}
-
-async function finalize({
-    results,
-    mode,
-    nodes,
-    fsm,
-    startTime,
-    onComplete,
-    originalTask,
-    ctx,
-    pi,
-    signal,
-    eventBus,
-    modelPool,
-}) {
-    const nodeResults = buildNodeResults(results);
-    if (mode === 'L') {
-        const review = await runOuterReviewLoop({
-            nodeResults,
-            originalTask,
-            ctx,
-            pi,
-            signal,
-            eventBus,
-            modelPool,
-            fsm,
-        });
-        if (review.done) {
-            // Outer review rejected or was aborted — terminate the squad run
-            fsm.deactivate();
-            const duration = Date.now() - startTime;
-            if (onComplete) onComplete({ results: nodeResults, mode, nodes, durationMs: duration });
-            return review.payload;
-        }
-    }
-    fsm.deactivate();
-    const duration = Date.now() - startTime;
-    if (onComplete) onComplete({ results: nodeResults, mode, nodes, durationMs: duration });
-    return {
-        success: true,
-        results: nodeResults,
-        message: `Squad completed successfully in ${(duration / 1000).toFixed(1)}s`,
-    };
-}
-
-async function processDelegate(params, runState) {
-    const { fsm, eventBus, originalTask } = runState;
-    const currentState = fsm.getState();
-    if (currentState !== 'active') {
-        throw new Error(`Cannot delegate in state: ${currentState}. Must be active.`);
-    }
+/**
+ * Fire-and-forget plan submission.
+ *
+ * Validates the plan directory, appends SQUAD_INIT to EventLog,
+ * and returns immediately. Does NOT wait for SQUAD_COMPLETE —
+ * the Engine pulse loop handles all subsequent state transitions.
+ */
+export async function processDelegate(params, runState) {
+    const { eventLog, originalTask, signal } = runState;
     const { nodes, mode } = readNodesFromDir(params.plan_dir);
     const validation = validatePlan({ mode, nodes });
+
     if (!validation.valid) {
         throw new Error(`Invalid plan: ${validation.errors.join('; ')}`);
     }
-    if (eventBus) eventBus.emit('squad', 'init', { mode, nodes, originalTask: originalTask || '' });
-    return await runDelegate({ nodes, mode, ...runState });
-}
 
-async function runDelegate(deps) {
-    const { nodes, mode, executeDAG, ctx, pi, signal, eventBus, modelPool, fsm, startTime, onComplete } = deps;
-    try {
-        const results = await executeDAG({ nodes, ctx, pi, signal, eventBus, modelPool });
-        return await finalize({ results, ...deps });
-    } catch (error) {
-        const results = nodes.map((n) => ({
-            nodeId: n.id,
-            status: 'failed',
-            summary: error.message,
-            affectedFiles: [],
-        }));
-        const nodeResults = results.map((r) => ({
-            id: r.nodeId,
-            status: r.status,
-            summary: r.summary,
-            affectedFiles: r.affectedFiles,
-        }));
-
-        if (eventBus) {
-            eventBus.emit('squad', 'complete', {
-                success: false,
-                results: nodeResults,
-                message: `DAG execution failed: ${error.message}`,
-            });
+    if (signal) {
+        if (signal.aborted) {
+            eventLog.append(Events.SQUAD_ABORT, { reason: 'Aborted before init' });
+            return { success: false, message: 'Squad aborted before init' };
         }
-        fsm.deactivate();
-
-        throw new Error(`DAG execution failed: ${error.message}`);
+        signal.addEventListener(
+            'abort',
+            () => {
+                eventLog.append(Events.SQUAD_ABORT, { reason: 'Aborted by signal' });
+            },
+            { once: true },
+        );
     }
-}
 
-export { processDelegate };
+    eventLog.append(Events.SQUAD_INIT, { mode, nodes, originalTask: originalTask || '' });
+    return { success: true, message: 'Squad started' };
+}

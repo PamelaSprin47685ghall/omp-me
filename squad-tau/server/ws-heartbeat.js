@@ -6,6 +6,7 @@
  */
 
 import { DEFAULTS } from './constants.js';
+import { getConnectionState } from './connection-state.js';
 
 const OPEN = 1;
 
@@ -24,8 +25,9 @@ export function startHeartbeat(clients, opts = {}) {
                 ws.terminate();
                 continue;
             }
-            ws._missedPongs = (ws._missedPongs ?? 0) + 1;
-            if (ws._missedPongs > 1) {
+            const state = getConnectionState(ws);
+            state.missedPongs = (state.missedPongs ?? 0) + 1;
+            if (state.missedPongs > 1) {
                 ws.terminate();
                 continue;
             }

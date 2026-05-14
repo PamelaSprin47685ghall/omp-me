@@ -1,68 +1,81 @@
 /**
- * WebSocket message routing by type.
- * @see PRD/05-event-protocol.md §5.3/5.7
- * @see PRD/07-architecture.md §7.2.1
+ * WebSocket message routing.
+ * EventLog-driven — no EventBus. Messages are appended to EventLog directly.
+ * Frontend only sends: sync (catch-up), session:user_message, model_pool:update, ping, abort.
+ * Backend only does: append to EventLog, let the reactor+engine drive everything.
+ *
+ * User messages are NOT sent to LLM directly — they are appended as
+ * session:user_message_received facts and processed by the Engine pulse.
  */
-
 import { handleModelPoolMessage } from './model-pool-events.js';
-import * as sessionRegistry from './session-registry.js';
 
-function wsSendError(ws, message) {
-    ws.send(JSON.stringify({ type: 'error', payload: { message }, timestamp: Date.now() }));
-}
-
-function genMessageId() {
-    return `usr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
-async function handleUserMessage(payload, eventBus, ws) {
-    const { sessionId, text, messageId } = payload || {};
-    if (!sessionId || typeof text !== 'string') {
-        wsSendError(ws, 'Invalid session:user_message payload');
+const STRATEGIES = {
+    sync: async ({ payload, eventLog, ws }) => {
+        const { cursor } = payload || {};
+        const missing = eventLog.getSince(cursor);
+        for (const event of missing) {
+            ws.send(
+                JSON.stringify({
+                    type: event.event,
+                    payload: event.payload,
+                    timestamp: event.timestamp,
+                    seq: event.id,
+                }),
+            );
+        }
         return true;
-    }
-    const entry = sessionRegistry.get(sessionId);
-    if (!entry || !sessionRegistry.isActive(sessionId)) {
-        wsSendError(ws, 'Session not active');
+    },
+    'model_pool:update': async ({ payload, configModule, eventLog, ws }) => {
+        await handleModelPoolMessage(payload, configModule, eventLog, ws?.getState);
         return true;
-    }
-    // Echo back the client-provided messageId so the optimistic entry
-    // can be matched exactly — avoids content-based fuzzy dedup.
-    eventBus.emit('session', 'message', {
-        sessionId,
-        role: 'user',
-        content: [{ type: 'text', text }],
-        messageId: typeof messageId === 'string' && messageId ? messageId : genMessageId(),
-    });
-    await entry.sendUserMessage(text);
-    return true;
-}
+    },
+    'session:user_message': async ({ payload, eventLog }) => {
+        const { sessionId, text, messageId } = payload || {};
+        if (!sessionId || typeof text !== 'string') return true;
 
-/**
- * Routes incoming WebSocket messages by type.
- * @param {object} msg - Parsed WebSocket message
- * @param {import('./model-pool.js').ModelPool} modelPool
- * @param {object} configModule - model-pool-config module
- * @param {import('./event-bus.js').EventBus} eventBus
- * @param {import('ws').WebSocket} ws - Sender WebSocket
- * @returns {Promise<boolean>} true if handled, false for unknown types
- */
-export async function routeMessage(msg, modelPool, configModule, eventBus, ws) {
+        // Append user message to EventLog for state tracking
+        eventLog.append('session:message', {
+            sessionId,
+            role: 'user',
+            content: [{ type: 'text', text }],
+            messageId: messageId || `usr_${Date.now()}`,
+        });
+
+        // Append trigger fact for the Engine pulse to route to LLM
+        eventLog.append('session:user_message_received', {
+            sessionId,
+            text,
+            messageId: messageId || `usr_${Date.now()}`,
+        });
+        return true;
+    },
+    ping: async ({ ws }) => {
+        ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
+        return true;
+    },
+    abort: async ({ payload, eventLog }) => {
+        eventLog.append('squad:abort', payload || {});
+        return true;
+    },
+};
+
+export async function routeMessage(msg, configModule, eventLog, ws, getState) {
+    // Attach getState to ws object for downstream handlers
+    if (!ws.getState && getState) ws.getState = getState;
     if (!msg || typeof msg.type !== 'string') return false;
-
-    switch (msg.type) {
-        case 'model_pool:update':
-            await handleModelPoolMessage(msg.payload, modelPool, configModule, eventBus);
+    const strategy = STRATEGIES[msg.type];
+    if (strategy) {
+        try {
+            return await strategy({
+                payload: msg.payload,
+                configModule,
+                eventLog,
+                ws,
+            });
+        } catch (err) {
+            ws.send(JSON.stringify({ type: 'error', payload: { message: err.message } }));
             return true;
-        case 'session:user_message':
-            return handleUserMessage(msg.payload, eventBus, ws);
-        case 'ping':
-            ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
-            return true;
-        case 'abort':
-            eventBus.emit('squad', 'abort', msg.payload || {});
-            return true;
-        default:
-            return false;
+        }
     }
+    return false;
 }

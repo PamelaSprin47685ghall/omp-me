@@ -1,20 +1,16 @@
-function emitSessionEnd(eventBus, sessionId, phase, reason, errorMessage) {
-    if (!eventBus || !sessionId) return;
-    eventBus.emit('session', 'state', { sessionId, phase });
-    eventBus.emit('session', 'end', { sessionId, reason, errorMessage });
-}
+import { Events } from '../shared/events.js';
 
-function subscribeToSessionEvents(session, eventBus, sessionId) {
+function subscribeToSessionEvents(session, eventLog, sessionId) {
     return session.subscribe((event) => {
         try {
             if (event.type === 'message_update') {
-                handleMessageUpdate(event, eventBus, sessionId);
+                handleMessageUpdate(event, eventLog, sessionId);
             } else if (event.type === 'tool_execution_start') {
-                handleToolStart(event, eventBus, sessionId);
+                handleToolStart(event, eventLog, sessionId);
             } else if (event.type === 'tool_execution_end') {
-                handleToolEnd(event, eventBus, sessionId);
+                handleToolEnd(event, eventLog, sessionId);
             } else if (event.type === 'message_end') {
-                handleMessageEnd(event, eventBus, sessionId);
+                handleMessageEnd(event, eventLog, sessionId);
             }
         } catch (err) {
             console.error(`[SessionEvents] Error handling event ${event.type} for ${sessionId}:`, err);
@@ -22,17 +18,17 @@ function subscribeToSessionEvents(session, eventBus, sessionId) {
     });
 }
 
-function handleMessageUpdate(event, eventBus, sessionId) {
+function handleMessageUpdate(event, eventLog, sessionId) {
     const assistantEvent = event.assistantMessageEvent;
     if (!assistantEvent || !event.message || !event.message.id) return;
     if (assistantEvent.type === 'text_delta') {
-        eventBus.emit('session', 'message_delta', {
+        eventLog.append(Events.SESSION_MESSAGE_DELTA, {
             sessionId,
             messageId: event.message.id,
             delta: { type: 'text_delta', text: assistantEvent.delta },
         });
     } else if (assistantEvent.type === 'thinking_delta') {
-        eventBus.emit('session', 'message_delta', {
+        eventLog.append(Events.SESSION_MESSAGE_DELTA, {
             sessionId,
             messageId: event.message.id,
             delta: { type: 'thinking_delta', text: assistantEvent.delta },
@@ -40,8 +36,8 @@ function handleMessageUpdate(event, eventBus, sessionId) {
     }
 }
 
-function handleToolStart(event, eventBus, sessionId) {
-    eventBus.emit('session', 'tool_call', {
+function handleToolStart(event, eventLog, sessionId) {
+    eventLog.append(Events.SESSION_TOOL_CALL, {
         sessionId,
         toolName: event.toolName,
         toolId: event.toolId,
@@ -49,8 +45,8 @@ function handleToolStart(event, eventBus, sessionId) {
     });
 }
 
-function handleToolEnd(event, eventBus, sessionId) {
-    eventBus.emit('session', 'tool_result', {
+function handleToolEnd(event, eventLog, sessionId) {
+    eventLog.append(Events.SESSION_TOOL_RESULT, {
         sessionId,
         toolId: event.toolId,
         result: event.result,
@@ -58,8 +54,8 @@ function handleToolEnd(event, eventBus, sessionId) {
     });
 }
 
-function handleMessageEnd(event, eventBus, sessionId) {
-    eventBus.emit('session', 'message', {
+function handleMessageEnd(event, eventLog, sessionId) {
+    eventLog.append(Events.SESSION_MESSAGE, {
         sessionId,
         role: event.message.role,
         content: event.message.content,
@@ -68,4 +64,4 @@ function handleMessageEnd(event, eventBus, sessionId) {
     });
 }
 
-export { subscribeToSessionEvents, emitSessionEnd };
+export { subscribeToSessionEvents };

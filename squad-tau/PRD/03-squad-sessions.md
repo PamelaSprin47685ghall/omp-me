@@ -17,14 +17,14 @@ Worker 和 Self-Confirm 共用**同一个 session 对象**。工具集在 `creat
 
 | 场景 | 调用 | 含义 |
 |------|------|------|
-| Worker 提交 | 第 1 次 `return({ status:'ok', ... })` | → 进入 self-confirm |
-| 自审通过 | 第 2 次 `return({ status:'ok', ... })` | → 完成，进入 reviewer |
+| Worker 提交 | 第 1 次 `return({ status:'ok', ... })` | → 进入 self-confirm（Reactor 推导 `confirming`） |
+| 自审通过 | 第 2 次 `return({ status:'ok', ... })` | → 完成，进入 reviewer（Reactor 推导 `reviewing`） |
 | Worker 重做 | `return({ status:'error', reason })` | → 退回 worker 阶段重做 |
-| Reviewer 驳回 | `return({ status:'error', reason })` | → 节点 rejected，retryCount++，退回 worker |
+| Reviewer 驳回 | `return({ status:'error', reason })` | → 节点 rejected，retryCount++，退回 worker（Reactor 推导） |
 | 主会话 redo | `return({ status:'error', reason })` | → 整个 squad 任务标识需重新 `delegate` |
-| 外层 review 驳回 | approve=false 通过 delegate 返回值传递 | → FSM 进入 active |
+| 外层 review 驳回 | approve=false 通过 delegate 返回值传递 | → Reactor 检测后重置所有节点回 authoring |
 
-`return({ status:'ok' })` 的语义在所有场景一致：当前阶段完成，推进到下一阶段。
+`return({ status:'ok' })` 的语义在所有场景一致：当前阶段完成，Reactor 在下一次 pulse 中通过规则推导下一阶段。
 
 ### Worker 提示词结构
 1. 节点任务描述
@@ -68,7 +68,7 @@ return({ status: 'ok' | 'error', reason: string })
 
 ```mermaid
 graph TD
-    subgraph runWorker[同一 session]
+    subgraph runWorker["同⼀ session"]
         direction TB
         W1["1. session.prompt(workerTask)"]
         W2["2. agent return(1st, status:'ok')"]
@@ -78,19 +78,27 @@ graph TD
         W1 --> W2 --> W3 --> W4 --> W5
     end
 
-    MP1[modelPool.acquire worker] --> runWorker
-    runWorker --> MP2[modelPool.acquire reviewer]
-
-    subgraph runReviewer[每次新 session]
-        direction TB
-        R1["session.prompt(review)"]
-        R2{"return(status)"}
-        R1 --> R2
-        R2 -->|status='ok'| DONE[done]
-        R2 -->|status='error'| RETRY[retry + retryCount++]
+    subgraph Reactor[Reactor 推导]
+        direction LR
+        R1["检测 return → node_state: confirming"]
+        R2["检测 return → node_state: reviewing"]
     end
 
-    MP2 --> runReviewer
+    W2 --> R1
+    W5 --> R2
+
+    R1 --> runWorker
+
+    subgraph runReviewer["每次新 session"]
+        direction TB
+        REV1["session.prompt(review)"]
+        REV2{"return(status)"}
+        REV1 --> REV2
+        REV2 -->|status='ok'| DONE["Reactor → node_state: approved"]
+        REV2 -->|status='error'| RETRY["Reactor → node_state: authoring\n(retryCount++)"]
+    end
+
+    R2 --> runReviewer
 ```
 
 ## 3.5 用户 Steer 消息
@@ -109,35 +117,35 @@ graph TD
 
 ### 路由机制
 
-```mermaid
-graph LR
-    WS[浏览器 WebSocket] -->|session:user_message {sessionId,text}| SR[session-registry]
-    SR -->|按 sessionId 查找| SESSION[对应 session]
-    SESSION -->|session.prompt text| AGENT[agent 处理]
-    AGENT -->|事件流| EB[event-bus]
-    EB -->|广播| WS
 ```
+浏览器 WebSocket →  session:user_message {sessionId, text}  →  EventLog 追加
+EventLog 触发 Engine Pulse  →  Reactor 检测  →  cmd:user_message  →  SideEffect 调用 session.prompt(text)
+```
+
+**关键区别**：用户消息不直接发送给 LLM，而是通过 EventLog 追加事实 → Engine Pulse → Reactor 推导 → SideEffect 执行。所有路径统一走 EventLog。
 
 ### 实现要点
 
-- WebSocket 收到 `session:user_message` → 按 `sessionId` 找到对应 session → 调用 `session.prompt(text)`
+- WebSocket 收到 `session:user_message` → 追加到 EventLog 两条：`session:message`（角色=user，用于 UI 同步）和 `session:user_message_received`（触发脉冲推导）
+- Reactor 通过 EventLog 水位线检测新的 `session:user_message_received` → 推导 `cmd:user_message` → SideEffects 调用 `session.prompt(text)`
 - 注入的消息先广播 `session:message`（role=user）到所有连接的浏览器，保持 UI 同步
 - Worker/Reviewer session 收到用户消息后，agent 会将其视为任务上下文的一部分，可据此调整行为
 - 用户消息不自动触发 squad 状态转换，但 agent 可能因此调用 lifecycle 工具（如 `return`、`delegate`）
 - 已结束的 session（completed / aborted）拒绝接收用户消息，Web UI 会禁用输入框
 - 用户消息在 session 的 JSONL 文件中正常记录，与终端输入的消息等效
 
-### 与 Self-Confirm 的关系
+## 3.6 消息事件桥接
 
-所有 steer 统一走 `session.prompt(text)`，`pi.sendUserMessage()` 在 squad-tau 中不使用。
+session 事件通过 `session.subscribe(callback)` 订阅，回调接收原始事件对象而非命名事件。事件桥接在 `session-events.js` 中完成：
 
-### 消息事件 subscribe 机制
+| session 事件 | WebSocket 事件类型 |
+|-------------|-------------------|
+| `message_update`（含 text_delta/thinking_delta） | `session:message_delta` |
+| `tool_execution_start` | `session:tool_call` |
+| `tool_execution_end` | `session:tool_result` |
+| `message_end` | `session:message` |
 
-实际代码中，session 事件通过 `session.subscribe(callback)` 订阅，回调接收原始事件对象而非命名事件。事件桥接在 `session-events.js` 中完成：
-- `message_update` → 拆分为 `session:message_delta`（含 `text_delta`/`thinking_delta`）
-- `tool_execution_start` → `session:tool_call`
-- `tool_execution_end` → `session:tool_result`
-- `message_end` → `session:message`
+这些事件直接追加到 EventLog（`message_delta` 和 `thinking_delta` 除外——它们仅是流式广播，不入持久日志）。
 
 ### 空轮次上限汇总
 
@@ -147,5 +155,3 @@ graph LR
 | Self-Confirm | 5 | `CONFIRM_MAX_EMPTY` |
 | Reviewer | 20 | `REVIEWER_MAX_EMPTY` |
 | Outer Review | 20 | `OUTER_REVIEW_MAX_EMPTY` |
-
-节点完整执行流程见 §3.4。

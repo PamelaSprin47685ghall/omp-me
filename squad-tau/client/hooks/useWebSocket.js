@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
+import { eventStore } from '../event-store.js';
 
 const BACKOFF_STEPS = [1000, 2000, 4000, 8000, 16000, 30000];
 const MAX_RECONNECT_ATTEMPTS = 50;
@@ -61,6 +62,10 @@ export function useWebSocket({ port, onEvent }) {
             if (typeof window !== 'undefined') window.__wsConnected = true;
             backoffIndexRef.current = 0;
             reconnectAttemptsRef.current = 0;
+
+            // Sync missing events on connect
+            ws.send(JSON.stringify({ type: 'sync', payload: { cursor: eventStore.getCursor() } }));
+
             startPing();
         };
 
@@ -71,7 +76,13 @@ export function useWebSocket({ port, onEvent }) {
                     lastPongRef.current = true;
                     return;
                 }
-                const { type, payload } = msg;
+
+                const { type, payload, seq } = msg;
+
+                // Durable events go to EventStore
+                eventStore.dispatch(type, payload, seq);
+
+                // We still notify onEvent for legacy hooks and logging
                 try {
                     onEventRef.current(type, payload);
                 } catch (err) {

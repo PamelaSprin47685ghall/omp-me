@@ -1,11 +1,15 @@
+/**
+ * Squad-Tau HTTP/WS server lifecycle.
+ * Manages server start/stop and global references.
+ * EventLog-driven — no FSM, no SessionRegistry, no ModelPool class.
+ */
 import { createServer } from 'http';
 import { createHttpServer } from './http-server.js';
 import { createWsServer } from './ws-server.js';
 import { startHeartbeat } from './ws-heartbeat.js';
 import { routeMessage } from './ws-handler.js';
-import { EventBus } from './event-bus.js';
+import { EventLog } from './event-log.js';
 import { createViteDevServer, closeViteServer, CLIENT_ROOT } from './vite-setup.js';
-import { ModelPool } from './model-pool.js';
 import {
     loadModelsConfig,
     saveModelsConfig,
@@ -14,57 +18,11 @@ import {
     syncModelPoolFromConfig,
 } from './model-pool-config.js';
 import { buildSnapshot } from './model-pool-events.js';
-import { getCurrentRun, getSquadSnapshot } from './plugin-state.js';
+import { setupEngine } from './engine.js';
 
 let _server = null;
 let _close = null;
 let _refCount = 0;
-
-function sendInitialSnapshot(ws, modelPool) {
-    ws.send(
-        JSON.stringify({
-            type: 'model_pool:snapshot',
-            payload: buildSnapshot(modelPool),
-            timestamp: Date.now(),
-        }),
-    );
-}
-
-function replaySquadState(ws, squadSnap) {
-    ws.send(
-        JSON.stringify({
-            type: 'squad:init',
-            payload: { mode: squadSnap.mode, nodes: squadSnap.nodes, originalTask: squadSnap.originalTask },
-            timestamp: Date.now(),
-        }),
-    );
-    for (const node of squadSnap.nodes) {
-        ws.send(
-            JSON.stringify({
-                type: 'squad:node_state',
-                payload: { nodeId: node.id, status: node.status, retryCount: node.retryCount },
-                timestamp: Date.now(),
-            }),
-        );
-    }
-    if (squadSnap.completed) {
-        ws.send(
-            JSON.stringify({
-                type: 'squad:complete',
-                payload: { results: squadSnap.results },
-                timestamp: Date.now(),
-            }),
-        );
-    }
-}
-
-function createConnectionHandler(modelPool, eventBus) {
-    return (ws) => {
-        sendInitialSnapshot(ws, modelPool);
-        const squadSnap = getSquadSnapshot();
-        if (squadSnap) replaySquadState(ws, squadSnap);
-    };
-}
 
 function createCloseHandler(wss, rawServer, heartbeatCleanup, unsub) {
     let closing = false;
@@ -92,37 +50,71 @@ function createCloseHandler(wss, rawServer, heartbeatCleanup, unsub) {
 
 export async function startServer({ skipVite = false } = {}) {
     _refCount++;
-    if (_server) return { port: _server.port, eventBus: _server.eventBus, modelPool: _server.modelPool, close: _close };
+    if (_server) return { port: _server.port, eventLog: _server.eventLog, close: _close };
 
-    const eventBus = new EventBus();
+    const eventLog = new EventLog();
     const config = loadModelsConfig();
-    const modelPool = new ModelPool(config);
+
+    // Initialize model pool slots via EventLog (no ModelPool class)
+    eventLog.append('model_pool:snapshot', {
+        slots: config.map((s, i) => ({
+            ...s,
+            slotId: s.slotId || `slot-${i}-${s.role}-${s.provider}-${s.modelId}`,
+        })),
+    });
+
+    const engine = setupEngine(eventLog, { pi: globalThis.PI });
+
     const rawServer = createServer();
     const viteMiddlewares = await createViteDevServer({ skipVite });
-    const { wss, unsub } = await createWsServer(rawServer, eventBus, {
-        onConnection: createConnectionHandler(modelPool, eventBus),
+    const { wss } = await createWsServer(rawServer, null, {
+        onConnection: (ws) => {
+            const missing = eventLog.getSince(0);
+            for (const event of missing) {
+                ws.send(
+                    JSON.stringify({
+                        type: event.event,
+                        payload: event.payload,
+                        timestamp: event.timestamp,
+                        seq: event.id,
+                    }),
+                );
+            }
+        },
         onMessage: async (msg, ws) => {
-            await routeMessage(msg, modelPool, { loadModelsConfig, saveModelsConfig }, eventBus, ws);
+            await routeMessage(msg, { loadModelsConfig, saveModelsConfig }, eventLog, ws, engine.getState);
         },
     });
+
+    // Pipe eventLog to WebSocket clients
+    const unsubLog = eventLog.subscribe((entry) => {
+        const msg = JSON.stringify({
+            type: entry.event,
+            payload: entry.payload,
+            timestamp: entry.timestamp,
+            seq: entry.id,
+        });
+        for (const client of wss.clients) {
+            if (client.readyState === 1) client.send(msg);
+        }
+    });
+
     const heartbeatCleanup = startHeartbeat(wss.clients);
     const http = await createHttpServer({ viteMiddlewares, server: rawServer, clientRoot: CLIENT_ROOT });
-    const close = createCloseHandler(wss, rawServer, heartbeatCleanup, unsub);
-
-    watchConfig(() => {
-        syncModelPoolFromConfig(modelPool, loadModelsConfig());
-        eventBus.emit('model_pool', 'changed', buildSnapshot(modelPool));
+    const close = createCloseHandler(wss, rawServer, heartbeatCleanup, () => {
+        unsubLog();
+        engine.cleanup();
     });
 
-    eventBus.on('squad:abort', () => {
-        const run = getCurrentRun();
-        if (run) run.abortController.abort();
+    watchConfig((newConfig) => {
+        syncModelPoolFromConfig(eventLog, newConfig, engine.getState);
+        eventLog.append('model_pool:changed', buildSnapshot(engine.getState()));
     });
 
-    _server = { port: http.port, eventBus, modelPool };
+    _server = { port: http.port, eventLog };
     _close = close;
 
-    return { port: http.port, eventBus, modelPool, close };
+    return { port: http.port, eventLog, close };
 }
 
 export async function stopServer() {
@@ -134,11 +126,8 @@ export async function stopServer() {
     }
 }
 
-export function getGlobalEventBus() {
-    return _server?.eventBus ?? null;
-}
-export function getGlobalModelPool() {
-    return _server?.modelPool ?? null;
+export function getGlobalEventLog() {
+    return _server?.eventLog ?? null;
 }
 export function getServerPort() {
     return _server?.port ?? null;

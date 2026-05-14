@@ -7,7 +7,7 @@ const STATUS_COLOR_MAP = { approved: 'green.fg', rejected: 'red.fg', failed: 're
 
 function TreeIcon({ status, ...rest }) {
   const IconCmp = STATUS_ICONS[status] ?? Circle;
-  return <Icon as={IconCmp} boxSize={4} color={STATUS_COLOR_MAP[status] ?? 'fg.subtle'} {...rest} />;
+  return <Icon as={IconCmp} boxSize={4} data-status={status} {...rest} />;
 }
 
 function SessionRow({ isSelected, sessionData, onClick }) {
@@ -35,9 +35,15 @@ function SessionRow({ isSelected, sessionData, onClick }) {
   );
 }
 
-function NodeGroup({ node, children }) {
+function NodeGroup({ nodeId, nodes, sessions, activeSessionId, onSelectSession }) {
+  const node = nodes.find(n => n.id === nodeId);
+  const nodeSessions = useMemo(() => 
+    sessions.filter(s => s.nodeId === nodeId),
+    [sessions, nodeId]
+  );
   const [expanded, setExpanded] = useState(true);
-  const label = node?.label || node?.id || '';
+  const label = node?.label || node?.id || nodeId;
+
   return (
     <Box>
       <HStack
@@ -54,7 +60,14 @@ function NodeGroup({ node, children }) {
       <Collapsible.Root open={expanded}>
         <Collapsible.Content>
           <Box pl={3} borderLeft="1px solid" borderColor="border">
-            {children}
+            {nodeSessions.map(session => (
+              <SessionRow
+                key={session.sessionId}
+                sessionData={session}
+                isSelected={activeSessionId === session.sessionId}
+                onClick={() => onSelectSession(session.sessionId)}
+              />
+            ))}
           </Box>
         </Collapsible.Content>
       </Collapsible.Root>
@@ -62,25 +75,20 @@ function NodeGroup({ node, children }) {
   );
 }
 
-function buildTreeData(sessions, nodes, activeSessionId) {
-  const groupMap = new Map();
-  const topLevel = [];
-  sessions.forEach(session => {
-    const { sessionId, nodeId, status } = session;
-    if (!nodeId) { topLevel.push({ type: 'session', id: sessionId, sessionData: session, isSelected: activeSessionId === sessionId }); return; }
-    if (!groupMap.has(nodeId)) { const info = nodes.get(nodeId); groupMap.set(nodeId, { type: 'group', id: nodeId, label: nodeId, status: info?.status, children: [] }); }
-    groupMap.get(nodeId).children.push({ type: 'session', id: sessionId, sessionData: session, isSelected: activeSessionId === sessionId });
-  });
-  const result = []; groupMap.forEach(g => result.push(g)); topLevel.forEach(t => result.push(t));
-  return result;
-}
-
 export default function Sidebar({ sessions, nodes, activeSessionId, onSelectSession, viewMode, onSelectDAG }) {
-  const treeData = useMemo(() => buildTreeData(sessions, nodes, activeSessionId), [sessions, nodes, activeSessionId]);
-  const handleNodeClick = useCallback((node) => { if (node.type === 'session') onSelectSession(node.id); }, [onSelectSession]);
+  const nodeIds = useMemo(() => {
+    const ids = new Set(nodes.map(n => n.id));
+    sessions.forEach(s => { if (s.nodeId) ids.add(s.nodeId); });
+    return Array.from(ids);
+  }, [nodes, sessions]);
+  
+  const topLevelSessions = useMemo(() => 
+    sessions.filter(s => !s.nodeId),
+    [sessions]
+  );
 
   return (
-    <VStack gap={1} p={4} flex="0 0 320px" minH={0} borderRight="1px solid" borderColor="border" overflowY="auto">
+    <VStack gap={1} p={4} flex="0 0 320px" minH={0} borderRight="1px solid" borderColor="border" overflowY="auto" alignItems="stretch">
       <HStack
         px={1}
         py="0.5"
@@ -90,24 +98,32 @@ export default function Sidebar({ sessions, nodes, activeSessionId, onSelectSess
         color={viewMode === 'dag' ? 'blue.fg' : 'inherit'}
         fontWeight={viewMode === 'dag' ? 600 : 400}
         onClick={onSelectDAG}
-        role="treeitem"
         gap={1}
+        role="treeitem"
       >
         <Icon as={Network} boxSize={3} color="fg.subtle" />
         <Text fontSize="sm">DAG Overview</Text>
       </HStack>
-      {treeData.map(node => {
-        if (node.type === 'group') {
-          return (
-            <NodeGroup key={node.id} node={node}>
-              {node.children.map(child => (
-                <SessionRow key={child.id} sessionData={child.sessionData} isSelected={child.isSelected} onClick={() => handleNodeClick(child)} />
-              ))}
-            </NodeGroup>
-          );
-        }
-        return <SessionRow key={node.id} sessionData={node.sessionData} isSelected={node.isSelected} onClick={() => handleNodeClick(node)} />;
-      })}
+
+      {nodeIds.map(id => (
+        <NodeGroup
+          key={id}
+          nodeId={id}
+          nodes={nodes}
+          sessions={sessions}
+          activeSessionId={activeSessionId}
+          onSelectSession={onSelectSession}
+        />
+      ))}
+
+      {topLevelSessions.map(session => (
+        <SessionRow
+          key={session.sessionId}
+          sessionData={session}
+          isSelected={activeSessionId === session.sessionId}
+          onClick={() => onSelectSession(session.sessionId)}
+        />
+      ))}
     </VStack>
   );
 }

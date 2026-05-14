@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { streamingManager } from '../streaming-manager.js';
 
-export function useAutoScroll(containerRef, messages, deltas) {
+export function useAutoScroll(containerRef, messages) {
     const [isAtBottom, setIsAtBottom] = useState(true);
     const rafIdRef = useRef(null);
 
@@ -41,11 +42,20 @@ export function useAutoScroll(containerRef, messages, deltas) {
         };
     }, [containerRef, checkIfAtBottom]);
 
+    // Handle durable message changes
     useEffect(() => {
         if (isAtBottom) {
             scrollToBottom();
         }
-    }, [isAtBottom, scrollToBottom, messages, deltas]);
+    }, [isAtBottom, scrollToBottom, messages]);
+
+    // Handle high-frequency deltas
+    useEffect(() => {
+        if (!isAtBottom) return;
+        const wrapper = () => scrollToBottom();
+        streamingManager.events.addEventListener('global_delta', wrapper);
+        return () => streamingManager.events.removeEventListener('global_delta', wrapper);
+    }, [isAtBottom, scrollToBottom]);
 
     return { isAtBottom, scrollToBottom };
 }

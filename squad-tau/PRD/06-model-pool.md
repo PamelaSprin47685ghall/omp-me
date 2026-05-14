@@ -1,8 +1,25 @@
 # Squad-Tau PRD — 06 模型池管理
 
-## 6.1 配置文件
+**核心哲学**：模型池被降维成了单纯的**数学计数器**。不存在 `ModelPool` 类、不存在 `acquire()` 异步等待队列、不存在 `release()` 唤醒逻辑。资源分配由 Reactor 动态裁决——通过 EventLog 投影后的**静态槽位 Map** 计算可用性。资源释放由节点终结事实自然触发。
 
-- 路径：`{cwd}/.omp/models.toml`（当前工作目录下的 `.omp/models.toml`，实际代码使用 `process.cwd()` 拼接）
+## 6.1 数学模型
+
+```
+模型池 = 槽位配置（slots: Array<Slot>） + 使用表（usage: Map<slotId, {inUse, nodeId, role}>）
+
+角色可用槽位数 = slots.filter(s → s.role === R).length - usage.filter(u → u.role === R).length
+
+slot闲置判定 = usage[slotId] === undefined
+```
+
+Reactor 每次 pulse 时：
+1. **分配**：扫描处于 authoring/confirming/reviewing 状态但未分配模型的节点 → 查找角色匹配的空闲槽位 → 差值 > 0 则推导 `model_pool:acquire` 事实
+2. **释放**：扫描 usage 表中所有条目 → 如果对应的节点已处于 terminal 状态（approved/failed/blocked）→ 推导 `model_pool:release` 事实
+3. **空池绕过**：如果角色槽位数 === 0（未配置），跳过 acquire，直接推导 `cmd:create_session` 使用当前会话模型
+
+## 6.2 配置文件
+
+- 路径：`{cwd}/.omp/models.toml`（当前工作目录下的 `.omp/models.toml`）
 - 解析方式：使用 `Bun.TOML.parse()` 解析（`model-pool-config.js`），非 Bun 环境抛出错误
 - 保存方式：手动字符串拼接生成 TOML 格式（`saveModelsConfig`），非使用 TOML 序列化库
 - 格式示例：
@@ -19,90 +36,62 @@ model_id = "claude-3-5-haiku-20241022"
 role = "reviewer"
 ```
 
-## 6.2 并发模型
+## 6.3 数据流（无类、无队列）
 
-```mermaid
-graph TD
-    MP[ModelPool] --> WS[workerSlots]
-    MP --> RS[reviewerSlots]
-    WS --> WQ[acquire worker → slot / 等待队列]
-    RS --> RQ[acquire reviewer → slot / 等待队列]
-    WQ --> WREL[release → 唤醒等待者]
-    RQ --> RREL[release → 唤醒等待者]
+```
+配置文件变更 / WebSocket model_pool:update
+    → model_pool:config_update 追加到 EventLog
+    → Projections 增量折叠 → state.modelPool.slots 更新
+    → Reactor 下次 pulse 重新计算差值
+    → 推导 acquire/release 事实
 ```
 
-- Worker 和 Reviewer 使用独立的槽位队列
-- `acquire(role, signal)` 是异步操作：
-  - 有空闲槽位 → 立即返回
-  - 无空闲槽位 → 挂起直到有槽位释放或 signal.aborted
-- `release()` 释放槽位，唤醒等待者
-- 同一配置行可重复（例如 3 行相同的 worker 配置 = 3 并发）
-- 引用计数：acquire 标记 inUse，release 清除标记
+**异步等待模拟**（非真等待）：如果某节点需要 worker 模型但无空闲槽位，Reactor 在本轮 pulse 中不对此节点产生任何动作。下次 pulse（由任意后续事实触发）会重新尝试。这不构成"等待队列"——只是 Reactor 的约束自然传导。
 
-## 6.3 浏览器端实时调整
+## 6.4 浏览器端实时调整
 
 ### 工作机制
 1. 浏览器发送 `model_pool:update` WebSocket 消息
-2. 服务端收到后：
-   - 更新 `.omp/models.toml` 文件
-   - 更新内存中的 ModelPool 实例（增/删/改槽位）
-   - 广播 `model_pool:changed` 到所有连接
-3. 所有浏览器收到变更后更新 UI
+2. 服务端收到后追加 `model_pool:config_update` 事实到 EventLog
+3. 同时持久化到 `.omp/models.toml`
+4. EventLog 变更触发 Engine Pulse → Projections 更新 → `model_pool:changed` 广播到所有连接
+5. 所有浏览器收到变更后通过 applyEvent 更新本地 State → UI 自动反映新槽位配置
 
 ### 操作类型
 
-| 操作 | 行为 |
-|------|------|
-| `add` | 在内存和文件中插入新槽位，新槽位初始为可用状态 |
-| `remove` | 删除槽位，如果正在使用则等待释放后删除（或在下次 release 时删除） |
-| `edit` | 修改 `thinkingLevel`，不影响正在运行的任务 |
+| 操作 | 行为 | EventLog 事实 |
+|------|------|---------------|
+| `add` | 追加新槽位，初始为可用 | `model_pool:config_update {action: 'add', slot}` |
+| `remove` | 从配置和投影中移除槽位 | `model_pool:config_update {action: 'remove', slotId}` |
+| `edit` | 修改 `thinkingLevel` | `model_pool:config_update {action: 'edit', slotId, thinkingLevel}` |
 
-### 注意事项
-- 删除正在使用的槽位 → 标记为 `pending_delete`，release 时真正删除（`ModelPool._purgeSlot`）
-- 编辑不影响运行中任务的 thinkingLevel
-- 新增槽位立即生效，等待队列中的 acquire 会立即分配到新槽位
-
-### 实际实现细节
-
-| 方面 | PRD 设计 | 实际实现 |
-|------|---------|---------|
-| 配置文件解析 | 未指定 | `Bun.TOML.parse()` 读取，手动字符串拼接写入 |
-| 配置路径 | `{cwd}/.omp/models.toml` | `process.cwd()` + `.omp/models.toml` |
-| 槽位同步 | 直接增删改 | 使用频率计数 map（`syncModelPoolFromConfig`），匹配新旧配置的 slot 数量差异进行增删，多余 slot 按频率移除 |
-| thinkingLevel 同步 | 编辑更新 | 按 position 匹配：对每个 `newConfig` 条目，找到 pool 中第 N 个匹配 key 的 slot 更新 thinkingLevel |
-| 文件监听 | `fs.watchFile` | 使用 `fs.watchFile(configPath, { interval: 300 })` + 300ms debounce |
-| 空池处理 | acquire 返回 null | `slots.length === 0` 或所有 slot 均为 `pendingDelete` 时返回 null（降级到当前会话模型） |
-| 信号处理 | acquire 可被 signal.abort | `signal.addEventListener('abort')` 从等待队列中移除 waiter 并 reject |
-
-## 6.4 与 Squad 引擎的集成
-
-### 模型分配优先级
-1. **优先使用模型池**：Squad 引擎在执行节点前调用 `modelPool.acquire(role)` 获取模型槽位
-2. **回落到当前会话模型**：如果模型池为空（无任何配置），或 acquire 超时/失败，使用主会话正在使用的模型
-3. **当前会话模型无上限**：使用当前会话模型时不做并发限制，多个 worker 可同时使用
-
-### 工作流程
-```mermaid
-graph LR
-    ACQ[modelPool.acquire worker] -->|有槽位| SLOT[使用模型池模型]
-    ACQ -->|null| FALLBACK[使用当前会话模型]
-    SLOT --> WORK[执行任务]
-    FALLBACK --> WORK
-    WORK --> REL[slot.release]
-```
-
-### 其他
-- 节点执行完毕后（无论成败）调用 `slot.release()`
-- 如果 signal.aborted，acquire 立即 reject，外层捕获后终止节点
-- **无限并发**：不设硬编码并发上限，并发度仅受模型池槽位数限制。槽位越多，并行度越高
+**删除正在使用中的槽位**：投影只是从 `slots` 数组中移除该槽位。已分配的 session 继续运行不受影响（`usage` 表仍然持有该 `slotId`）。当 Reactor 下次检测到该节点终结时，release 事实会清理 `usage` 条目——释放的 `slotId` 已不存在于 `slots` 中，不会重新分配。
 
 ## 6.5 文件变更同步
 
-- 除了浏览器端修改，用户可能直接编辑 `.omp/models.toml`
-- 使用 `fs.watchFile` 监听配置文件变更
-- 检测到文件变更后：
-  1. 重新读取配置文件
-  2. 对比内存中的 ModelPool 状态
-  3. 更新 ModelPool 实例（增/删/改槽位，不影响正在运行的任务）
-  4. 广播 `model_pool:changed` 事件到所有 WebSocket 客户端
-- 注意：直接删除配置文件中正在使用的槽位时，行为与浏览器删除一致（标记为 pending_delete，release 时真正删除）
+- 使用 `fs.watchFile` 监听 `.omp/models.toml` 变更
+- 检测到变更后，对比新旧配置的槽位差异，追加对应的 `model_pool:config_update` 事实
+- **300ms 防抖**（`model-pool-config.js` 中 `setTimeout`）避免高频写入时的竞态
+- 注意：这是系统中唯一残留的定时器。它不决定任何业务逻辑，只是文件 I/O 合并优化
+
+## 6.6 与 Squad 引擎的集成
+
+### 模型分配优先级（纯投影查询，无状态类）
+
+1. **优先使用模型池**：Reactor 检查 `state.modelPool.slots` 中是否有角色匹配的空闲槽位
+2. **回落到当前会话模型**：如果角色槽位数为 0（无任何配置），跳过 acquire 直接创建 session
+3. **当前会话模型无上限**：使用当前会话模型时不做并发限制，多个 worker 可同时使用
+
+### 工作流程（纯事实驱动）
+
+```
+节点 → status=authoring → Reactor 检查 model pool 投影
+  ├─ 有空闲槽位 → model_pool:acquire → session:start → session:tool_call(return) → node_state
+  └─ 无槽位 → 静默等待（下次 pulse 再检查）
+节点 → terminal → Reactor 检查 usage 表 → model_pool:release
+```
+
+### 其他
+- 节点执行完毕后（无论成败），Reactor 推导 `model_pool:release` 事实
+- **无限并发**：不设硬编码并发上限，并发度仅受模型池槽位数限制。槽位越多，并行度越高
+- 无信号量、无 Promise.race、无异步队列——纯 EventLog + Projections 推导

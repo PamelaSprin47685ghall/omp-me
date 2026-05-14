@@ -1,10 +1,28 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { HStack, Text, Badge, Collapsible, Icon, Box } from '@chakra-ui/react';
 import { ChevronDown, ChevronRight, Lightbulb } from 'lucide-react';
+import { streamingManager } from '../streaming-manager.js';
 
-export default function ThinkingBlock({ content, isStreaming = false }) {
-  const [open, setOpen] = useState(false);
+export default function ThinkingBlock({ content, isStreaming = false, messageId }) {
+  const [open, setOpen] = useState(isStreaming);
+  const textRef = useRef(null);
   const toggle = useCallback(() => setOpen((value) => !value), []);
+
+  useEffect(() => {
+    if (!isStreaming || !messageId) return;
+    
+    // Initial sync from buffer
+    const buffer = streamingManager.getBuffer(messageId);
+    if (textRef.current && buffer.thinking) {
+      textRef.current.textContent = buffer.thinking;
+    }
+
+    return streamingManager.subscribe(messageId, (batch) => {
+      if (batch.thinking && textRef.current) {
+        textRef.current.textContent += batch.thinking;
+      }
+    });
+  }, [isStreaming, messageId]);
 
   return (
     <>
@@ -26,6 +44,7 @@ export default function ThinkingBlock({ content, isStreaming = false }) {
       <Collapsible.Root open={open}>
         <Collapsible.Content>
           <Box
+            ref={textRef}
             as="pre"
             fontFamily="mono"
             p={3}

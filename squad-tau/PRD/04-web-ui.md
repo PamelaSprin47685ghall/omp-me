@@ -1,23 +1,36 @@
 # Squad-Tau PRD — 04 Web UI 实时镜像
 
-### 技术栈
+**核心哲学**：UI 绝对贫血（Anemic UI）。React 不维护任何业务状态，无 Reducer 计算逻辑。**前后端同构投影**（CQRS）——WebSocket 推送的事件数组直接输入到共享的 `applyEvent` 函数，React 的渲染只需 O(1) 地绑定这个折叠后的 State 对象。
+
+## 4.1 技术栈
 
 | 层 | 技术 | 版本 |
 |----|------|------|
 | 框架 | React | 18.3.x |
 | UI 组件 | @chakra-ui/react | 3.x |
 | 图标 | lucide-react | latest |
-| DAG 可视化 | beautiful-mermaid | latest |（基于 mermaid 但内置暗色主题支持） |
+| DAG 可视化 | beautiful-mermaid | latest（基于 mermaid 但内置暗色主题支持） |
 | 通信 | WebSocket (原生) | — |
 | 构建 | vite | 8.0.x |
 | 语言 | JavaScript (JSX) | — |
 
 ## 4.2 架构原则
 
-- **无 proxy**：直接在 oh-my-pi 进程内启动 HTTP + WebSocket 服务器
-- **无文件轮询**：所有状态变更通过 WebSocket 事件推送，天然防抖
-- **Delta 渲染**：只传输增量数据（新消息、状态变更），不全量同步
-- **事件驱动**：状态变更即刻推送，无需客户端轮询或刷新
+- **无业务状态**：React 不维护任何 squad 业务逻辑。所有状态来自同构投影 `shared/projections.js`。
+- **同构投影（CQRS）**：前端通过 `event-store.js` 维护一个 EventLog 副本。每次收到 WebSocket 事件，调用 `shared/projections.js` 的 `applyEvent()` 增量折叠。React 组件直接绑定 fold 结果。
+- **Delta 渲染**：只传输增量数据（新消息、状态变更），不全量同步。前端通过 `sync` 请求（携带上一次收到的 seq）在断线重连后补齐。
+- **事件驱动**：状态变更即刻推送，无需客户端轮询或刷新。
+- **单向数据流**：用户操作（消息、模型池配置修改）→ WebSocket → EventLog 追加 → Engine Pulse → Reactor 推导 → Projection → React 重新绑定。
+
+### 数据流全景
+
+```
+WebSocket → event-store (Array<Event>) → applyEvent(prevState, event) → newState
+                                                                             ↓
+                                                     React hooks (useMemo/useSyncExternalStore)
+                                                                             ↓
+                                                             Chakra UI 组件绑定
+```
 
 ## 4.3 UI 布局
 
@@ -27,7 +40,7 @@
 
 ### Sessions Tree（扁平混合树）
 - Chakra 混合布局：顶部 "DAG Overview" 节点（带 `Network` 图标）→ 按 nodeId 分组的 Node → 阶段子节点 → 无 nodeId 的游离 session
-- **增量更新**：Tree contents 由 useMemo 从 sessions + nodes 重新计算
+- **增量更新**：Tree contents 由 `useMemo` 从 sessions + nodes 重新计算
 - **排序规则**：两层均按 session 创建时间升序排列（自然数 session ID 递增即创建时间升序）
   - 第一层（Node）：节点按首次出现的 order 排列
   - 第二层（Phase）：子节点按 session 创建时间升序排列
@@ -40,7 +53,8 @@
 ### 导航逻辑
 - **从不自动切换**：用户始终手动选择要查看的会话，不存在 auto-follow 或锁定的概念
 - 点击侧边栏树节点 → 切换到该会话
-- 顶部 "DAG Overview" 节点（点击切换到 DAG 视图）→ 节点 Node（一级）→ 阶段 Phase（二级）→ 无 nodeId 的 session 直接作为顶层
+- 顶部 "DAG Overview" 节点 → 点击切换到 DAG 视图
+- 节点 Node（一级）→ 阶段 Phase（二级）→ 无 nodeId 的 session 直接作为顶层
 - 二级节点标签：`R<retryCount+1> <phase>`（例如：R1 worker、R2 reviewer）
 - 无 nodeId 的 session 显示为 "Outer Review" 或 "Architect"
 - 各状态使用 lucide-react 图标：approved → `CheckCircle`, rejected → `XCircle`, pending → `Clock`, active/authoring/confirming/reviewing → `RefreshCw`, failed/blocked → `Ban`
@@ -60,7 +74,7 @@
 - 占满整个主内容区，使用 `beautiful-mermaid` 渲染 SVG
 - DAG 显示所有节点及其依赖关系，状态变更更新节点颜色
 - 点击 DAG 节点 → 跳转到对应 worker/reviewer 会话（查找该节点的 session 并切换）
-- 状态变更更新：`squad:node_state` 事件触发重绘，不因无关事件触发
+- 仅在 `shared/projections.js` 中 `squad:node_state` 事件引起 state 变更时重绘，不因无关事件触发
 
 ### 消息渲染
 - **角色区分**：不同角色使用不同左边框色带：
@@ -75,18 +89,19 @@
   - 可折叠（Chakra `Collapse` 组件）
   - 实时流式渲染：WebSocket 推送 `session:message_delta` 时，通过 `requestAnimationFrame` 合并 delta 批量追加，不每帧操作 DOM
   - 流式更新丝滑无停顿，展开状态跨消息保持
+  - **这是唯一绕过 React State 的性能优化特例**——高频 Thinking delta 通过 RAF 双缓冲直接写入 DOM，不经 State 更新链
 - **Tool 调用**：
   - 使用 Chakra 风格卡片
-  - **默认全部折叠**（`useState(false)`），代码行为与 PRD 设计不同——所有 tool call 卡片初始均为折叠状态，不区分新旧
+  - **默认全部折叠**（`useState(false)`），所有 tool call 卡片初始均为折叠状态
   - 显示 tool 名称、参数（JSON 格式化）、结果
   - 结果可点击展开/折叠
   - 工具调用期间显示 `running` Tag（无 `Spinner` 动画）
-  - 错误结果自动展开并以红色高亮（错误结果 `Collapse isOpen` 由 `isError` 单独标记，实际代码不自动展开）
+  - 错误结果自动展开并以红色高亮
 
 ### Auto-scroll 行为
 - 默认自动跟随最新消息
 - 当用户手动向上滚动查看历史时，自动滚动暂停
-- 用户向上滚动后，底部显示浮动按钮（lucide `ArrowDown` 图标，语义为"回到最新消息"，点击恢复自动跟随
+- 用户向上滚动后，底部显示浮动按钮（lucide `ArrowDown` 图标，语义为"回到最新消息"），点击恢复自动跟随
 - 使用 `requestAnimationFrame` 合并滚动操作，避免 Thinking delta 高频更新导致页面跳跃
 - 恢复逻辑：当 `scrollTop + clientHeight >= scrollHeight - 100px` 时，自动恢复跟随
 
@@ -106,7 +121,7 @@
 - 使用 Chakra `Alert` 组件，colorPalette="red"，标题 `Squad Failed`
 - banner 显示失败节点数量（failed/blocked 分别计数）、第一个失败节点的 summary 作为原因
 - 用户可手动关闭 banner（`onDismiss`）
-- Chakra 完成时显示 success Callout
+- Squad 完成时显示 success Callout
 - 其他错误（WebSocket 断连、服务端崩溃）通过 Header 连接状态指示器展示
 
 ### 消息输入
@@ -136,7 +151,7 @@
 - **添加**：`Select` 选择 provider，`InputGroup` 输入 modelId，`Select` 选 role，`Select` 选 thinkingLevel → 添加按钮
 - **编辑**：点击编辑图标 → 行内编辑 `thinkingLevel` → 保存/取消
 - **删除**：点击删除图标 → Chakra `Dialog` 确认对话框
-- 实时生效：每次操作发送 `model_pool:update` → 服务端更新 `.omp/models.toml` 文件 → 广播 `model_pool:changed` → 所有已连接浏览器同步
+- 实时生效：每次操作发送 `model_pool:update` → 服务端处理 → `model_pool:changed` 广播 → 所有已连接浏览器同步
 
 ## 4.8 深色模式
 

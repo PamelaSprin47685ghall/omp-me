@@ -9,39 +9,8 @@ import { useWebSocket } from './hooks/useWebSocket.js';
 import useSquadState from './hooks/useSquadState.js';
 import { useSessionState } from './hooks/useSessionState.js';
 import { useModelPool } from './hooks/useModelPool.js';
-
-function useAppEventHandlers(squadDispatch, sessionDispatch, modelPoolDispatch) {
-  return useCallback((type, payload) => {
-    if (type.startsWith('squad:')) {
-      const mapped = {
-        'squad:init': 'SQUAD_INIT',
-        'squad:node_state': 'NODE_STATE',
-        'squad:complete': 'SQUAD_COMPLETE',
-        'squad:abort': 'SQUAD_ABORT',
-        'squad:outer_review_start': 'SQUAD_OUTER_REVIEW_START',
-        'squad:outer_review_result': 'SQUAD_OUTER_REVIEW_RESULT',
-      };
-      const eventType = mapped[type] || type.replace('squad:', '').toUpperCase().replace(/:/g, '_');
-      squadDispatch({ type: eventType, payload });
-      return;
-    }
-
-    if (type.startsWith('session:')) {
-      const eventType = 'SESSION_' + type.replace('session:', '').toUpperCase().replace(/:/g, '_');
-      sessionDispatch({ type: eventType, payload });
-      return;
-    }
-
-    if (type.startsWith('model_pool:')) {
-      modelPoolDispatch({ type, payload });
-      return;
-    }
-
-    if (type === 'error') {
-      console.error('[App] WS error:', payload);
-    }
-  }, [squadDispatch, sessionDispatch, modelPoolDispatch]);
-}
+import { streamingManager } from './streaming-manager.js';
+import { eventStore } from './event-store.js';
 
 export default function App() {
   const { isDark } = useDarkMode();
@@ -54,7 +23,11 @@ export default function App() {
   const { sessions, messages, activeSessionId, setActiveSessionId, dispatch: sessionDispatch } = useSessionState();
   const { isOpen: modelPoolOpen, openDrawer: openModelPool, closeDrawer: closeModelPool, slots, updateSlot, sendModelPoolUpdate, dispatch: modelPoolDispatch } = useModelPool();
 
-  const handleEvent = useAppEventHandlers(squadDispatch, sessionDispatch, modelPoolDispatch);
+  const handleEvent = useCallback((type, payload) => {
+    // legacy logging or debugging
+    if (type === 'error') console.error('[App] WS error:', payload);
+  }, []);
+
   const { connected, send } = useWebSocket({ onEvent: handleEvent });
   const [viewMode, setViewMode] = useState('dag');
 
@@ -68,23 +41,36 @@ export default function App() {
   }, [send, sendModelPoolUpdate]);
 
   useEffect(() => {
+    window.__squadState = { squad, nodes, results };
+  }, [squad, nodes, results]);
+
+  useEffect(() => {
+    window.__sessionState = { sessions, messages, activeSessionId };
+  }, [sessions, messages, activeSessionId]);
+
+  useEffect(() => {
     window.__squadEventBus = handleEvent;
     window.__setActiveSessionId = setActiveSessionId;
+    window.__resetEventStore = () => eventStore.reset();
+    window.__injectEvents = (events) => {
+      for (const e of events) eventStore.dispatch(e.type, e.payload, e.seq);
+      return new Promise(r => requestAnimationFrame(r));
+    };
     window.__selectLatestSession = () => {
-      const sessionValues = [...sessions.values()];
+      const sessionValues = Object.values(sessions);
       if (sessionValues.length > 0) selectSession(sessionValues[sessionValues.length - 1].sessionId);
     };
   }, [handleEvent, setActiveSessionId, sessions, selectSession]);
 
   const handleNodeClick = (nodeId) => {
-    const sessionsForNode = [...sessions.values()].filter((session) => session.nodeId === nodeId);
+    const sessionsForNode = Object.values(sessions).filter((session) => session.nodeId === nodeId);
     if (sessionsForNode.length > 0) {
       selectSession(sessionsForNode[sessionsForNode.length - 1].sessionId);
     }
   };
 
-  const sessionList = [...sessions.values()];
-  const squadActive = squad !== null;
+  const sessionList = Object.values(sessions);
+  const squadActive = squad !== null && squad.status === 'active';
 
   return (
     <Flex direction="column" minH="100vh" w="full">

@@ -1,52 +1,58 @@
 /**
- * WebSocket model_pool event handlers.
- * @see PRD/05-event-protocol.md §5.6
- * @see PRD/06-model-pool.md §6.3
+ * Model pool message handlers — direct EventLog operations.
+ * No ModelPool class: operations are just event append + file persist.
  */
+import { Events } from '../shared/events.js';
 
 /**
+ * Handle a model pool config message from WebSocket.
+ * Applies the action to EventLog and persists to disk.
+ *
  * @param {{action:string, slot?:object, slotId?:string, thinkingLevel?:string}} msg
- * @param {import('./model-pool.js').ModelPool} modelPool
- * @param {object} configModule
- * @param {object} configModule
- * @param {Function} configModule.saveModelsConfig
- * @param {Function} configModule.loadModelsConfig
+ * @param {object} eventLog
+ * @param {object} configModule — { loadModelsConfig, saveModelsConfig }
  */
-export async function handleModelPoolMessage(msg, modelPool, configModule, eventBus) {
+export async function handleModelPoolMessage(msg, configModule, eventLog, getState) {
     const { action, slot, slotId, thinkingLevel } = msg;
     switch (action) {
         case 'add':
-            modelPool.addSlot(slot);
-            await configModule.saveModelsConfig(modelPool.getSlots());
+            eventLog.append(Events.MODEL_POOL_CONFIG_UPDATE, {
+                action: 'add',
+                slot: {
+                    ...slot,
+                    slotId: slot.slotId || `slot-${slot.role}-${Date.now()}`,
+                },
+            });
             break;
         case 'remove':
-            modelPool.removeSlot(slotId);
-            await configModule.saveModelsConfig(modelPool.getSlots());
+            eventLog.append(Events.MODEL_POOL_CONFIG_UPDATE, { action: 'remove', slotId });
             break;
         case 'edit':
             if (!slotId || thinkingLevel === undefined) break;
-            modelPool.updateSlotThinkingLevel(slotId, thinkingLevel);
-            await configModule.saveModelsConfig(modelPool.getSlots());
+            eventLog.append(Events.MODEL_POOL_CONFIG_UPDATE, {
+                action: 'edit',
+                slotId,
+                thinkingLevel,
+            });
             break;
     }
-    if (eventBus) {
-        eventBus.emit('model_pool', 'changed', buildSnapshot(modelPool));
-    }
+    // Persist current slot list to disk
+    const state = getState();
+    await configModule.saveModelsConfig(state.modelPool.slots);
 }
 
 /**
- * @param {import('./model-pool.js').ModelPool} modelPool
- * @returns {{slots: Array<{provider:string, modelId:string, role:string, thinkingLevel?:string, inUse:boolean}>}}
+ * Build snapshot object from projected state.
  */
-export function buildSnapshot(modelPool) {
+export function buildSnapshot(state) {
     return {
-        slots: modelPool.getSlots().map((s) => ({
+        slots: state.modelPool.slots.map((s) => ({
             slotId: s.slotId,
             provider: s.provider,
             modelId: s.modelId,
             role: s.role,
             thinkingLevel: s.thinkingLevel,
-            inUse: s.inUse,
+            inUse: !!state.modelPool.usage[s.slotId],
         })),
     };
 }

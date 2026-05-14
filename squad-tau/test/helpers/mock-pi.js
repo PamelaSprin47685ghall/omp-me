@@ -1,4 +1,10 @@
-import { returnTool } from '../../server/lifecycle-tools.js';
+/**
+ * Mock PI (Oh My Pi) for integration tests.
+ * Fire-and-forget prompt: session.prompt() invokes the callback immediately,
+ * matching real OMP behavior where prompt() starts streaming and returns.
+ * No waitForIdle() — LLM results arrive via synchronous callback execution,
+ * appending directly to EventLog to drive the reactor engine.
+ */
 
 export function stubPi() {
     const commandRegistry = [];
@@ -16,7 +22,6 @@ export function stubPi() {
             const sessionFile =
                 opts.sessionManager?.getSessionFile?.() || `test-session-${Math.random().toString(36).slice(2)}`;
 
-            // Ensure sessionManager exists and has getSessionFile
             if (!opts.sessionManager) {
                 opts.sessionManager = {
                     getSessionFile: () => sessionFile,
@@ -30,38 +35,26 @@ export function stubPi() {
 
             const session = {
                 sessionFile,
-                _pendingCb: null,
-                _pendingText: null,
                 isStreaming: false,
-                async waitForIdle() {
-                    // Execute the deferred prompt callback now.
-                    // Models production: session.prompt() starts LLM streaming and returns
-                    // immediately; the caller then await waitForIdle() for completion.
-                    if (session._pendingCb) {
-                        const cb = session._pendingCb;
-                        const text = session._pendingText;
-                        session._pendingCb = null;
-                        session._pendingText = null;
-                        await cb(text, session);
-                    }
-                },
+                // No _pendingCb / _pendingText — prompt fires callback immediately
                 abort() {
-                    // Drop any pending callback
-                    session._pendingCb = null;
-                    session._pendingText = null;
+                    // No-op in mock; real pi would cancel the LLM stream
                 },
-                async prompt(text) {
+                prompt(text) {
                     messages.push({ role: 'user', content: text });
                     for (const sub of subscribers) {
                         sub({ type: 'message', message: { role: 'user', content: text } });
                     }
-                    // Store callback for deferred execution by waitForIdle().
-                    // In production, prompt() initiates streaming and returns immediately;
-                    // isStreaming is true until the LLM finishes.
+                    // Fire-and-forget: invoke the callback immediately.
+                    // The callback runs synchronously until its first await.
+                    // During that synchronous execution, callTool('return')
+                    // appends session:tool_call to the EventLog synchronously,
+                    // which queues the engine's microtask.
+                    // This matches real OMP: prompt() starts streaming and
+                    // returns immediately; results arrive via callbacks.
                     const cb = session._localOnPrompt || pi._globalOnPrompt;
                     if (cb) {
-                        session._pendingCb = cb;
-                        session._pendingText = text;
+                        cb(text, session).catch(() => {});
                     }
                     return { success: true };
                 },
@@ -160,6 +153,5 @@ export function stubPi() {
         _eventHandlers: eventHandlers,
     };
 
-    outerApi.registerTool(returnTool);
     return outerApi;
 }

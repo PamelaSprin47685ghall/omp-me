@@ -18,8 +18,9 @@ export default function MainContent({
 }) {
   const [bannerDismissed, setBannerDismissed] = useState(false);
   const prevSquadActive = useRef(squadActive);
+  // nodes is now an array — use array methods
   const failedNodes = useMemo(
-    () => Array.from(nodes.values()).filter(
+    () => nodes.filter(
       (node) => node.status === 'failed' || node.status === 'blocked'
     ),
     [nodes]
@@ -60,12 +61,12 @@ export default function MainContent({
             </Alert.Content>
           </Alert.Root>
         )}
-        <DAGView nodes={Array.from(nodes.values())} activeNodeId={null} onNodeClick={onNodeClick} />
+        <DAGView nodes={nodes} activeNodeId={null} onNodeClick={onNodeClick} />
       </VStack>
     );
   } else {
-    const activeSession = [...sessions.values()].find((s) => s.sessionId === activeSessionId);
-    const activeMessages = messages.get(activeSessionId) || [];
+    const activeSession = Object.values(sessions).find((s) => s.sessionId === activeSessionId);
+    const activeMessages = messages[activeSessionId] || [];
     const sessionRole = (!activeSession) ? 'user'
       : activeSession.phase?.toLowerCase().includes('worker') ? 'worker'
       : activeSession.phase?.toLowerCase().includes('reviewer') ? 'reviewer'

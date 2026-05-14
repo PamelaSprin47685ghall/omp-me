@@ -3,6 +3,8 @@
  * Subscribes directly to the event bus; no cross-module client Set passing.
  */
 
+import { getConnectionState, setConnectionState } from './connection-state.js';
+
 let nextConnId = 1;
 let wsModulePromise = null;
 
@@ -15,21 +17,23 @@ async function getWsModule() {
     return wsModulePromise;
 }
 
-export async function createWsServer(httpServer, eventBus, { onConnection, onMessage } = {}) {
+export async function createWsServer(httpServer, _unused, { onConnection, onMessage } = {}) {
     const WebSocketServer = await getWsModule();
     const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
     wss.on('connection', (ws) => {
-        ws._connId = nextConnId++;
-        ws._missedPongs = 0;
+        const state = getConnectionState(ws);
+        state.connId = nextConnId++;
+        state.missedPongs = 0;
+
         ws.on('pong', () => {
-            ws._missedPongs = 0;
+            getConnectionState(ws).missedPongs = 0;
         });
 
         ws.send(
             JSON.stringify({
                 type: 'connection:established',
-                payload: { sessionId: ws._connId, serverVersion: '1.0.0' },
+                payload: { sessionId: state.connId, serverVersion: '1.0.0' },
                 timestamp: Date.now(),
             }),
         );
@@ -52,19 +56,5 @@ export async function createWsServer(httpServer, eventBus, { onConnection, onMes
         });
     });
 
-    let unsub = () => {};
-    if (eventBus) {
-        unsub = eventBus.on('*', (payload, type) => {
-            const msg = JSON.stringify({ type, payload, timestamp: Date.now() });
-            for (const ws of wss.clients) {
-                try {
-                    if (ws.readyState === 1) ws.send(msg);
-                } catch {
-                    /* skip dead */
-                }
-            }
-        });
-    }
-
-    return { wss, unsub };
+    return { wss };
 }

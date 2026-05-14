@@ -1,0 +1,9 @@
+{
+  "name": "squad-tau",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "bun test test/unit/ test/integration/",
+    "test:algebraic": "bun test test/unit/reactor-*.test.js"
+  }
+}

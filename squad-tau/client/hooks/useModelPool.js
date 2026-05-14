@@ -1,41 +1,17 @@
-import { useReducer, useCallback, useRef } from 'react';
-
-export const INITIAL_STATE = {
-    slots: [],
-    isOpen: false,
-};
-
-function modelPoolReducer(state, action) {
-    switch (action.type) {
-        case 'model_pool:snapshot':
-        case 'model_pool:changed':
-            return {
-                ...state,
-                slots: (action.payload.slots || []).map((s) => ({
-                    ...s,
-                    slotId: s.slotId || Math.random().toString(36).slice(2, 10),
-                })),
-            };
-        case 'drawer:open':
-            return { ...state, isOpen: true };
-        case 'drawer:close':
-            return { ...state, isOpen: false };
-        default:
-            return state;
-    }
-}
+import { useSyncExternalStore, useCallback, useRef, useState } from 'react';
+import { eventStore } from '../event-store.js';
 
 export function useModelPool() {
-    const [state, dispatch] = useReducer(modelPoolReducer, INITIAL_STATE);
+    const state = useSyncExternalStore(
+        (l) => eventStore.subscribe(l),
+        () => eventStore.getState(),
+    );
+
+    const [isOpen, setIsOpen] = useState(false);
     const sendRef = useRef(null);
 
-    const openDrawer = useCallback(() => {
-        dispatch({ type: 'drawer:open' });
-    }, []);
-
-    const closeDrawer = useCallback(() => {
-        dispatch({ type: 'drawer:close' });
-    }, []);
+    const openDrawer = useCallback(() => setIsOpen(true), []);
+    const closeDrawer = useCallback(() => setIsOpen(false), []);
 
     const updateSlot = useCallback((action, slot, slotId, thinkingLevel) => {
         if (!sendRef.current) {
@@ -53,12 +29,16 @@ export function useModelPool() {
     }, []);
 
     return {
-        slots: state.slots,
-        isOpen: state.isOpen,
+        slots: state.modelPool.slots,
+        isOpen,
         openDrawer,
         closeDrawer,
         updateSlot,
         sendModelPoolUpdate,
-        dispatch,
+        dispatch: (action) => {
+            if (action.type.startsWith('model_pool:')) {
+                eventStore.dispatch(action.type, action.payload);
+            }
+        },
     };
 }
