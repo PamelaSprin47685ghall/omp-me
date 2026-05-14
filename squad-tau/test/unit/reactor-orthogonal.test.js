@@ -6,6 +6,7 @@ import { describe, test, expect } from 'bun:test';
 import { reactState } from '../../server/reactor.js';
 import { Events } from '../../shared/events.js';
 import { STATUS, DEFAULTS } from '../../server/constants.js';
+import { applyEvent } from '../../shared/projections.js';
 import {
     createBaseState,
     setStatus,
@@ -53,8 +54,8 @@ describe('reactor model release rule', () => {
         expect(events1.filter((e) => e.type === Events.MODEL_POOL_RELEASE).length).toBe(1);
 
         // Apply the release to state
-        const releasePayload = events1.find((e) => e.type === Events.MODEL_POOL_RELEASE).payload;
-        delete st.modelPool.usage[releasePayload.slotId];
+        const releaseAction = events1.find((e) => e.type === Events.MODEL_POOL_RELEASE);
+        applyEvent(st, releaseAction.type, releaseAction.payload);
 
         // Second call: no duplicate
         const events2 = reactState(st);
@@ -140,7 +141,7 @@ describe('concurrent slot allocation (slot stealing)', () => {
         expect(events1.filter((e) => e.type === Events.MODEL_POOL_ACQUIRE).length).toBe(0);
 
         // Release s1 and re-run
-        delete st.modelPool.usage.s1;
+        applyEvent(st, Events.MODEL_POOL_RELEASE, { slotId: 's1' });
         const events2 = reactState(st);
         expect(events2.filter((e) => e.type === Events.MODEL_POOL_ACQUIRE).length).toBe(1);
     });

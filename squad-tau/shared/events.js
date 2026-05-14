@@ -32,8 +32,4 @@ export const Events = {
     // Transitional facts (emitted by Engine when action execution begins)
     SESSION_CREATING: 'session:creating',
     SESSION_PROMPTING: 'session:prompting',
-
-    // Declarative resource facts (emitted by Reactor or SideEffect)
-    NODE_WAITING_FOR_MODEL: 'node:waiting_for_model',
-    MODEL_ASSIGNED: 'model_pool:assigned',
 };

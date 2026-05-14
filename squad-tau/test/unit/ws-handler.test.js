@@ -14,25 +14,20 @@ function createMockWs() {
 
 describe('routeMessage', () => {
     let eventLog;
-    let configModule;
 
     beforeEach(() => {
         eventLog = new EventLog();
-        configModule = {
-            saveModelsConfig: async () => {},
-            loadModelsConfig: () => [],
-        };
     });
 
     test('returns false for unknown message type', async () => {
         const ws = createMockWs();
-        const result = await routeMessage({ type: 'unknown:type', payload: {} }, configModule, eventLog, ws);
+        const result = await routeMessage({ type: 'unknown:type', payload: {} }, eventLog, ws);
         expect(result).toBe(false);
     });
 
     test('handles ping with pong response', async () => {
         const ws = createMockWs();
-        const result = await routeMessage({ type: 'ping' }, configModule, eventLog, ws);
+        const result = await routeMessage({ type: 'ping' }, eventLog, ws);
         expect(result).toBe(true);
         expect(ws.sent.length).toBe(1);
         const pong = JSON.parse(ws.sent[0]);
@@ -47,7 +42,7 @@ describe('routeMessage', () => {
             return [{ event: 'test:event', payload: { ok: true }, id: 42, timestamp: 123 }];
         };
 
-        const result = await routeMessage({ type: 'sync', payload: { cursor: 10 } }, configModule, eventLog, ws);
+        const result = await routeMessage({ type: 'sync', payload: { cursor: 10 } }, eventLog, ws);
         expect(result).toBe(true);
         expect(cursorPassed).toBe(10);
         expect(ws.sent.length).toBe(1);
@@ -62,7 +57,6 @@ describe('routeMessage', () => {
 
         const result = await routeMessage(
             { type: 'session:user_message', payload: { sessionId: 's1', text: 'hello', messageId: 'm1' } },
-            configModule,
             eventLog,
             ws,
         );
@@ -71,7 +65,7 @@ describe('routeMessage', () => {
 
     test('abort appends squad:abort to eventLog', async () => {
         const ws = createMockWs();
-        await routeMessage({ type: 'abort', payload: { reason: 'user cancelled' } }, configModule, eventLog, ws);
+        await routeMessage({ type: 'abort', payload: { reason: 'user cancelled' } }, eventLog, ws);
         const log = eventLog.getSince(0);
         const abortEvent = log.find((e) => e.event === 'squad:abort');
         expect(abortEvent).toBeDefined();

@@ -5,13 +5,11 @@
  */
 import { createServer } from 'http';
 import { createHttpServer } from './http-server.js';
-import { createWsServer } from './ws-server.js';
-import { startHeartbeat } from './ws-heartbeat.js';
+import { createWsServer, startHeartbeat } from './ws-server.js';
 import { routeMessage } from './ws-handler.js';
 import { EventLog } from './event-log.js';
 import { createViteDevServer, closeViteServer, CLIENT_ROOT } from './vite-setup.js';
-import { loadModelsConfig, saveModelsConfig, watchConfig, unwatchConfig } from './model-pool-config.js';
-import { buildSnapshot } from './model-pool-events.js';
+import { loadModelsConfig, saveModelsConfig, watchConfig, unwatchConfig, buildSnapshot } from './model-pool.js';
 import { setupEngine } from './engine.js';
 
 let _server = null;
@@ -76,7 +74,7 @@ export async function startServer({ skipVite = false } = {}) {
             }
         },
         onMessage: async (msg, ws) => {
-            await routeMessage(msg, { loadModelsConfig, saveModelsConfig }, eventLog, ws, engine.getState);
+            await routeMessage(msg, eventLog, ws, engine.getState);
         },
     });
 

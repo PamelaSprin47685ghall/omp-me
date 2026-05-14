@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { applyEvent, getInitialState } from '../../shared/projections.js';
-import { EventStore } from '../event-store.js';
+import { EventStore } from '../../client/event-store.js';
 
 function freshState() {
     return getInitialState();

@@ -132,26 +132,6 @@ export function applyEvent(state, type, payload) {
                 }
             }
             break;
-
-        case Events.NODE_WAITING_FOR_MODEL:
-            {
-                const node = state.squad.nodes.find((n) => n.id === payload.nodeId);
-                if (node) node.waitingForModel = payload.role;
-            }
-            break;
-
-        case Events.MODEL_ASSIGNED:
-            state.modelPool.usage[payload.slotId] = {
-                inUse: true,
-                holder: payload.sessionId || payload.nodeId,
-                nodeId: payload.nodeId,
-                role: payload.role,
-            };
-            if (payload.nodeId) {
-                const node = state.squad.nodes.find((n) => n.id === payload.nodeId);
-                if (node) node.waitingForModel = null;
-            }
-            break;
         case Events.SESSION_STATE:
             if (state.sessions[payload.sessionId]) {
                 const sess = state.sessions[payload.sessionId];

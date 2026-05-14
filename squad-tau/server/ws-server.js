@@ -1,5 +1,27 @@
+export const HEARTBEAT_INTERVAL = 30000;
+
+const WS_OPEN = 1;
 let nextConnId = 1;
 let wsModulePromise = null;
+
+export function startHeartbeat(clients, opts = {}) {
+    const interval = opts.interval || HEARTBEAT_INTERVAL;
+    const ticker = setInterval(() => {
+        for (const ws of clients) {
+            if (ws.readyState !== WS_OPEN) {
+                ws.terminate();
+                continue;
+            }
+            if (!ws.isAlive) {
+                ws.terminate();
+                continue;
+            }
+            ws.isAlive = false;
+            ws.ping();
+        }
+    }, interval);
+    return () => clearInterval(ticker);
+}
 
 async function getWsModule() {
     if (!wsModulePromise) {

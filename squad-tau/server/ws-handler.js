@@ -7,7 +7,7 @@
  * User messages are NOT sent to LLM directly — they are appended as
  * session:user_message_received facts and processed by the Engine pulse.
  */
-import { handleModelPoolMessage } from './model-pool-events.js';
+import { handleModelPoolMessage } from './model-pool.js';
 
 const STRATEGIES = {
     sync: async ({ payload, eventLog, ws }) => {
@@ -25,8 +25,8 @@ const STRATEGIES = {
         }
         return true;
     },
-    'model_pool:update': async ({ payload, configModule, eventLog, ws }) => {
-        await handleModelPoolMessage(payload, configModule, eventLog, ws?.getState);
+    'model_pool:update': async ({ payload, eventLog, ws }) => {
+        await handleModelPoolMessage(payload, eventLog, ws?.getState);
         return true;
     },
     'session:user_message': async ({ payload, eventLog }) => {
@@ -59,7 +59,7 @@ const STRATEGIES = {
     },
 };
 
-export async function routeMessage(msg, configModule, eventLog, ws, getState) {
+export async function routeMessage(msg, eventLog, ws, getState) {
     // Attach getState to ws object for downstream handlers
     if (!ws.getState && getState) ws.getState = getState;
     if (!msg || typeof msg.type !== 'string') return false;
@@ -68,7 +68,6 @@ export async function routeMessage(msg, configModule, eventLog, ws, getState) {
         try {
             return await strategy({
                 payload: msg.payload,
-                configModule,
                 eventLog,
                 ws,
             });
