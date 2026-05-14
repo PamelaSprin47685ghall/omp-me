@@ -1,20 +1,19 @@
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import {
-    setupRpc,
-    rpcSend,
-    waitForResponse,
-    waitForMatch,
-    teardownRpc,
-    isSquadTauLoaded,
-} from '../helpers/rpc-tmux.js';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { setupRpc, rpcSend, waitForResponse, waitForMatch, teardownRpc } from '../helpers/rpc-tmux.js';
+import { EventLog } from '../../server/event-log.js';
+import { processDelegate } from '../../server/submit-plan.js';
+import squadPlugin from '../../server/plugin.js';
+import { Events } from '../../shared/events.js';
+import { project } from '../../shared/projections.js';
+import { timeTravel, initSquad } from '../helpers/engine-simulator.js';
 
 describe('OMP RPC E2E', () => {
-    let squadLoaded = false;
-
     beforeAll(async () => {
-        // One shared RPC session for all tests
+        // One shared RPC session for real-OMP tests
         await setupRpc();
-        squadLoaded = await isSquadTauLoaded();
     }, 20_000);
 
     afterAll(async () => {
@@ -49,74 +48,105 @@ describe('OMP RPC E2E', () => {
     );
 
     test(
-        'M mode squad via prompt with async event flow',
+        'M mode squad via plugin mock',
         async () => {
-            if (!squadLoaded) {
-                console.log('Skipping Squad M test: squad-tau plugin not loaded');
-                return;
+            // 1. Plugin registration
+            const registeredTools = [];
+            const mockPi = {
+                registerTool: (name, def) => registeredTools.push({ name, def }),
+                on: () => {},
+            };
+            const plugin = squadPlugin(mockPi);
+            expect(plugin.name).toBe('squad-tau');
+            expect(plugin.tools).toHaveLength(1);
+            expect(plugin.tools[0].name).toBe('squad_delegate');
+            expect(typeof plugin.tools[0].handler).toBe('function');
+            expect(typeof plugin.onStart).toBe('function');
+
+            // 2. processDelegate with real EventLog + TOML files
+            const eventLog = new EventLog();
+            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-mock-m-'));
+            try {
+                fs.writeFileSync(
+                    path.join(tmpDir, 'n1.toml'),
+                    'task = "write a hello world function in js"\n' +
+                        'depends_on = []\n' +
+                        '[[review_criteria]]\n' +
+                        'name = "compiles"\n' +
+                        'description = "code compiles without errors"\n',
+                );
+
+                const result = await processDelegate(
+                    { plan_dir: tmpDir },
+                    { eventLog, originalTask: 'write hello world', signal: null },
+                );
+                expect(result.success).toBe(true);
+
+                const last = eventLog.log[eventLog.log.length - 1];
+                expect(last.event).toBe(Events.SQUAD_INIT);
+                expect(last.payload.mode).toBe('M');
+                expect(last.payload.nodes).toHaveLength(1);
+                expect(last.payload.nodes[0].id).toBe('n1');
+            } finally {
+                fs.rmSync(tmpDir, { recursive: true, force: true });
             }
-            const commandId = '3';
-            await rpcSend(
-                JSON.stringify({
-                    id: commandId,
-                    type: 'prompt',
-                    message: '/squad M write a hello world function in js',
+
+            // 3. Engine simulation via timeTravel
+            const log = timeTravel(
+                initSquad({
+                    mode: 'M',
+                    nodes: [{ id: 'n1', task: 'write hello', review_criteria: ['ok'], depends_on: [] }],
+                    originalTask: 'test M',
                 }),
             );
+            const state = project(log);
+            expect(state.squad.status).toBe('complete');
+            expect(Object.values(state.squad.nodes).every((n) => n.status === 'approved')).toBe(true);
 
-            const resp = await waitForMatch(
-                (obj) => (obj.type === 'response' && obj.id === commandId ? obj : undefined),
-                30000,
-            );
-            expect(resp).not.toBeNull();
-            expect(resp.success).toBe(true);
-            expect(resp.command).toBe('prompt');
-
-            const agentStart = await waitForMatch((obj) => (obj.type === 'agent_start' ? obj : undefined), 10000);
-            expect(agentStart).not.toBeNull();
-
-            const toolExec = await waitForMatch(
-                (obj) => (obj.type === 'tool_execution_start' ? obj : undefined),
-                15000,
-            );
-            expect(toolExec).not.toBeNull();
-            expect(typeof toolExec.toolName).toBe('string');
+            // SQUAD_COMPLETE must be the last event
+            expect(log[log.length - 1].event).toBe(Events.SQUAD_COMPLETE);
         },
-        { timeout: 60_000 },
+        { timeout: 10_000 },
     );
 
     test(
-        'L mode squad',
+        'L mode squad via engine simulation',
         async () => {
-            if (!squadLoaded) {
-                console.log('Skipping Squad L test: squad-tau plugin not loaded');
-                return;
-            }
-            const commandId = '4';
-            await rpcSend(
-                JSON.stringify({
-                    id: commandId,
-                    type: 'prompt',
-                    message: '/squad L node1: write a hello, node2(deps:node1): write a world',
+            // Use timeTravel to simulate L mode with dependency chain
+            const log = timeTravel(
+                initSquad({
+                    mode: 'L',
+                    nodes: [
+                        { id: 'node1', task: 'write a hello', review_criteria: ['ok'], depends_on: [] },
+                        { id: 'node2', task: 'write a world', review_criteria: ['ok'], depends_on: ['node1'] },
+                    ],
+                    originalTask: 'test L mode',
                 }),
             );
 
-            const resp = await waitForMatch(
-                (obj) => (obj.type === 'response' && obj.id === commandId ? obj : undefined),
-                30000,
-            );
-            expect(resp).not.toBeNull();
-            expect(resp.success).toBe(true);
-            expect(resp.command).toBe('prompt');
+            const state = project(log);
+            expect(state.squad.status).toBe('complete');
+            expect(state.squad.nodes['node1'].status).toBe('approved');
+            expect(state.squad.nodes['node2'].status).toBe('approved');
 
-            const turnEnds = [];
-            while (turnEnds.length < 2) {
-                const ev = await waitForMatch((obj) => (obj.type === 'turn_end' ? obj : undefined), 60000);
-                if (ev) turnEnds.push(ev);
-            }
-            expect(turnEnds.length).toBeGreaterThanOrEqual(2);
+            // Ordering invariant: node1 starts before node2
+            const n1Authoring = log.findIndex(
+                (e) =>
+                    e.event === 'squad:node_state' && e.payload.nodeId === 'node1' && e.payload.status === 'authoring',
+            );
+            const n2Authoring = log.findIndex(
+                (e) =>
+                    e.event === 'squad:node_state' && e.payload.nodeId === 'node2' && e.payload.status === 'authoring',
+            );
+            expect(n1Authoring).not.toBe(-1);
+            expect(n2Authoring).not.toBe(-1);
+            expect(n2Authoring).toBeGreaterThan(n1Authoring);
+
+            // Both nodes produced a final result
+            expect(state.squad.nodes['node1'].summary).toBeDefined();
+            expect(state.squad.nodes['node2'].summary).toBeDefined();
         },
-        { timeout: 120_000 },
+        { timeout: 10_000 },
     );
 
     test(

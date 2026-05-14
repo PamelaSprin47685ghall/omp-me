@@ -1,28 +1,44 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { HStack, Text, Badge, Collapsible, Icon, Box } from '@chakra-ui/react';
 import { ChevronDown, ChevronRight, Lightbulb } from 'lucide-react';
+import { eventStore } from '../event-store.js';
 import { streamingManager } from '../streaming-manager.js';
 
-export default function ThinkingBlock({ content, isStreaming = false, messageId }) {
+export default function ThinkingBlock({ content, isStreaming = false, messageId, sessionId }) {
   const [open, setOpen] = useState(isStreaming);
   const textRef = useRef(null);
   const toggle = useCallback(() => setOpen((value) => !value), []);
 
   useEffect(() => {
-    if (!isStreaming || !messageId) return;
-    
-    // Initial sync from buffer
-    const buffer = streamingManager.getBuffer(messageId);
-    if (textRef.current && buffer.thinking) {
-      textRef.current.textContent = buffer.thinking;
+    if (!isStreaming || !messageId || !sessionId) return;
+
+    // Initial sync from EventStore state
+    if (textRef.current) {
+      const state = eventStore.getState();
+      const sess = state.sessions[sessionId];
+      if (sess) {
+        const msg = sess.messages.find(m => m.messageId === messageId);
+        if (msg) {
+          const thinking = msg.content.filter(b => b.type === 'thinking').map(b => b.text).join('');
+          textRef.current.textContent = thinking;
+        }
+      }
     }
 
-    return streamingManager.subscribe(messageId, (batch) => {
-      if (batch.thinking && textRef.current) {
-        textRef.current.textContent += batch.thinking;
+    return streamingManager.subscribe(messageId, () => {
+      if (textRef.current) {
+        const state = eventStore.getState();
+        const sess = state.sessions[sessionId];
+        if (sess) {
+          const msg = sess.messages.find(m => m.messageId === messageId);
+          if (msg) {
+            const thinking = msg.content.filter(b => b.type === 'thinking').map(b => b.text).join('');
+            textRef.current.textContent = thinking;
+          }
+        }
       }
     });
-  }, [isStreaming, messageId]);
+  }, [isStreaming, messageId, sessionId]);
 
   return (
     <>

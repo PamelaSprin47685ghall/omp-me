@@ -10,7 +10,7 @@ describe('lifecycle-tools', () => {
         assert.ok(returnTool.parameters.properties.reason);
     });
 
-    it('execute calls ctx.abort and returns clean result', async () => {
+    it('execute calls ctx.abort and returns result', async () => {
         let aborted = false;
         const result = await returnTool.execute('call-id', { status: 'ok', reason: 'done' }, 'sig', null, {
             abort: () => {

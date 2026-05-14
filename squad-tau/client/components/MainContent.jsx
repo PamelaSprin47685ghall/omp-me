@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useMemo, useRef, useEffect } from 'react';
 import {
   Alert,
   Badge,
@@ -8,26 +8,31 @@ import {
   VStack,
 } from '@chakra-ui/react';
 import { useAppState } from '../use-app-state.js';
+import { eventStore } from '../event-store.js';
 import DAGView from './DAGView.jsx';
 import MessageList from './MessageList.jsx';
 import { MessageInput } from './MessageInput.jsx';
 import WelcomeView from './WelcomeView.jsx';
 
 export default function MainContent({
-  viewMode, activeSessionId, onNodeClick, onOpenModelPool, onOptimisticMessage, send,
+  onNodeClick, onOpenModelPool, onOptimisticMessage, send,
 }) {
-  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const viewMode = useAppState(s => s.ui?.viewMode || 'dag');
+  const activeSessionId = useAppState(s => s.ui?.activeSessionId);
+  const bannerDismissed = useAppState(s => s.ui?.bannerDismissed || false);
   const prevSquadActive = useRef(false);
   const squadActive = useAppState(s => s.squad.mode && (s.squad.status === 'active' || s.squad.status === 'complete'));
-  const nodes = useAppState(s => s.squad.nodes || []);
+  const nodes = useAppState(s => Object.values(s.squad.nodes || {}));
   const sessions = useAppState(s => s.sessions || {});
   const results = useAppState(s => s.squad.results || []);
   const messages = useAppState(s => activeSessionId ? (s.sessions[activeSessionId]?.messages || []) : []);
 
   useEffect(() => {
-    if (squadActive && !prevSquadActive.current) setBannerDismissed(false);
+    if (squadActive && !prevSquadActive.current && bannerDismissed) {
+      eventStore.dispatch('ui:dismiss_banner', {});
+    }
     prevSquadActive.current = squadActive;
-  }, [squadActive]);
+  }, [squadActive, bannerDismissed]);
 
   let content;
 
@@ -51,7 +56,7 @@ export default function MainContent({
               <Alert.Title>Squad Failed — {failSummary.fc} failed, {failSummary.bc} blocked</Alert.Title>
               <Alert.Description>{failSummary.summary || 'Unknown error'}</Alert.Description>
             </Alert.Content>
-            <Button size="xs" variant="outline" ml="auto" onClick={() => setBannerDismissed(true)}>Dismiss</Button>
+            <Button size="xs" variant="outline" ml="auto" onClick={() => eventStore.dispatch('ui:dismiss_banner', {})}>Dismiss</Button>
           </Alert.Root>
         )}
         {allSuccess && (
@@ -67,11 +72,7 @@ export default function MainContent({
     );
   } else {
     const activeSession = Object.values(sessions).find((s) => s.sessionId === activeSessionId);
-    const sessionRole = !activeSession ? 'user'
-      : activeSession.phase?.toLowerCase().includes('worker') ? 'worker'
-      : activeSession.phase?.toLowerCase().includes('reviewer') ? 'reviewer'
-      : activeSession.phase?.toLowerCase().includes('outer') ? 'outer'
-      : 'user';
+    const sessionRole = activeSession?.phase || 'user';
     content = (
       <VStack gap={4} p={4} h="full">
         {activeSession && (

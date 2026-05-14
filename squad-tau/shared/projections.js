@@ -1,231 +1,219 @@
 /**
  * Homomorphic event projections — shared between client and server.
- *
- * Two modes:
- *   1. `project(log)` — full scan from scratch (for cold start)
- *   2. `applyEvent(state, entry)` — incremental fold (for live updates)
- *
- * Both produce identical results for the same event sequence.
- * `fold(state, entry)` is the pure reducer: (prevState, event) -> nextState.
- * `project` is the multi-event convenience wrapper.
+ * v4: Flat state (nodes as map), deterministic URN sessions, no model pool.
  */
 import { Events } from './events.js';
 
-export function getInitialState() {
-    return {
-        squad: {
-            status: 'idle',
-            nodes: [],
-            results: [],
-            originalTask: '',
-        },
-        sessions: {},
-        modelPool: {
-            slots: [],
-            usage: {},
-        },
+const Reducers = {};
+
+function register(event) {
+    return (fn) => {
+        Reducers[event] = fn;
     };
 }
 
-/**
- * Incremental fold: apply one event to existing state (mutates in place).
- * For the imperative engine loop — O(1) per event.
- */
-export function applyEvent(state, type, payload) {
-    switch (type) {
-        case Events.SQUAD_INIT:
-            state.squad = {
-                ...state.squad,
-                ...payload,
-                nodes: payload.nodes
-                    ? payload.nodes.map((n) => ({
-                          ...n,
-                          activeSessionId: null,
-                          activePhase: null,
-                          sessionStatus: 'none',
-                          waitingForModel: null,
-                      }))
-                    : [],
-                status: 'active',
+export function getInitialState() {
+    return {
+        squad: { status: 'idle', nodes: {}, results: [], originalTask: '' },
+        sessions: {},
+        modelPool: { maxWorkers: 3 },
+    };
+}
+
+// ── Squad Lifecycle ──
+
+register(Events.SQUAD_INIT)((state, payload) => {
+    const nodes = {};
+    if (payload.nodes) {
+        for (const n of payload.nodes) {
+            nodes[n.id] = {
+                id: n.id,
+                task: n.task || '',
+                review_criteria: n.review_criteria || [],
+                depends_on: n.depends_on || [],
+                status: undefined,
+                retryCount: 0,
+                summary: undefined,
+                feedback: undefined,
+                affectedFiles: undefined,
+                lastPromptedPhase: null,
             };
-            break;
-        case Events.SQUAD_NODE_STATE:
-            {
-                const node = state.squad.nodes.find((n) => n.id === payload.nodeId);
-                if (node) {
-                    Object.assign(node, payload);
-                    // Retry: clear active session cursor so reactor starts fresh
-                    if (payload.status === 'authoring' && (payload.retryCount || 0) > 0) {
-                        node.activeSessionId = null;
-                        node.activePhase = null;
-                        node.sessionStatus = 'none';
-                        node.lastPromptedPhase = null;
-                        node.waitingForModel = null;
-                    }
-                    // Terminal status: clear model wait
-                    if (['approved', 'failed', 'blocked'].includes(payload.status)) {
-                        node.waitingForModel = null;
-                    }
-                }
-            }
-            break;
-        case Events.SQUAD_COMPLETE:
-            state.squad.status = 'complete';
-            state.squad.results = payload.results;
-            break;
-        case Events.SQUAD_ABORT:
-            state.squad.status = 'aborted';
-            break;
-        case Events.SQUAD_OUTER_REVIEW_START:
-            state.squad.outerReview = { status: 'pending', round: payload.round || 1 };
-            break;
-        case Events.SQUAD_OUTER_REVIEW_DONE:
-            if (state.squad.outerReview) state.squad.outerReview.status = 'approved';
-            break;
-        case Events.SQUAD_OUTER_REVIEW_FAILED:
-            state.squad.outerReview = {
-                status: 'rejected',
-                round: state.squad.outerReview?.round || 1,
-                feedback: payload.reason,
-            };
-            break;
-
-        case Events.SESSION_START:
-            if (!state.sessions[payload.sessionId]) {
-                state.sessions[payload.sessionId] = {
-                    ...payload,
-                    role: payload.phase,
-                    status: 'active',
-                    messages: [],
-                };
-            }
-            // Set active cursor on node
-            if (payload.nodeId) {
-                const node = state.squad.nodes.find((n) => n.id === payload.nodeId);
-                if (node) {
-                    node.activeSessionId = payload.sessionId;
-                    node.activePhase = payload.phase;
-                    node.sessionStatus = 'active';
-                }
-            }
-            break;
-
-        case Events.SESSION_CREATING:
-            if (payload.nodeId) {
-                const node = state.squad.nodes.find((n) => n.id === payload.nodeId);
-                if (node) node.sessionStatus = 'creating';
-            }
-            break;
-
-        case Events.SESSION_PROMPTING:
-            if (payload.sessionId) {
-                const sess = state.sessions[payload.sessionId];
-                if (sess) {
-                    if (sess.role === 'outer_review' && state.squad.outerReview) {
-                        state.squad.outerReview.lastPrompted = true;
-                    }
-                    const node = state.squad.nodes.find((n) => n.id === sess.nodeId);
-                    if (node) {
-                        node.sessionStatus = 'prompting';
-                        node.lastPromptedPhase = payload.phase;
-                    }
-                }
-            }
-            break;
-        case Events.SESSION_STATE:
-            if (state.sessions[payload.sessionId]) {
-                const sess = state.sessions[payload.sessionId];
-                sess.phase = payload.phase;
-                sess.status = ['completed', 'aborted', 'error'].includes(payload.phase) ? payload.phase : 'active';
-            }
-            break;
-        case Events.SESSION_END:
-            if (state.sessions[payload.sessionId]) {
-                state.sessions[payload.sessionId].status = payload.reason || 'completed';
-                state.sessions[payload.sessionId].errorMessage = payload.errorMessage;
-            }
-            // Clear active cursor from the owning node
-            {
-                const node = state.squad.nodes.find((n) => n.activeSessionId === payload.sessionId);
-                if (node) {
-                    node.activeSessionId = null;
-                    node.activePhase = null;
-                    node.sessionStatus = 'none';
-                }
-            }
-            break;
-        case Events.SESSION_MESSAGE:
-            if (state.sessions[payload.sessionId]) {
-                const list = state.sessions[payload.sessionId].messages;
-                const idx = list.findIndex((m) => m.messageId === payload.messageId);
-                if (idx !== -1) list[idx] = { ...list[idx], ...payload };
-                else list.push(payload);
-            }
-            break;
-        case Events.SESSION_TOOL_CALL:
-            if (state.sessions[payload.sessionId]) {
-                const { sessionId, ...toolFields } = payload;
-                const sess = state.sessions[payload.sessionId];
-                sess.messages.push({
-                    role: 'assistant',
-                    messageId: payload.toolId,
-                    content: [{ type: 'tool_call', ...toolFields }],
-                });
-                // Extract return params to session root for O(1) reactor access
-                if (payload.toolName === 'return') {
-                    sess.latestReturn = payload.params;
-                }
-            }
-            break;
-        case Events.SESSION_TOOL_RESULT:
-            if (state.sessions[payload.sessionId]) {
-                const msg = state.sessions[payload.sessionId].messages.find((m) => m.messageId === payload.toolId);
-                if (msg) {
-                    const block = msg.content.find((b) => b.type === 'tool_call');
-                    if (block) {
-                        block.result = payload.result;
-                        block.isError = payload.isError;
-                    }
-                }
-            }
-            break;
-
-        case Events.MODEL_POOL_SNAPSHOT:
-            state.modelPool.slots = payload.slots;
-            break;
-        case Events.MODEL_POOL_ACQUIRE:
-            state.modelPool.usage[payload.slotId] = {
-                inUse: true,
-                holder: payload.sessionId,
-                nodeId: payload.nodeId,
-                role: payload.role,
-            };
-            break;
-        case Events.MODEL_POOL_RELEASE:
-            delete state.modelPool.usage[payload.slotId];
-            break;
+        }
     }
+    state.squad = { ...state.squad, ...payload, nodes, status: 'active' };
+});
+
+register(Events.SQUAD_NODE_STATE)((state, payload) => {
+    const node = state.squad.nodes[payload.nodeId];
+    if (!node) return;
+    Object.assign(node, payload);
+});
+
+register(Events.SQUAD_COMPLETE)((state, payload) => {
+    state.squad.status = 'complete';
+    state.squad.results = payload.results;
+});
+
+register(Events.SQUAD_ABORT)((state) => {
+    state.squad.status = 'aborted';
+});
+
+// ── Outer Review ──
+
+register(Events.SQUAD_OUTER_REVIEW_START)((state, payload) => {
+    state.squad.outerReview = { status: 'pending', round: payload.round || 1 };
+});
+
+register(Events.SQUAD_OUTER_REVIEW_DONE)((state) => {
+    if (state.squad.outerReview) state.squad.outerReview.status = 'approved';
+});
+
+register(Events.SQUAD_OUTER_REVIEW_FAILED)((state, payload) => {
+    state.squad.outerReview = {
+        status: 'rejected',
+        round: state.squad.outerReview?.round || 1,
+        feedback: payload.reason,
+    };
+});
+
+// ── Session Lifecycle ──
+
+register(Events.SESSION_CREATING)((state, payload) => {
+    state.sessions[payload.sessionId] = state.sessions[payload.sessionId] || {
+        sessionId: payload.sessionId,
+        nodeId: payload.nodeId,
+        phase: payload.phase,
+        role: payload.phase,
+        status: 'creating',
+        messages: [],
+        retryCount: payload.retryCount != null ? payload.retryCount : 0,
+    };
+});
+
+register(Events.SESSION_START)((state, payload) => {
+    const sid = payload.sessionId;
+    if (state.sessions[sid]) {
+        state.sessions[sid].status = 'active';
+        state.sessions[sid].model = payload.model;
+        state.sessions[sid].retryCount =
+            payload.retryCount != null ? payload.retryCount : state.sessions[sid].retryCount || 0;
+    } else {
+        state.sessions[sid] = {
+            sessionId: sid,
+            nodeId: payload.nodeId,
+            phase: payload.phase,
+            role: payload.phase,
+            status: 'active',
+            messages: [],
+            model: payload.model,
+            retryCount: payload.retryCount != null ? payload.retryCount : 0,
+        };
+    }
+});
+
+register(Events.SESSION_PROMPTING)((state, payload) => {
+    const sess = state.sessions[payload.sessionId];
+    if (!sess) return;
+    sess.lastPromptedPhase = payload.phase;
+    if (sess.role === 'outer_review' && state.squad.outerReview) {
+        state.squad.outerReview.lastPrompted = true;
+    }
+});
+
+register(Events.SESSION_STATE)((state, payload) => {
+    const sess = state.sessions[payload.sessionId];
+    if (!sess) return;
+    sess.phase = payload.phase;
+    sess.status = ['completed', 'aborted', 'error'].includes(payload.phase) ? payload.phase : 'active';
+});
+
+register(Events.SESSION_END)((state, payload) => {
+    const sess = state.sessions[payload.sessionId];
+    if (!sess) return;
+    sess.status = payload.reason || 'completed';
+    if (payload.errorMessage) sess.errorMessage = payload.errorMessage;
+});
+
+register(Events.SESSION_MESSAGE)((state, payload) => {
+    const sess = state.sessions[payload.sessionId];
+    if (!sess) return;
+    const list = sess.messages;
+    const idx = list.findIndex((m) => m.messageId === payload.messageId);
+    if (idx !== -1) list[idx] = { ...list[idx], ...payload };
+    else list.push(payload);
+});
+
+register(Events.SESSION_TOOL_CALL)((state, payload) => {
+    const sess = state.sessions[payload.sessionId];
+    if (!sess) return;
+    const { sessionId, ...toolFields } = payload;
+    sess.messages.push({
+        role: 'assistant',
+        messageId: payload.toolId,
+        content: [{ type: 'tool_call', ...toolFields }],
+    });
+    if (payload.toolName === 'return') {
+        sess.latestReturn = payload.params;
+    }
+});
+
+register(Events.SESSION_TOOL_RESULT)((state, payload) => {
+    const sess = state.sessions[payload.sessionId];
+    if (!sess) return;
+    const msg = sess.messages.find((m) => m.messageId === payload.toolId);
+    if (!msg) return;
+    const block = msg.content.find((b) => b.type === 'tool_call');
+    if (!block) return;
+    block.result = payload.result;
+    block.isError = payload.isError;
+});
+
+// ── Model Pool Config (static, no runtime usage tracking) ──
+
+register(Events.MODEL_POOL_SNAPSHOT)((state, payload) => {
+    if (payload.maxWorkers) state.modelPool.maxWorkers = payload.maxWorkers;
+});
+
+// ── UI State (client-side only) — each event has its own reducer, no switch
+
+register('ui:select_session')((state, payload) => {
+    state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, modelPoolOpen: false, bannerDismissed: false };
+    state.ui.activeSessionId = payload.sessionId;
+    state.ui.viewMode = 'session';
+});
+
+register('ui:set_view_mode')((state, payload) => {
+    state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, modelPoolOpen: false, bannerDismissed: false };
+    state.ui.viewMode = payload.viewMode;
+});
+
+register('ui:toggle_drawer')((state, payload) => {
+    state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, modelPoolOpen: false, bannerDismissed: false };
+    state.ui.modelPoolOpen = payload.open;
+});
+
+register('ui:dismiss_banner')((state) => {
+    state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, modelPoolOpen: false, bannerDismissed: false };
+    state.ui.bannerDismissed = true;
+});
+
+// ── Dispatch ──
+
+export function applyEvent(state, type, payload) {
+    Reducers[type]?.(state, payload);
     return state;
 }
 
-/**
- * Pure fold: (prevState, event) -> nextState (no mutation).
- * For the reactor and pure-function contexts.
- */
 export function fold(state, entry) {
     const s = structuredClone(state);
-    applyEvent(s, entry.event || entry.type, entry.payload);
+    Reducers[entry.event || entry.type]?.(s, entry.payload);
     return s;
 }
 
-/**
- * Full scan projection of an EventLog array.
- * For cold-start and test contexts.
- */
 export function project(log) {
     const state = getInitialState();
     for (const entry of log) {
-        applyEvent(state, entry.event || entry.type, entry.payload);
+        Reducers[entry.event || entry.type]?.(state, entry.payload);
     }
     return state;
 }

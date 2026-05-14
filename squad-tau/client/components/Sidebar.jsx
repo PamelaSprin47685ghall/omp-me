@@ -1,7 +1,8 @@
-import React, { useMemo, useCallback, useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { VStack, HStack, Text, Icon, Box, Collapsible } from '@chakra-ui/react';
 import { CheckCircle, XCircle, Clock, RefreshCw, Ban, Circle, Network } from 'lucide-react';
 import { useAppState } from '../use-app-state.js';
+import { eventStore } from '../event-store.js';
 
 const STATUS_ICONS = { approved: CheckCircle, rejected: XCircle, pending: Clock, active: RefreshCw, authoring: RefreshCw, confirming: RefreshCw, reviewing: RefreshCw, failed: Ban, blocked: Ban };
 const STATUS_COLOR_MAP = { approved: 'green.fg', rejected: 'red.fg', failed: 'red.fg', blocked: 'red.fg', active: 'orange.fg', authoring: 'orange.fg', confirming: 'orange.fg', reviewing: 'orange.fg' };
@@ -37,7 +38,7 @@ function SessionRow({ isSelected, sessionData, onClick }) {
 }
 
 function NodeGroup({ nodeId, nodes, sessions, activeSessionId, onSelectSession }) {
-  const node = nodes.find(n => n.id === nodeId);
+  const node = eventStore.getState().squad.nodes[nodeId];
   const nodeSessions = useMemo(() => 
     sessions.filter(s => s.nodeId === nodeId),
     [sessions, nodeId]
@@ -77,7 +78,7 @@ function NodeGroup({ nodeId, nodes, sessions, activeSessionId, onSelectSession }
 }
 
 export default function Sidebar({ activeSessionId, onSelectSession, viewMode, onSelectDAG }) {
-  const nodes = useAppState(s => s.squad.nodes || []);
+  const nodes = useAppState(s => Object.values(s.squad.nodes || {}));
   const sessions = useAppState(s => Object.values(s.sessions || {}));
 
   const nodeIds = useMemo(() => {

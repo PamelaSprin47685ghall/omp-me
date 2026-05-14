@@ -1,35 +1,20 @@
 /**
- * StreamingManager handles high-frequency delta updates bypassing React's state.
- * Implements Double-Buffer Rendering using requestAnimationFrame for 60FPS silkiness.
+ * StreamingManager — RAF-throttled paint scheduler.
+ *
+ * Does NOT buffer text. Its sole responsibility is coalescing delta
+ * notifications into requestAnimationFrame ticks. Components read
+ * the latest state from EventStore directly via eventStore.getState().
+ *
+ * No dual truth. No string concatenation. No Map of buffers.
  */
 class StreamingManager {
     constructor() {
         this.events = new EventTarget();
-        this.buffers = new Map(); // Full text/thinking buffer
-        this.dirty = new Set(); // Message IDs updated since last frame
+        this.dirty = new Set();
         this.rafId = null;
     }
 
-    emit(messageId, delta) {
-        let buffer = this.buffers.get(messageId);
-        if (!buffer) {
-            buffer = {
-                thinking: '',
-                text: '',
-                thinkingBatch: '', // Batch for current frame
-                textBatch: '', // Batch for current frame
-            };
-            this.buffers.set(messageId, buffer);
-        }
-
-        if (delta.type === 'thinking_delta' || delta.type === 'thinking') {
-            buffer.thinking += delta.text;
-            buffer.thinkingBatch += delta.text;
-        } else {
-            buffer.text += delta.text;
-            buffer.textBatch += delta.text;
-        }
-
+    emit(messageId, _delta) {
         this.dirty.add(messageId);
         this.events.dispatchEvent(new CustomEvent('global_delta', { detail: { messageId } }));
         if (typeof requestAnimationFrame !== 'undefined') {
@@ -43,27 +28,10 @@ class StreamingManager {
         this.rafId = raf(() => {
             this.rafId = null;
             for (const messageId of this.dirty) {
-                const buffer = this.buffers.get(messageId);
-                if (buffer) {
-                    // Dispatch batched deltas for the frame
-                    this.events.dispatchEvent(
-                        new CustomEvent(messageId, {
-                            detail: {
-                                text: buffer.textBatch,
-                                thinking: buffer.thinkingBatch,
-                            },
-                        }),
-                    );
-                    buffer.textBatch = '';
-                    buffer.thinkingBatch = '';
-                }
+                this.events.dispatchEvent(new CustomEvent(messageId, { detail: { messageId } }));
             }
             this.dirty.clear();
         });
-    }
-
-    getBuffer(messageId) {
-        return this.buffers.get(messageId) || { thinking: '', text: '' };
     }
 
     subscribe(messageId, handler) {
@@ -73,7 +41,6 @@ class StreamingManager {
     }
 
     clear(messageId) {
-        this.buffers.delete(messageId);
         this.dirty.delete(messageId);
     }
 }

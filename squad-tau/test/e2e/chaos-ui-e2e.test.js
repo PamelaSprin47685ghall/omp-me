@@ -6,6 +6,7 @@
  * Screenshots and DOM assertions only — purely visual regression.
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
+import { T } from '../helpers/timeout.test.js';
 import { startViteOnly, stopViteOnly } from '../helpers/vite-only.js';
 import { setupBrowser, teardownBrowser } from '../helpers/puppeteer-setup.js';
 
@@ -26,11 +27,17 @@ describe('Chaos: UI visual correctness', () => {
     beforeAll(async () => {
         const srv = await startViteOnly();
         baseUrl = `http://127.0.0.1:${srv.port}`;
+        // Pre-warm Vite: first request triggers dependency optimization (2-5s).
+        // Fetch from Node first so Vite caches compiled modules before puppeteer
+        // hits the page (which must complete within T=1000ms).
+        await fetch(baseUrl)
+            .then((r) => r.text())
+            .catch(() => {});
         const b = await setupBrowser();
         browser = b.browser;
         page = b.page;
-        await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 8000 });
-        await page.waitForSelector('#root', { timeout: 5000 });
+        await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: T });
+        await page.waitForSelector('[data-app-title]', { timeout: T });
     }, 20000);
 
     afterAll(async () => {
@@ -45,9 +52,9 @@ describe('Chaos: UI visual correctness', () => {
                 payload: {
                     mode: 'L',
                     nodes: [
-                        { id: 'FailA', task: 'A', review_criteria: 'ok', depends_on: [] },
-                        { id: 'FailB', task: 'B', review_criteria: 'ok', depends_on: ['FailA'] },
-                        { id: 'FailC', task: 'C', review_criteria: 'ok', depends_on: ['FailA'] },
+                        { id: 'FailA', task: 'A', review_criteria: ['ok'], depends_on: [] },
+                        { id: 'FailB', task: 'B', review_criteria: ['ok'], depends_on: ['FailA'] },
+                        { id: 'FailC', task: 'C', review_criteria: ['ok'], depends_on: ['FailA'] },
                     ],
                     originalTask: 'error counts',
                 },
@@ -75,29 +82,29 @@ describe('Chaos: UI visual correctness', () => {
             },
             {
                 type: 'session:start',
-                payload: { sessionId: 'tree-s1', nodeId: 'TreeN', phase: 'worker', retryCount: 1 },
+                payload: { sessionId: 'tree-s1', nodeId: 'TreeN', phase: 'authoring', retryCount: 1 },
             },
             {
                 type: 'session:start',
-                payload: { sessionId: 'tree-s2', nodeId: 'TreeN', phase: 'reviewer', retryCount: 2 },
+                payload: { sessionId: 'tree-s2', nodeId: 'TreeN', phase: 'reviewing', retryCount: 2 },
             },
         ]);
 
         const bodyText = await page.evaluate(() => document.body.innerText);
-        expect(bodyText).toContain('R2 worker');
-        expect(bodyText).toContain('R3 reviewer');
+        expect(bodyText).toContain('R2 authoring');
+        expect(bodyText).toContain('R3 reviewing');
     });
 
     test('welcome view appears and disappears on init/abort', async () => {
         await reset(page);
-        await page.waitForFunction(() => document.body.innerText.includes('Welcome to Squad-Tau'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('Welcome to Squad-Tau'), { timeout: T });
 
         await inject(page, [
             {
                 type: 'squad:init',
                 payload: {
                     mode: 'M',
-                    nodes: [{ id: 'WelcomeN', task: 'welcome', review_criteria: 'ok' }],
+                    nodes: [{ id: 'WelcomeN', task: 'welcome', review_criteria: ['ok'] }],
                     originalTask: 'welcome test',
                 },
             },
@@ -117,13 +124,13 @@ describe('Chaos: UI visual correctness', () => {
                     type: 'squad:init',
                     payload: {
                         mode: 'M',
-                        nodes: [{ id: `Hdr${round}`, task: `hdr ${round}`, review_criteria: 'ok' }],
+                        nodes: [{ id: `Hdr${round}`, task: `hdr ${round}`, review_criteria: ['ok'] }],
                         originalTask: `hdr ${round}`,
                     },
                 },
                 {
                     type: 'session:start',
-                    payload: { sessionId: `hdr-s${round}`, nodeId: `Hdr${round}`, phase: 'worker' },
+                    payload: { sessionId: `hdr-s${round}`, nodeId: `Hdr${round}`, phase: 'authoring', retryCount: 0 },
                 },
                 { type: 'squad:abort', payload: { reason: `abort ${round}` } },
             ]);

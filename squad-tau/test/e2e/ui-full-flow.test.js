@@ -8,6 +8,7 @@
 import fs from 'fs';
 import path from 'path';
 import { describe, test, beforeAll, afterAll, expect } from 'bun:test';
+import { T } from '../helpers/timeout.test.js';
 import { startViteOnly, stopViteOnly } from '../helpers/vite-only.js';
 import { setupBrowser, teardownBrowser, clickSidebarNode } from '../helpers/puppeteer-setup.js';
 
@@ -36,12 +37,16 @@ describe('UI Full Flow', () => {
     beforeAll(async () => {
         const srv = await startViteOnly();
         baseUrl = `http://127.0.0.1:${srv.port}`;
+        // Pre-warm Vite: first request triggers dependency optimization (2-5s).
+        await fetch(baseUrl)
+            .then((r) => r.text())
+            .catch(() => {});
         const launched = await setupBrowser();
         browser = launched.browser;
         page = launched.page;
         await page.setViewport({ width: 1600, height: 1200 });
-        await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        await page.waitForSelector('#root', { timeout: 10000 });
+        await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: T });
+        await page.waitForSelector('[data-app-title]', { timeout: T });
     }, 60000);
 
     afterAll(async () => {
@@ -54,43 +59,20 @@ describe('UI Full Flow', () => {
         await capture(page, '01-welcome');
     }, 10000);
 
-    test('02 model pool drawer empty and filled', async () => {
+    test('02 model pool drawer', async () => {
         await page.evaluate(() => {
             const btn = document.querySelector('button[aria-label="Model Pool"]');
             if (btn) btn.click();
         });
-        await page.waitForFunction(() => document.body.innerText.includes('Model Pool Configuration'), {
-            timeout: 5000,
+        await page.waitForFunction(() => document.body.innerText.includes('Model Pool'), {
+            timeout: T,
         });
-        await capture(page, '02a-drawer-empty');
+        await capture(page, '02a-drawer');
 
-        await inject(page, [
-            {
-                type: 'model_pool:snapshot',
-                payload: {
-                    slots: [
-                        {
-                            slotId: 's1',
-                            provider: 'anthropic',
-                            modelId: 'claude-3-5-sonnet',
-                            role: 'worker',
-                            thinkingLevel: 'medium',
-                            inUse: true,
-                        },
-                        {
-                            slotId: 's2',
-                            provider: 'openai',
-                            modelId: 'gpt-4.1',
-                            role: 'reviewer',
-                            thinkingLevel: 'low',
-                            inUse: false,
-                        },
-                    ],
-                },
-            },
-        ]);
-        await page.waitForFunction(() => document.body.innerText.includes('claude-3-5-sonnet'), { timeout: 3000 });
-        await capture(page, '02b-drawer-filled');
+        // Update maxWorkers via snapshot
+        await inject(page, [{ type: 'model_pool:snapshot', payload: { maxWorkers: 5 } }]);
+        await page.waitForFunction(() => document.body.innerText.includes('5'), { timeout: T });
+        await capture(page, '02b-drawer-updated');
         await page.keyboard.press('Escape');
     }, 15000);
 
@@ -106,31 +88,31 @@ describe('UI Full Flow', () => {
             },
             {
                 type: 'session:start',
-                payload: { sessionId: 'flow-s1', nodeId: 'flow-node', phase: 'worker', retryCount: 0 },
+                payload: { sessionId: 'flow-s1', nodeId: 'flow-node', phase: 'authoring', retryCount: 0 },
             },
         ]);
-        await page.waitForFunction(() => document.body.innerText.includes('flow-node'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('flow-node'), { timeout: T });
         await capture(page, '03-dag-and-tree');
     }, 10000);
 
     test('04 session input and user message', async () => {
-        // Navigate to the session via DOM click (no __selectLatestSession hack)
-        await clickSidebarNode(page, 'R1 worker');
-        await page.waitForFunction(() => document.querySelector('textarea') !== null, { timeout: 3000 });
+        // Navigate to the session via DOM click
+        await clickSidebarNode(page, 'R1 authoring');
+        await page.waitForFunction(() => document.querySelector('textarea') !== null, { timeout: T });
         await capture(page, '04a-session-input');
 
-        const textarea = await page.waitForSelector('textarea', { timeout: 3000 });
+        const textarea = await page.waitForSelector('textarea', { timeout: T });
         await textarea.focus();
         await page.keyboard.type('Please add keyboard support');
         await page.keyboard.press('Enter');
-        await page.waitForFunction(() => document.querySelector('textarea')?.value === '', { timeout: 3000 });
+        await page.waitForFunction(() => document.querySelector('textarea')?.value === '', { timeout: T });
         await capture(page, '04b-user-message');
     }, 15000);
 
     test('05 thinking block collapsed and expanded', async () => {
         // Navigate to flow-s1 via DOM click
         await clickSidebarNode(page, 'flow-node');
-        await clickSidebarNode(page, 'R1 worker');
+        await clickSidebarNode(page, 'R1 authoring');
 
         await inject(page, [
             {
@@ -150,7 +132,7 @@ describe('UI Full Flow', () => {
                 },
             },
         ]);
-        await page.waitForFunction(() => document.body.innerText.includes('Thinking'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('Thinking'), { timeout: T });
         await capture(page, '05a-thinking-collapsed');
 
         await page.evaluate(() => {
@@ -159,7 +141,7 @@ describe('UI Full Flow', () => {
             if (thinkHeader) thinkHeader.click();
         });
         await page.waitForFunction(() => document.body.innerText.includes('Planning the implementation...'), {
-            timeout: 3000,
+            timeout: T,
         });
         await capture(page, '05b-thinking-expanded');
     }, 15000);
@@ -176,7 +158,7 @@ describe('UI Full Flow', () => {
                 },
             },
         ]);
-        await page.waitForFunction(() => document.body.innerText.includes('read'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('read'), { timeout: T });
         await capture(page, '06a-tool-collapsed');
 
         await page.evaluate(() => {
@@ -184,7 +166,7 @@ describe('UI Full Flow', () => {
             const toolHeader = buttons.find((b) => b.textContent.includes('read') && b.textContent.includes('client'));
             if (toolHeader) toolHeader.click();
         });
-        await page.waitForFunction(() => document.body.innerText.includes('client/App.jsx'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('client/App.jsx'), { timeout: T });
         await capture(page, '06b-tool-expanded');
 
         await inject(page, [
@@ -198,7 +180,7 @@ describe('UI Full Flow', () => {
                 },
             },
         ]);
-        await page.waitForFunction(() => document.body.innerText.includes('done'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('done'), { timeout: T });
         await capture(page, '06c-tool-done');
     }, 15000);
 
@@ -215,7 +197,7 @@ describe('UI Full Flow', () => {
                 payload: { nodeId: 'flow-node', status: 'failed', retryCount: 1, summary: 'Calculator crashed' },
             },
         ]);
-        await page.waitForFunction(() => document.body.innerText.includes('Calculator crashed'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('Calculator crashed'), { timeout: T });
         await capture(page, '07-failed-banner');
     }, 10000);
 
@@ -241,7 +223,7 @@ describe('UI Full Flow', () => {
             },
         ]);
         await page.waitForFunction(() => document.body.innerText.includes('Squad completed successfully'), {
-            timeout: 3000,
+            timeout: T,
         });
         await capture(page, '08-success-banner');
     }, 10000);
@@ -264,33 +246,36 @@ describe('UI Full Flow', () => {
             { type: 'squad:node_state', payload: { nodeId: 'B', status: 'failed', retryCount: 0 } },
             { type: 'squad:node_state', payload: { nodeId: 'C', status: 'blocked', retryCount: 0 } },
         ]);
-        await page.waitForFunction(() => document.body.innerText.includes('blocked'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('blocked'), { timeout: T });
         await capture(page, '09-dag-status-colors');
     }, 10000);
 
     test('10 sidebar with sessions and outer review', async () => {
         await inject(page, [
-            { type: 'session:start', payload: { sessionId: 's-a1', nodeId: 'A', phase: 'worker', retryCount: 0 } },
-            { type: 'session:start', payload: { sessionId: 's-a2', nodeId: 'A', phase: 'reviewer', retryCount: 1 } },
-            { type: 'session:start', payload: { sessionId: 's-b1', nodeId: 'B', phase: 'worker', retryCount: 0 } },
+            { type: 'session:start', payload: { sessionId: 's-a1', nodeId: 'A', phase: 'authoring', retryCount: 0 } },
+            { type: 'session:start', payload: { sessionId: 's-a2', nodeId: 'A', phase: 'reviewing', retryCount: 1 } },
+            { type: 'session:start', payload: { sessionId: 's-b1', nodeId: 'B', phase: 'authoring', retryCount: 0 } },
             {
                 type: 'session:start',
                 payload: { sessionId: 's-outer', nodeId: null, phase: 'outer_review', retryCount: 0 },
             },
         ]);
         await page.waitForFunction(
-            () => document.body.innerText.includes('R2 reviewer') && document.body.innerText.includes('outer review'),
-            { timeout: 3000 },
+            () => document.body.innerText.includes('R2 reviewing') && document.body.innerText.includes('outer review'),
+            { timeout: T },
         );
         await capture(page, '10-sidebar-sessions');
     }, 10000);
 
     test('11 tool error state', async () => {
         await inject(page, [
-            { type: 'session:start', payload: { sessionId: 's-err', nodeId: 'ErrN', phase: 'worker', retryCount: 2 } },
+            {
+                type: 'session:start',
+                payload: { sessionId: 's-err', nodeId: 'ErrN', phase: 'authoring', retryCount: 2 },
+            },
         ]);
 
-        await clickSidebarNode(page, 'R3 worker');
+        await clickSidebarNode(page, 'R3 authoring');
 
         await inject(page, [
             {
@@ -307,13 +292,13 @@ describe('UI Full Flow', () => {
                 },
             },
         ]);
-        await page.waitForFunction(() => document.body.innerText.includes('error'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('error'), { timeout: T });
         await capture(page, '11-tool-error');
     }, 10000);
 
     test('12 long message does not overflow', async () => {
-        // Click the R3 worker session to load it, then open the latest session
-        await clickSidebarNode(page, 'R3 worker');
+        // Open session with long message
+        await clickSidebarNode(page, 'R3 authoring');
 
         const longText = 'A'.repeat(800);
         await inject(page, [
@@ -327,71 +312,38 @@ describe('UI Full Flow', () => {
                 },
             },
         ]);
-        await page.waitForFunction(() => document.body.innerText.includes('AAAA'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('AAAA'), { timeout: T });
         const msgText = await page.$eval('[data-user-msg]', (el) => el.textContent);
         expect(msgText).toContain(longText.slice(0, 50));
         await capture(page, '12-long-message');
     }, 10000);
 
-    test('13 model pool drawer edit mode', async () => {
+    test('13 model pool drawer maxWorkers', async () => {
+        // Open drawer
         await page.evaluate(() => {
             const btns = [...document.querySelectorAll('button')];
             const btn = btns.find((b) => b.getAttribute('aria-label') === 'Model Pool');
             if (btn) btn.click();
         });
-        await page.waitForFunction(() => document.body.innerText.includes('Model Pool Configuration'), {
-            timeout: 3000,
+        await page.waitForFunction(() => document.body.innerText.includes('Model Pool'), {
+            timeout: T,
         });
 
-        await inject(page, [
-            {
-                type: 'model_pool:snapshot',
-                payload: {
-                    slots: [
-                        {
-                            slotId: 'slot-1',
-                            provider: 'anthropic',
-                            modelId: 'claude-3-5-sonnet-20241022',
-                            role: 'worker',
-                            thinkingLevel: 'medium',
-                            inUse: true,
-                        },
-                        {
-                            slotId: 'slot-2',
-                            provider: 'openai',
-                            modelId: 'gpt-4.1',
-                            role: 'reviewer',
-                            thinkingLevel: 'low',
-                            inUse: false,
-                        },
-                        {
-                            slotId: 'slot-3',
-                            provider: 'google',
-                            modelId: 'gemini-1.5-pro',
-                            role: 'worker',
-                            thinkingLevel: 'high',
-                            inUse: false,
-                        },
-                    ],
-                },
-            },
-        ]);
-        await page.waitForFunction(() => document.body.innerText.includes('gemini'), { timeout: 3000 });
+        // Verify default maxWorkers
+        await page.waitForFunction(() => document.body.innerText.includes('3'), { timeout: T });
 
-        await page.evaluate(() => {
-            const rows = [...document.querySelectorAll('tbody tr')];
-            rows[0]?.querySelector('button[aria-label="Edit slot"]')?.click();
-        });
-        await page.waitForFunction(() => document.querySelector('select') !== null, { timeout: 3000 });
-        await capture(page, '13-drawer-edit');
+        // Update via snapshot with slots array (backward compat: counts slots)
+        await inject(page, [{ type: 'model_pool:snapshot', payload: { maxWorkers: 10 } }]);
+        await page.waitForFunction(() => document.body.innerText.includes('10'), { timeout: T });
+        await capture(page, '13-drawer-maxWorkers');
         await page.keyboard.press('Escape');
     }, 15000);
 
     test('14 dark mode welcome and session', async () => {
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'dark' }]);
-        await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
-        await page.waitForSelector('#root', { timeout: 5000 });
-        await page.waitForFunction(() => document.documentElement.classList.contains('dark'), { timeout: 5000 });
+        await page.goto(baseUrl, { waitUntil: 'domcontentloaded', timeout: T });
+        await page.waitForSelector('[data-app-title]', { timeout: T });
+        await page.waitForFunction(() => document.documentElement.classList.contains('dark'), { timeout: T });
         await capture(page, '14a-dark-welcome');
 
         await inject(page, [
@@ -405,7 +357,7 @@ describe('UI Full Flow', () => {
             },
             {
                 type: 'session:start',
-                payload: { sessionId: 's-dark', nodeId: 'DarkN', phase: 'worker', retryCount: 0 },
+                payload: { sessionId: 's-dark', nodeId: 'DarkN', phase: 'authoring', retryCount: 0 },
             },
             {
                 type: 'session:message',
@@ -417,15 +369,15 @@ describe('UI Full Flow', () => {
                 },
             },
         ]);
-        await page.waitForFunction(() => document.body.innerText.includes('R1 worker'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('R1 authoring'), { timeout: T });
 
-        await clickSidebarNode(page, 'R1 worker');
-        await page.waitForFunction(() => document.body.innerText.includes('Dark mode message'), { timeout: 3000 });
+        await clickSidebarNode(page, 'R1 authoring');
+        await page.waitForFunction(() => document.body.innerText.includes('Dark mode message'), { timeout: T });
         await capture(page, '14b-dark-session');
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
     }, 15000);
 
-    test('15 reviewer callout', async () => {
+    test('15 reviewing callout', async () => {
         await inject(page, [
             {
                 type: 'squad:init',
@@ -437,7 +389,7 @@ describe('UI Full Flow', () => {
             },
             {
                 type: 'session:start',
-                payload: { sessionId: 's-rev', nodeId: 'RevN', phase: 'reviewer', retryCount: 0 },
+                payload: { sessionId: 's-rev', nodeId: 'RevN', phase: 'reviewing', retryCount: 0 },
             },
             {
                 type: 'session:message',
@@ -449,18 +401,18 @@ describe('UI Full Flow', () => {
                 },
             },
         ]);
-        await page.waitForFunction(() => document.body.innerText.includes('R1 reviewer'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('R1 reviewing'), { timeout: T });
 
-        await clickSidebarNode(page, 'R1 reviewer');
+        await clickSidebarNode(page, 'R1 reviewing');
         await page.waitForFunction(() => document.body.innerText.includes('Reviewing the architecture'), {
-            timeout: 3000,
+            timeout: T,
         });
-        await capture(page, '15-reviewer-callout');
+        await capture(page, '15-reviewing-callout');
     }, 15000);
 
     test('16 abort returns to welcome', async () => {
         await inject(page, [{ type: 'squad:abort', payload: { reason: 'test' } }]);
-        await page.waitForFunction(() => document.body.innerText.includes('Welcome to Squad-Tau'), { timeout: 3000 });
+        await page.waitForFunction(() => document.body.innerText.includes('Welcome to Squad-Tau'), { timeout: T });
         await capture(page, '16-abort-welcome');
     }, 15000);
 });

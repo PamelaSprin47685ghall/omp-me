@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Flex } from '@chakra-ui/react';
 import Header from './components/Header.jsx';
 import Sidebar from './components/Sidebar.jsx';
@@ -7,6 +7,7 @@ import ModelPoolDrawer from './components/ModelPoolDrawer.jsx';
 import { useDarkMode } from './hooks/useDarkMode.js';
 import { useWebSocket } from './hooks/useWebSocket.js';
 import { eventStore } from './event-store.js';
+import { useAppState } from './use-app-state.js';
 
 export default function App() {
   const { isDark } = useDarkMode();
@@ -16,65 +17,52 @@ export default function App() {
   }, [isDark]);
 
   const { connected, send } = useWebSocket();
-  const [viewMode, setViewMode] = useState('dag');
-  const [activeSessionId, setActiveSessionId] = useState(null);
-  const [modelPoolOpen, setModelPoolOpen] = useState(false);
   const sendRef = useRef(null);
-
   useEffect(() => { sendRef.current = send; }, [send]);
 
-  const selectSession = useCallback((sessionId) => {
-    setActiveSessionId(sessionId);
-    setViewMode('session');
-  }, []);
+  const selectSession = (sessionId) => {
+    eventStore.dispatch('ui:select_session', { sessionId });
+  };
 
-  const handleNodeClick = useCallback((nodeId) => {
+  const selectDAG = () => {
+    eventStore.dispatch('ui:set_view_mode', { viewMode: 'dag' });
+  };
+
+  const handleNodeClick = (nodeId) => {
     const state = eventStore.getState();
-    const session = Object.values(state.sessions).find(s => s.nodeId === nodeId);
+    const session = Object.values(state.sessions).find((s) => s.nodeId === nodeId);
     if (session) selectSession(session.sessionId);
-  }, [selectSession]);
+  };
 
-  const handleOptimisticMessage = useCallback((msg) => {
+  const handleOptimisticMessage = (msg) => {
     eventStore.dispatch('session:message', msg);
-  }, []);
+  };
 
-  const handleAbort = useCallback(() => {
+  const handleAbort = () => {
     if (sendRef.current) sendRef.current({ type: 'abort', payload: {} });
-  }, []);
+  };
 
-  const handleUpdateSlot = useCallback((action, slot, slotId, thinkingLevel) => {
-    if (!sendRef.current) return;
-    sendRef.current({ type: 'model_pool:update', payload: { action, slot, slotId, thinkingLevel } });
-  }, []);
+  const modelPoolOpen = useAppState(s => s.ui?.modelPoolOpen || false);
+  const viewMode = useAppState(s => s.ui?.viewMode || 'dag');
+  const activeSessionId = useAppState(s => s.ui?.activeSessionId);
 
   return (
     <Flex direction="column" minH="100vh" w="full">
       <Header
         connected={connected}
-        onOpenModelPool={() => setModelPoolOpen(true)}
+        onOpenModelPool={() => eventStore.dispatch('ui:toggle_drawer', { open: true })}
         onAbort={handleAbort}
       />
       <Flex flex={1} minH={0}>
-        <Sidebar
-          activeSessionId={activeSessionId}
-          onSelectSession={selectSession}
-          viewMode={viewMode}
-          onSelectDAG={() => setViewMode('dag')}
-        />
+        <Sidebar activeSessionId={activeSessionId} onSelectSession={selectSession} viewMode={viewMode} onSelectDAG={selectDAG} />
         <MainContent
-          viewMode={viewMode}
-          activeSessionId={activeSessionId}
           onNodeClick={handleNodeClick}
-          onOpenModelPool={() => setModelPoolOpen(true)}
+          onOpenModelPool={() => eventStore.dispatch('ui:toggle_drawer', { open: true })}
           onOptimisticMessage={handleOptimisticMessage}
           send={send}
         />
       </Flex>
-      <ModelPoolDrawer
-        isOpen={modelPoolOpen}
-        onClose={() => setModelPoolOpen(false)}
-        onUpdateSlot={handleUpdateSlot}
-      />
+      <ModelPoolDrawer isOpen={modelPoolOpen} onClose={() => eventStore.dispatch('ui:toggle_drawer', { open: false })} />
     </Flex>
   );
 }

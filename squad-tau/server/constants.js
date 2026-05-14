@@ -12,6 +12,7 @@ const STATUS = Object.freeze({
 
 const DEFAULTS = Object.freeze({
     MAX_RETRIES: 5,
+    MAX_WORKERS: 3,
 });
 
 export { STATUS, DEFAULTS };

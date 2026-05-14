@@ -19,7 +19,7 @@ const STATUS_COLOR = Object.freeze({
 const MERMAID_THEME = THEMES['github-light'];
 
 export default function DAGView({ activeNodeId, onNodeClick }) {
-  const nodes = useAppState(s => s.squad.nodes || []);
+  const nodes = useAppState(s => Object.values(s.squad.nodes || {}));
   const onClickRef = useRef(onNodeClick);
   onClickRef.current = onNodeClick;
   const nodeList = nodes;

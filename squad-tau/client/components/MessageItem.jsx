@@ -2,14 +2,19 @@ import React, { useRef, useEffect } from 'react';
 import { Box, Badge, VStack, Text } from '@chakra-ui/react';
 import ThinkingBlock from './ThinkingBlock.jsx';
 import ToolCall from './ToolCall.jsx';
+import { eventStore } from '../event-store.js';
 import { streamingManager } from '../streaming-manager.js';
 
-const ROLE_BG = { user: 'blue.subtle', worker: 'green.subtle', reviewer: 'orange.subtle', outer: 'bg.subtle' };
-const ROLE_FG = { user: 'blue.fg', worker: 'green.fg', reviewer: 'orange.fg', outer: 'fg' };
+const ROLE_BG = { user: 'blue.subtle', authoring: 'green.subtle', confirming: 'green.subtle', reviewing: 'orange.subtle', outer_review: 'bg.subtle' };
+const ROLE_FG = { user: 'blue.fg', authoring: 'green.fg', confirming: 'green.fg', reviewing: 'orange.fg', outer_review: 'fg' };
 
-function extractText(content) {
-  if (!Array.isArray(content)) return '';
-  return content.filter((block) => block.type === 'text').map((block) => block.text).join('');
+function getTextForMessage(sessionId, messageId) {
+  const state = eventStore.getState();
+  const sess = state.sessions[sessionId];
+  if (!sess) return '';
+  const msg = sess.messages.find(m => m.messageId === messageId);
+  if (!msg || !Array.isArray(msg.content)) return '';
+  return msg.content.filter((block) => block.type === 'text').map((block) => block.text).join('');
 }
 
 export default function MessageItem({ message, sessionRole = 'user' }) {
@@ -19,23 +24,23 @@ export default function MessageItem({ message, sessionRole = 'user' }) {
   useEffect(() => {
     if (!message.streaming || !message.messageId || isUser) return;
 
-    // Initial sync from buffer
-    const buffer = streamingManager.getBuffer(message.messageId);
-    if (textRef.current && buffer.text) {
-      textRef.current.textContent = buffer.text;
+    // Initial sync from EventStore state
+    if (textRef.current) {
+      textRef.current.textContent = getTextForMessage(message.sessionId, message.messageId);
     }
 
-    return streamingManager.subscribe(message.messageId, (batch) => {
-      if (batch.text && textRef.current) {
-        textRef.current.textContent += batch.text;
+    // Subscribe to RAF-painted repaint notifications
+    return streamingManager.subscribe(message.messageId, () => {
+      if (textRef.current) {
+        textRef.current.textContent = getTextForMessage(message.sessionId, message.messageId);
       }
     });
-  }, [message.streaming, message.messageId, isUser]);
+  }, [message.streaming, message.messageId, isUser, message.sessionId]);
 
   if (isUser) {
     return (
       <Box alignSelf="flex-end" bg="blue.subtle" borderRadius="lg" p={3} maxW="80%" overflowWrap="anywhere" data-user-msg>
-        {extractText(message.content)}
+        {getTextForMessage(message.sessionId, message.messageId)}
       </Box>
     );
   }
@@ -43,15 +48,16 @@ export default function MessageItem({ message, sessionRole = 'user' }) {
   const content = message.content || [];
   const toolCalls = content.filter((block) => block.type === 'tool_call');
   const nonToolBlocks = content.filter((block) => block.type !== 'tool_call');
-  const thinking = nonToolBlocks.filter((block) => block.type === 'thinking').map((block) => block.text).join('') || '';
-  const text = extractText(nonToolBlocks);
-  const roleBg = ROLE_BG[sessionRole] || ROLE_BG.outer;
-  const roleFg = ROLE_FG[sessionRole] || ROLE_FG.outer;
+  const thinkingBlocks = nonToolBlocks.filter((block) => block.type === 'thinking');
+  const thinking = thinkingBlocks.map((block) => block.text).join('');
+  const text = getTextForMessage(message.sessionId, message.messageId);
+  const roleBg = ROLE_BG[sessionRole] || ROLE_BG.outer_review;
+  const roleFg = ROLE_FG[sessionRole] || ROLE_FG.outer_review;
 
   return (
     <Box bg={roleBg} color={roleFg} p={4} borderRadius="l2" overflowWrap="anywhere">
-      {thinking !== undefined && <ThinkingBlock content={thinking} isStreaming={message.streaming} messageId={message.messageId} />}
-      {text !== undefined && (
+      {thinking !== '' && <ThinkingBlock content={thinking} isStreaming={message.streaming} messageId={message.messageId} sessionId={message.sessionId} />}
+      {text !== '' && (
         <Box display="flex" alignItems="flex-start">
           {message.streaming && <Badge colorPalette="blue" mr={2} mt={1}>streaming</Badge>}
           <Text as="span" ref={textRef} whiteSpace="pre-wrap">

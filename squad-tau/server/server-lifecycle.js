@@ -9,7 +9,7 @@ import { createWsServer, startHeartbeat } from './ws-server.js';
 import { routeMessage } from './ws-handler.js';
 import { EventLog } from './event-log.js';
 import { createViteDevServer, closeViteServer, CLIENT_ROOT } from './vite-setup.js';
-import { loadModelsConfig, saveModelsConfig, watchConfig, unwatchConfig, buildSnapshot } from './model-pool.js';
+import { loadModelsConfig } from './model-pool.js';
 import { setupEngine } from './engine.js';
 
 let _server = null;
@@ -29,7 +29,6 @@ function createCloseHandler(wss, rawServer, heartbeatCleanup, unsub) {
         for (const client of wss.clients) client.send(closeMsg);
         heartbeatCleanup();
         unsub();
-        unwatchConfig();
         for (const client of wss.clients) client.terminate();
         wss.close();
         if (typeof rawServer.closeAllConnections === 'function') rawServer.closeAllConnections();
@@ -47,12 +46,9 @@ export async function startServer({ skipVite = false } = {}) {
     const eventLog = new EventLog();
     const config = loadModelsConfig();
 
-    // Initialize model pool slots via EventLog (no ModelPool class)
+    // Initialize maxWorkers from model config
     eventLog.append('model_pool:snapshot', {
-        slots: config.map((s, i) => ({
-            ...s,
-            slotId: s.slotId || `slot-${i}-${s.role}-${s.provider}-${s.modelId}`,
-        })),
+        maxWorkers: config.maxWorkers || 3,
     });
 
     const engine = setupEngine(eventLog, { pi: globalThis.PI });
@@ -96,16 +92,6 @@ export async function startServer({ skipVite = false } = {}) {
     const close = createCloseHandler(wss, rawServer, heartbeatCleanup, () => {
         unsubLog();
         engine.cleanup();
-    });
-
-    watchConfig((newConfig) => {
-        eventLog.append('model_pool:snapshot', {
-            slots: newConfig.map((s, i) => ({
-                ...s,
-                slotId: s.slotId || `slot-${i}-${s.role}-${s.provider}-${s.modelId}`,
-            })),
-        });
-        eventLog.append('model_pool:changed', buildSnapshot(engine.getState()));
     });
 
     _server = { port: http.port, eventLog };
