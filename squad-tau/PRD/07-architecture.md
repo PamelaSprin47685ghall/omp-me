@@ -120,10 +120,10 @@ squad-tau/
 Runtime deps:
   ws                        -- WebSocket server (bundled dependency)
   vite                      -- Dev server (bundled dependency)
-  @blueprintjs/core         -- UI components
-  @blueprintjs/icons        -- Icons
+  @chakra-ui/react          -- UI components
+  lucide-react              -- Icons
   react / react-dom         -- UI framework
-  beautiful-mermaid         -- DAG visualization（替代 mermaid，内置暗色主题）
+  beautiful-mermaid         -- DAG visualization（替代 mermaid，内置暗色主题支持）
   @oh-my-pi/resolve-pi      -- OMP 模块解析器（动态加载 ws、vite、createAgentSession 等）
 
 Dev deps:

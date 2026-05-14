@@ -16,7 +16,7 @@ function SessionRow({ isSelected, sessionData, onClick }) {
   const phase = sessionData.phase || 'worker';
   const label = `R${round} ${phase.replace(/_/g, ' ')}`;
   return (
-      <HStack
+    <HStack
       gap={1}
       px={1}
       py="0.5"
@@ -40,7 +40,14 @@ function NodeGroup({ node, children }) {
   const label = node?.label || node?.id || '';
   return (
     <Box>
-        <HStack px={1} py="0.5" cursor="pointer" borderRadius="md" onClick={() => setExpanded(!expanded)} gap={1}>
+      <HStack
+        px={1}
+        py="0.5"
+        cursor="pointer"
+        borderRadius="md"
+        onClick={() => setExpanded(!expanded)}
+        gap={1}
+      >
         <TreeIcon status={node?.status} />
         <Text fontSize="sm" truncate data-node-label>{label}</Text>
       </HStack>

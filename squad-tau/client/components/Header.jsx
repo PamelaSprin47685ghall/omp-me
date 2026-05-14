@@ -18,12 +18,10 @@ function Header({ connected, onOpenModelPool, squadActive, onAbort }) {
         <Heading size="sm" data-app-title>
           Squad-Tau
         </Heading>
-        <HStack data-header-connection>
-          <Icon as={connected ? Wifi : WifiOff} boxSize={3.5} />
-          <Badge colorPalette={connected ? 'green' : 'red'}>
-            {connected ? `Connected: ${port}` : 'Disconnected'}
-          </Badge>
-        </HStack>
+        <Icon as={connected ? Wifi : WifiOff} boxSize={3.5} />
+        <Badge colorPalette={connected ? 'green' : 'red'}>
+          {connected ? `Connected: ${port}` : 'Disconnected'}
+        </Badge>
       </HStack>
       <HStack>
         <Tooltip.Root>

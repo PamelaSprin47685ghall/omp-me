@@ -5,7 +5,7 @@
 - [x] PRD 文档（本文件集）
 - [x] `squad-tau/` 完整源码（server + client + test）
   - [x] 服务端：引擎、DAG 执行器、节点执行、网络层、模型池、基础设施
-  - [x] 前端：React SPA、Blueprint.js 组件、hooks
+  - [x] 前端：React SPA、Chakra UI 组件、hooks
   - [x] 配置：`package.json`, `README.md`, `SPEC.md`
 - [x] 单元测试（42 个文件，420+ 用例，Bun Test，`test/unit/`）
   - [x] `dag-sort` / `dag-validate` / `dag-execute` / `dag-concurrency`
@@ -94,7 +94,7 @@
 | 5 | Worker 模型分配 | 优先模型池，池空则用当前会话模型；当前模型用量无上限 |
 | 6 | 并发度 | 无限，只受模型池槽位数限制 |
 | 7 | Retry 回退 | 无退避，立即重试 |
-| 8 | Blueprint Tree 性能 | 不用焦虑，但必须增量更新（不全量设 contents） |
+| 8 | Sidebar Tree 性能 | 不用焦虑，但必须增量更新（不全量设 contents） |
 | 9 | Mermaid 重绘 | 只在节点状态变更时重绘，不因无关事件触发 |
 | 10 | 移动端适配 | best effort，不单独开发，DRY |
 | 11 | 多 Tab 切换 | 各 Tab 独立管理自己的 auto-switch 状态 |
@@ -109,8 +109,8 @@
 
 | # | 讨论点 | 决策 |
 |---|--------|------|
-| 18 | React 版本 | 18.3.x（与 Blueprint 6 peerDep 一致） |
-| 19 | Blueprint.js 版本 | 6.12.x + @blueprintjs/icons@6.9.x |
+| 18 | React 版本 | 18.3.x |
+| 19 | Chakra UI 版本 | 3.x + lucide-react latest |
 | 20 | Mermaid 版本 | 11.14.x |
 | 21 | Vite 版本 | 8.0.x（最新稳定版） |
 | 22 | UI: DAG 位置 | 主内容区顶部可折叠面板，不放侧栏 |
@@ -121,10 +121,10 @@
 | 27 | UI: Auto-scroll | 用户滚动后暂停，显示 `↓ Scroll to bottom` 浮动按钮 |
 | 28 | UI: 空状态 | 欢迎引导 |
 | 29 | UI: Header | Abort 仅活跃时显示，连接状态简化为绿/红点 |
-| 30 | UI: 深色模式 | 自动跟随系统主题，Blueprint `Classes.DARK` |
+| 30 | UI: 深色模式 | 自动跟随系统主题，Chakra colorMode |
 | 31 | Vite Dev 模式 | 调用 `vite.createServer` Node API 直读 JSX |
 | 32 | 端口分配 | ~~默认 9527，冲突 +1 递增~~ | OS 随机分配（`server.listen(0)`），无需冲突处理 |
-| 33 | 图标选择 | 所有图标使用 Blueprint `Icon` 组件 + `@blueprintjs/icons` 的 `IconNames` 枚举，实现在 https://blueprintjs.com/docs/#icons/icons-list 中挑选最贴合语义的，不将就 |
+| 33 | 图标选择 | 所有图标使用 lucide-react SVG 图标，实现在 https://lucide.dev/icons/ 中挑选最贴合语义的，不将就 |
 
 ## 9.7 待决策事项
 

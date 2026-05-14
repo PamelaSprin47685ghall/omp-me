@@ -7,7 +7,7 @@
 - 超过 40 行的单函数，必须合理拆解成很多函数和模块
 - 超过 200 行的文件，必须合理拆解成很多文件
 - 纯 JavaScript（JSX），无 TypeScript
-- 所有图标使用 Blueprint `Icon` 组件 + `@blueprintjs/icons` 的 `IconNames`
+- 所有图标使用 lucide-react SVG 图标
 
 ## 参考项目
 
@@ -25,8 +25,8 @@
 
 | 资源 | URL | 用途 |
 |------|-----|------|
-| Blueprint Icons | https://blueprintjs.com/docs/#icons/icons-list | 选择最贴合语义的 `IconNames` |
-| Blueprint Core (v6) | https://blueprintjs.com/docs/#core | `Tree`、`Drawer`、`Callout`、`Collapse`、`Card`、`Button`、`Icon` 等组件文档 |
+| Chakra UI (v3) | https://www.chakra-ui.com/docs/components | `Drawer`、`Collapsible`、`Dialog`、`Button`、`Badge`、`Table`、`Tooltip`、`Portal` 等组件文档 |
+| lucide-react | https://lucide.dev/icons/ | 选择最贴合语义的图标
 | React (v18) | https://react.dev/ | React 18 API |
 | Mermaid (v11) | https://mermaid.js.org/ | DAG 图渲染 API |
 | Vite (v8) | https://vite.dev/ | `createServer` Node API 文档 |

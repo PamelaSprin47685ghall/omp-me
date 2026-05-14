@@ -5,8 +5,8 @@
 | 层 | 技术 | 版本 |
 |----|------|------|
 | 框架 | React | 18.3.x |
-| UI 组件 | @blueprintjs/core | 6.12.x |
-| 图标 | @blueprintjs/icons | 6.9.x |
+| UI 组件 | @chakra-ui/react | 3.x |
+| 图标 | lucide-react | latest |
 | DAG 可视化 | beautiful-mermaid | latest |（基于 mermaid 但内置暗色主题支持） |
 | 通信 | WebSocket (原生) | — |
 | 构建 | vite | 8.0.x |
@@ -26,17 +26,16 @@
 ## 4.4 侧边栏（Sidebar）
 
 ### Sessions Tree（扁平混合树）
-- Blueprint `Tree` 组件，混合单层结构：顶部的 "DAG Overview" 节点 → 按 nodeId 分组的 Node（一级）→ 阶段子节点（二级）→ 无 nodeId 的游离 session
+- Chakra 混合布局：顶部 "DAG Overview" 节点（带 `Network` 图标）→ 按 nodeId 分组的 Node → 阶段子节点 → 无 nodeId 的游离 session
 - **增量更新**：Tree contents 由 useMemo 从 sessions + nodes 重新计算
 - **排序规则**：两层均按 session 创建时间升序排列（自然数 session ID 递增即创建时间升序）
   - 第一层（Node）：节点按首次出现的 order 排列
   - 第二层（Phase）：子节点按 session 创建时间升序排列
 - 结构：顶层 "DAG Overview" → Node 一级 → `R<retryCount+1> <phase>` 二级 → 游离 session
-- 所有图标使用 Blueprint `Icon` 组件 + `@blueprintjs/icons` 的 `IconNames` 枚举
-- 各状态图标意图：
-  - approved → tick-circle, rejected → cross-circle, pending → time
-  - active/authoring/confirming/reviewing → refresh
-  - failed/blocked → ban-circle
+- 各状态使用 lucide-react 图标：
+  - approved → `CheckCircle`, rejected → `XCircle`, pending → `Clock`
+  - active/authoring/confirming/reviewing → `RefreshCw`
+  - failed/blocked → `Ban`
 
 ### 导航逻辑
 - **从不自动切换**：用户始终手动选择要查看的会话，不存在 auto-follow 或锁定的概念
@@ -44,15 +43,14 @@
 - 顶部 "DAG Overview" 节点（点击切换到 DAG 视图）→ 节点 Node（一级）→ 阶段 Phase（二级）→ 无 nodeId 的 session 直接作为顶层
 - 二级节点标签：`R<retryCount+1> <phase>`（例如：R1 worker、R2 reviewer）
 - 无 nodeId 的 session 显示为 "Outer Review" 或 "Architect"
-- 所有图标使用 Blueprint `Icon` 组件 + `@blueprintjs/icons` 的 `IconNames` 枚举
-- 各状态图标意图：approved → tick-circle, rejected → cross-circle, pending → time, active/authoring/confirming/reviewing → refresh, failed/blocked → ban-circle
+- 各状态使用 lucide-react 图标：approved → `CheckCircle`, rejected → `XCircle`, pending → `Clock`, active/authoring/confirming/reviewing → `RefreshCw`, failed/blocked → `Ban`
 
 ## 4.5 Header
 
 - **左侧**：`Squad-Tau` 品牌标识
-- **中间**：连接状态指示器，显示端口号，使用 Blueprint `Tag` + `Icon`，绿色 (SIGNAL_SEARCH) 表示已连接，红色 (OFFLINE) 表示断连
+- **中间**：连接状态指示器，显示端口号，使用 Chakra `Badge` + lucide `Wifi` / `WifiOff` 图标，绿色表示已连接，红色表示断连
 - **右侧**：模型池配置按钮（Cog 图标）+ Abort 按钮（Stop 图标，仅在 squad 活跃时显示，点击不可逆）
-- **深色**：跟随系统 `prefers-color-scheme`，应用 Blueprint `Classes.DARK`
+- **深色**：跟随系统 `prefers-color-scheme`，使用 Chakra 内置 color mode 适配
 - 无 DAG 切换按钮：DAG 通过侧边栏 "DAG Overview" 节点切换
 
 ## 4.6 主内容区（MainContent）
@@ -70,15 +68,15 @@
   - Worker：绿色 (`#238551`)
   - Reviewer：橙色 (`#D9822B`)
   - Outer Review：紫色 (`#7157D9`)
-- **User 消息**：右对齐，Blueprint `Intent.PRIMARY` 背景
-- **Assistant 消息**：左对齐，`Intent.NONE` 背景
+- **User 消息**：右对齐，蓝色背景
+- **Assistant 消息**：左对齐，默认背景
 - **System 消息**：居中，斜体，灰色
 - **Thinking 块**：
-  - 可折叠（Blueprint `Collapse` 组件）
+  - 可折叠（Chakra `Collapse` 组件）
   - 实时流式渲染：WebSocket 推送 `session:message_delta` 时，通过 `requestAnimationFrame` 合并 delta 批量追加，不每帧操作 DOM
   - 流式更新丝滑无停顿，展开状态跨消息保持
 - **Tool 调用**：
-  - Blueprint `Card` 组件
+  - 使用 Chakra 风格卡片
   - **默认全部折叠**（`useState(false)`），代码行为与 PRD 设计不同——所有 tool call 卡片初始均为折叠状态，不区分新旧
   - 显示 tool 名称、参数（JSON 格式化）、结果
   - 结果可点击展开/折叠
@@ -88,14 +86,14 @@
 ### Auto-scroll 行为
 - 默认自动跟随最新消息
 - 当用户手动向上滚动查看历史时，自动滚动暂停
-- 用户向上滚动后，底部显示浮动按钮（使用 Blueprint `Icon`，语义为"回到最新消息"，点击恢复自动跟随
+- 用户向上滚动后，底部显示浮动按钮（lucide `ArrowDown` 图标，语义为"回到最新消息"，点击恢复自动跟随
 - 使用 `requestAnimationFrame` 合并滚动操作，避免 Thinking delta 高频更新导致页面跳跃
 - 恢复逻辑：当 `scrollTop + clientHeight >= scrollHeight - 100px` 时，自动恢复跟随
 
 ### 状态指示器
 - 当前节点：`Node: <id> · R<retry> · <phase>`
 - 进度条：`Layer 2/4`（L 模式）
-- 状态标记：`Intent` 颜色指示
+- 无状态标记：进度通过侧边栏树节点状态文本展示
 
 ### 空状态
 无 squad 运行时显示欢迎引导：
@@ -105,17 +103,17 @@
 
 ### 错误状态
 - 当 squad 整体失败（节点 blocked/failed）时，DAG 视图顶部显示全宽错误 banner
-- 使用 Blueprint `Alert` 组件，`intent="danger"`，标题 `Squad Failed`
+- 使用 Chakra `Alert` 组件，colorPalette="red"，标题 `Squad Failed`
 - banner 显示失败节点数量（failed/blocked 分别计数）、第一个失败节点的 summary 作为原因
 - 用户可手动关闭 banner（`onDismiss`）
-- Squad 成功完成时显示 `success` intent 的 Callout
+- Chakra 完成时显示 success Callout
 - 其他错误（WebSocket 断连、服务端崩溃）通过 Header 连接状态指示器展示
 
 ### 消息输入
 
 消息列表底部显示输入区域**仅当有活跃 session 时**（`MainContent.jsx` 中 `{activeSession && <MessageInput .../>}`），不显示无 session 状态的输入框。
 
-- Blueprint `TextArea`（支持多行）+ `Button`（发送），支持 Enter 发送，Shift+Enter 换行
+- Chakra `Textarea`（支持多行）+ `Button`（发送），支持 Enter 发送，Shift+Enter 换行
 - 输入框占满宽度，发送按钮固定在右侧
 - 发送后清空输入框，用户消息立即出现在消息列表中（无需等待服务端确认）
 - 消息通过 WebSocket 发送 `session:user_message`，payload：`{ sessionId, text, messageId }`
@@ -124,7 +122,7 @@
 
 ## 4.7 模型池配置面板
 
-- Blueprint `Drawer` 组件（从右侧滑出），独立于 MainContent
+- Chakra `Drawer` 组件（从右侧滑出），独立于 MainContent
 - 点击 Header 的模型池配置按钮打开
 
 ### 配置表格
@@ -137,19 +135,19 @@
 ### 操作
 - **添加**：`Select` 选择 provider，`InputGroup` 输入 modelId，`Select` 选 role，`Select` 选 thinkingLevel → 添加按钮
 - **编辑**：点击编辑图标 → 行内编辑 `thinkingLevel` → 保存/取消
-- **删除**：点击删除图标 → Blueprint `Alert` 确认对话框
+- **删除**：点击删除图标 → Chakra `Dialog` 确认对话框
 - 实时生效：每次操作发送 `model_pool:update` → 服务端更新 `.omp/models.toml` 文件 → 广播 `model_pool:changed` → 所有已连接浏览器同步
 
 ## 4.8 深色模式
 
 - 自动跟随系统主题：`matchMedia('(prefers-color-scheme: dark)')`
-- 在 root DOM 节点添加 Blueprint `Classes.DARK` class
-- 所有组件继承 Blueprint 原生暗色主题，无需额外样式
+- 在 root DOM 节点配置 Chakra colorMode provider
+- 所有组件继承 Chakra 原生暗色主题，无需额外样式
 - 监听 `change` 事件，用户切换系统主题时自动跟随
 
 ## 4.9 移动端适配
 - 最佳努力（best effort）支持，不单独开发移动端 UI
-- 利用 Blueprint 原生响应式能力：`Drawer` 自动全屏、表格横向滚动
+- 利用 Chakra 原生响应式能力：`Drawer` 自动全屏、表格横向滚动
 - 实际代码中**未实现汉堡菜单**——Sidebar 在移动端保持展示
 - 不写移动端专用 CSS 或组件，所有适配逻辑共用同一套源码
 
