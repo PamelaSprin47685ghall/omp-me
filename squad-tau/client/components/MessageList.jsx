@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
-import { Button, Icon, NonIdealState } from '@blueprintjs/core';
-import { IconNames } from '@blueprintjs/icons';
+import { Box, Center, Text, IconButton } from '@chakra-ui/react';
+import { ArrowDown, MessageCircle } from 'lucide-react';
 import MessageItem from './MessageItem.jsx';
 import { useAutoScroll } from '../hooks/useAutoScroll.js';
 
@@ -10,28 +10,40 @@ export default function MessageList({ messages, sessionRole }) {
 
   if (!messages?.length) {
     return (
-      <div className="bp6-fill bp6-padded msg-scroll" ref={containerRef}>
-        <NonIdealState icon={IconNames.CHAT} description="No messages yet" />
-      </div>
+      <Box ref={containerRef} overflowY="auto" p={4} h="full">
+        <Center flexDirection="column" gap={4} py={12} color="gray.500" _dark={{ color: 'gray.400' }}>
+          <MessageCircle size={32} />
+          <Text>No messages yet</Text>
+        </Center>
+      </Box>
     );
   }
 
   return (
-    <div className="bp6-fill bp6-padded msg-scroll" ref={containerRef}>
+    <Box
+      ref={containerRef}
+      overflowY="auto"
+      p={4}
+      h="full"
+      display="flex"
+      flexDirection="column"
+      gap={5}
+    >
       {messages.map((msg) => (
         <MessageItem key={msg.messageId} message={msg} sessionRole={sessionRole} />
       ))}
       {!isAtBottom && (
-        <div className="scroll-down-wrap">
-          <Button
-            icon={<Icon icon={IconNames.ARROW_DOWN} />}
-            minimal
-            round
-            small
+        <Box className="scroll-down-wrap">
+          <IconButton
+            aria-label="Scroll to latest"
+            icon={<ArrowDown size={16} />}
+            variant="outline"
+            size="sm"
+            borderRadius="full"
             onClick={scrollToBottom}
           />
-        </div>
+        </Box>
       )}
-    </div>
+    </Box>
   );
 }

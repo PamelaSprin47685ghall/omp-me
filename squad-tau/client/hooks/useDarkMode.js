@@ -1,38 +1,22 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 
+/**
+ * Tracks dark mode via prefers-color-scheme media query.
+ * This is a custom replacement for Chakra v3's non-existent useColorMode.
+ */
 export function useDarkMode() {
-    const [isDark, setIsDark] = useState(() => {
+    const getIsDark = useCallback(() => {
         if (typeof window === 'undefined') return false;
-        try {
-            const matches = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            document.documentElement.classList.toggle('bp6-dark', matches);
-            return matches;
-        } catch {
-            return false;
-        }
-    });
+        return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    }, []);
+
+    const [isDark, setIsDark] = useState(getIsDark);
 
     useEffect(() => {
-        if (typeof window === 'undefined') return;
-        document.documentElement.classList.toggle('bp6-dark', isDark);
-    }, [isDark]);
-
-    useEffect(() => {
-        if (typeof window === 'undefined') return;
-        let query;
-        try {
-            query = window.matchMedia('(prefers-color-scheme: dark)');
-        } catch {
-            return;
-        }
-        const handler = (e) => {
-            setIsDark(e.matches);
-        };
-        query.addEventListener('change', handler);
-        return () => {
-            query.removeEventListener('change', handler);
-            document.documentElement.classList.remove('bp6-dark');
-        };
+        const mq = window.matchMedia('(prefers-color-scheme: dark)');
+        const handler = (e) => setIsDark(e.matches);
+        mq.addEventListener('change', handler);
+        return () => mq.removeEventListener('change', handler);
     }, []);
 
     return { isDark };

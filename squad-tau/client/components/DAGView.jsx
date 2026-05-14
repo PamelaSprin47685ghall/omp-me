@@ -1,6 +1,6 @@
 import React, { useMemo, useCallback, useRef } from 'react';
-import { NonIdealState } from '@blueprintjs/core';
-import { IconNames } from '@blueprintjs/icons';
+import { Box, Center, VStack, Text, Icon } from '@chakra-ui/react';
+import { GitBranch, AlertTriangle } from 'lucide-react';
 import { renderMermaidSVG, THEMES } from 'beautiful-mermaid';
 
 const STATUS_COLOR = Object.freeze({
@@ -63,11 +63,25 @@ export default function DAGView({ nodes, activeNodeId, onNodeClick }) {
   }, []);
 
   if (!nodeList.length) {
-    return <NonIdealState icon={IconNames.GRAPH} description="No nodes in DAG" />;
+    return (
+      <Center minHeight={300}>
+        <VStack gap={3}>
+          <Icon as={GitBranch} boxSize={8} color="gray.400" />
+          <Text color="gray.500">No nodes in DAG</Text>
+        </VStack>
+      </Center>
+    );
   }
 
   if (!svg) {
-    return <NonIdealState icon={IconNames.WARNING_SIGN} description="Failed to render DAG" />;
+    return (
+      <Center minHeight={300}>
+        <VStack gap={3}>
+          <Icon as={AlertTriangle} boxSize={8} color="orange.400" />
+          <Text color="red.500">Failed to render DAG</Text>
+        </VStack>
+      </Center>
+    );
   }
 
   const svgMarkup = svg.trim().startsWith('<svg')
@@ -75,10 +89,14 @@ export default function DAGView({ nodes, activeNodeId, onNodeClick }) {
     : '<p>DAG render failed</p>';
 
   return (
-    <div
-      className="bp6-fill bp6-padded dag-container"
+    <Box
+      w="full"
+      p={4}
+      display="flex"
+      justifyContent="center"
+      alignItems="center"
+      minHeight={300}
       onClick={handleClick}
-      style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: 300 }}
       dangerouslySetInnerHTML={{ __html: svgMarkup }}
     />
   );

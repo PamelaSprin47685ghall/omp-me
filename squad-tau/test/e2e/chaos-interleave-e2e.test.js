@@ -220,7 +220,7 @@ describe('Chaos: Interleaved concurrent events', () => {
                 });
         }
 
-        const brand = await page.$eval('.app-title', (el) => el.textContent);
+        const brand = await page.$eval('[data-app-title]', (el) => el.textContent);
         expect(brand).toBe('Squad-Tau');
         await page.close();
     }, 15000);

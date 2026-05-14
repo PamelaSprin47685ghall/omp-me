@@ -116,7 +116,7 @@ describe('Edge Case Stress Tests', () => {
                 messageId: 'g1',
                 delta: { type: 'text_delta', text: 'Ghost' },
             });
-            await new Promise((r) => setTimeout(r, 1000));
+            // waitForText polls until content appears — no arbitrary sleep needed
             expect(await waitForText(page, 'Welcome to Squad-Tau')).toBe(true);
             expect(getRelevant(errs.get()).length).toBe(0);
         } finally {
@@ -131,7 +131,7 @@ describe('Edge Case Stress Tests', () => {
         try {
             const errs = trackErrors(page);
             eventBus.emit('session', 'end', { sessionId: 'orphan', reason: 'completed' });
-            await new Promise((r) => setTimeout(r, 1000));
+            // waitForText polls — no arbitrary sleep needed
             expect(await waitForText(page, 'Welcome to Squad-Tau')).toBe(true);
             expect(getRelevant(errs.get()).length).toBe(0);
         } finally {
@@ -469,8 +469,9 @@ describe('Edge Case Stress Tests', () => {
             });
             await waitForText(page, 'n1', 5000);
             eventBus.emit('squad', 'node_state', { nodeId: 'does-not-exist', status: 'approved', retryCount: 0 });
-            await new Promise((r) => setTimeout(r, 1000));
-            expect(await waitForText(page, 'Welcome to Squad-Tau')).toBe(false); // still in squad mode
+            // Wait for consistent state: ensure the page doesn't show Welcome (meaning no crash to welcome)
+            // Use short 1s poll just to flush pending events; waitForText will time out quickly if not found
+            expect(await waitForText(page, 'Welcome to Squad-Tau', 1000)).toBe(false);
             expect(getRelevant(errs.get()).length).toBe(0);
         } finally {
             await page.close();

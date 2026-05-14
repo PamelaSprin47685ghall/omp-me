@@ -49,7 +49,7 @@ describe('Chaos: Browser concurrency path', () => {
         await page.waitForSelector('#root', { timeout: 5000 });
 
         // WS reconnects — brand text must be Squad-Tau
-        const brand = await page.$eval('.app-title', (el) => el.textContent);
+        const brand = await page.$eval('[data-app-title]', (el) => el.textContent);
         expect(brand).toBe('Squad-Tau');
 
         // New squad after refresh
@@ -167,7 +167,7 @@ describe('Chaos: Browser concurrency path', () => {
 
         await page.reload({ waitUntil: 'domcontentloaded', timeout: 8000 });
         await page.waitForSelector('#root', { timeout: 5000 });
-        const brand = await page.$eval('.app-title', (el) => el.textContent);
+        const brand = await page.$eval('[data-app-title]', (el) => el.textContent);
         expect(brand).toBe('Squad-Tau');
 
         // New squad after L-mode refresh

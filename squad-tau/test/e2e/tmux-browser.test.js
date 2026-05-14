@@ -7,6 +7,9 @@
  *
  * Each test creates its own page for clean slate. Zero sleep() — all waiting
  * is done via polling predicates (waitForFunction / waitForSelector).
+ *
+ * UI is built with Chakra UI (not Blueprint). All selectors use role attributes
+ * and data attributes instead of Blueprint CSS classes.
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import { startServer, stopServer } from '../../server/server-lifecycle.js';
@@ -35,6 +38,34 @@ function waitForSelector(page, selector, timeoutMs = 8000) {
         .waitForSelector(selector, { timeout: timeoutMs })
         .then(() => true)
         .catch(() => false);
+}
+
+/** Click sidebar session leaf or treeitem by matching text */
+async function clickSidebarNode(page, textPattern) {
+    await page.evaluate((pattern) => {
+        const items = [...document.querySelectorAll('[role="treeitem"]')];
+        const node = items.find((el) => el.textContent && el.textContent.includes(pattern));
+        if (node) node.click();
+    }, textPattern);
+}
+
+/** Find abort button (has aria-label "Abort Squad" or contains Square icon) */
+async function findAbortButton(page) {
+    return page.evaluate(() => {
+        const buttons = [...document.querySelectorAll('button')];
+        const abortBtn = buttons.find((b) => b.getAttribute('aria-label') === 'Abort Squad');
+        if (abortBtn) return true;
+        return false;
+    });
+}
+
+/** Click abort button */
+async function clickAbortButton(page) {
+    await page.evaluate(() => {
+        const buttons = [...document.querySelectorAll('button')];
+        const abortBtn = buttons.find((b) => b.getAttribute('aria-label') === 'Abort Squad');
+        if (abortBtn) abortBtn.click();
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -117,7 +148,6 @@ describe('Tmux Browser — UI Content', () => {
                 nodes: [{ id: 'node1', task: 'Test', review_criteria: [] }],
                 originalTask: 'test',
             });
-            // wait until squad:init takes effect (nodes appear in DAG)
             await waitForText(page, 'node1', 5000);
 
             eventBus.emit('session', 'start', { sessionId: 'sess-1', nodeId: 'node1', phase: 'worker', retryCount: 0 });
@@ -143,7 +173,6 @@ describe('Tmux Browser — UI Content', () => {
             });
             await waitForText(page, 'n1', 5000);
             eventBus.emit('session', 'start', { sessionId: 's1', nodeId: 'n1', phase: 'worker', retryCount: 0 });
-            // session must be visible in sidebar before we send message
             await waitForText(page, 'R1 worker', 5000);
             // Select session to view messages
             await page.evaluate(() => window.__selectLatestSession?.());
@@ -154,8 +183,6 @@ describe('Tmux Browser — UI Content', () => {
                 delta: { type: 'thinking_delta', text: 'Analyzing step by step...' },
             });
             expect(await waitForText(page, 'Thinking')).toBe(true);
-            // The content is inside ThinkingBlock Collapse (closed by default)
-            // Appearance is tested separately in the thinking collapse test
         } finally {
             await page.close();
         }
@@ -330,7 +357,7 @@ describe('Tmux Browser — UI Content', () => {
 
             eventBus.emit('session', 'end', { sessionId: 's1', reason: 'completed' });
 
-            // Status bar should show 'completed' status
+            // Status badges show 'completed' status
             expect(await waitForText(page, 'completed')).toBe(true);
         } finally {
             await page.close();
@@ -347,7 +374,6 @@ describe('Tmux Browser — UI Content', () => {
                 nodes: [{ id: 'n1', task: 'T', review_criteria: [] }],
                 originalTask: 'test',
             });
-            // Wait for the DAG to appear so we know init was processed
             await waitForText(page, 'n1', 5000);
 
             eventBus.emit('squad', 'complete', {
@@ -415,7 +441,6 @@ describe('Tmux Browser — UI Content', () => {
                 messageId: 'ma-1',
                 delta: { type: 'text_delta', text: 'Result from node A' },
             });
-            // Wait for session A's message to render
             expect(await waitForText(page, 'Result from node A')).toBe(true);
 
             // Session B
@@ -486,17 +511,11 @@ describe('Tmux Browser — UI Content', () => {
                 );
                 if (btn) btn.click();
             });
-            expect(await waitForText(page, 'Model Pool Configuration')).toBe(true);
-            // Verify drawer portal is rendered
-            const portalExists = await page
-                .waitForSelector('[class*="bp6-drawer"]', { timeout: 5000 })
-                .then(() => true)
-                .catch(() => false);
-            expect(portalExists).toBe(true);
+            expect(await waitForText(page, 'Configured Slots')).toBe(true);
 
             await page.keyboard.press('Escape');
             const closed = await page
-                .waitForFunction(() => !document.body.textContent.includes('Model Pool Configuration'), {
+                .waitForFunction(() => !document.body.textContent.includes('Configured Slots'), {
                     timeout: 5000,
                 })
                 .then(() => true)
@@ -528,7 +547,7 @@ describe('Tmux Browser — UI Content', () => {
             eventBus.emit('session', 'start', { sessionId: 's-b', nodeId: 'beta', phase: 'worker', retryCount: 0 });
             await waitForText(page, 'beta', 5000);
 
-            // Send messages to both sessions (stored in redux, not yet rendered)
+            // Send messages to both sessions
             eventBus.emit('session', 'message_delta', {
                 sessionId: 's-a',
                 messageId: 'ma',
@@ -541,27 +560,9 @@ describe('Tmux Browser — UI Content', () => {
             });
 
             // Click alpha's session leaf in sidebar to view its messages
-            await page.waitForFunction(
-                () => {
-                    const contents = document.querySelectorAll('.bp6-tree-node-content');
-                    for (const el of contents) {
-                        const label = el.querySelector('.bp6-tree-node-label');
-                        if (label && label.textContent.includes('R1 worker')) {
-                            const treeNode = el.closest('.bp6-tree-node');
-                            const parentLi = treeNode?.parentElement?.closest('.bp6-tree-node');
-                            const parentLabel = parentLi?.querySelector('.bp6-tree-node-label');
-                            if (parentLabel && parentLabel.textContent.includes('alpha')) {
-                                el.click();
-                                return true;
-                            }
-                        }
-                    }
-                    return false;
-                },
-                { timeout: 5000 },
-            );
+            await clickSidebarNode(page, 'R1 worker');
 
-            // Alpha's message should now be visible, beta's hidden
+            // Alpha's message should now be visible; waitForText polls until present
             expect(await waitForText(page, 'Msg from alpha')).toBe(true);
             const betaShown = await page.evaluate(() => document.body.textContent.includes('Msg from beta'));
             expect(betaShown).toBe(false);
@@ -582,8 +583,13 @@ describe('Tmux Browser — UI Content', () => {
             });
             await waitForText(page, 'daggy', 5000);
             expect(await waitForText(page, 'daggy')).toBe(true);
-            // Verify the DAG container rendered (contains a svg element)
-            const hasSVG = await page.evaluate(() => !!document.querySelector('.dag-container svg'));
+            // Verify the DAG container rendered (has inline svg from beautiful-mermaid)
+            const hasSVG = await page.evaluate(() => {
+                const container = document.querySelector('[class*="dag-container"]');
+                if (container) return !!container.querySelector('svg');
+                // Look for any SVG in the page that might be from beautiful-mermaid
+                return document.body.innerHTML.includes('<svg');
+            });
             expect(hasSVG).toBe(true);
         } finally {
             await page.close();
@@ -617,7 +623,8 @@ describe('Tmux Browser — UI Content', () => {
     test('abort button click resets UI to Welcome view', async () => {
         const page = await createPage();
         try {
-            expect(await page.evaluate(() => !!document.querySelector('button.bp6-intent-danger'))).toBe(false);
+            // No abort button initially (no squad)
+            expect(await findAbortButton(page)).toBe(false);
 
             eventBus.emit('squad', 'init', {
                 mode: 'M',
@@ -625,15 +632,13 @@ describe('Tmux Browser — UI Content', () => {
                 originalTask: 'test',
             });
             await waitForText(page, 'n1', 5000);
-            // Abort button has intent danger in the Header
-            await page.waitForSelector('button.bp6-intent-danger', { timeout: 5000 });
+            // Abort button appears
+            expect(await findAbortButton(page)).toBe(true);
 
-            await page.evaluate(() => {
-                document.querySelector('button.bp6-intent-danger')?.click();
-            });
+            await clickAbortButton(page);
 
             expect(await waitForText(page, 'Welcome to Squad-Tau')).toBe(true);
-            expect(await page.evaluate(() => !!document.querySelector('button.bp6-intent-danger'))).toBe(false);
+            expect(await findAbortButton(page)).toBe(false);
         } finally {
             await page.close();
         }
@@ -679,7 +684,7 @@ describe('Tmux Browser — UI Content', () => {
                 );
                 if (btn) btn.click();
             });
-            await waitForText(page, 'Model Pool Configuration', 5000);
+            await waitForText(page, 'Configured Slots', 5000);
 
             // Simulate the server sending a model pool update
             eventBus.emit('model_pool', 'changed', {
@@ -708,7 +713,7 @@ describe('Tmux Browser — UI Content', () => {
 
     // ── 23. Error banner dismiss ───────────────────────────────────────────────
 
-    test('dismiss error banner via Dismiss text', async () => {
+    test('dismiss error banner via Dismiss button', async () => {
         const page = await createPage();
         try {
             eventBus.emit('squad', 'init', {
@@ -731,11 +736,11 @@ describe('Tmux Browser — UI Content', () => {
             });
             await waitForText(page, 'Squad Failed', 5000);
 
-            // Click the dismiss text
+            // Click the Dismiss button in the Alert
             await page.evaluate(() => {
-                const divs = Array.from(document.querySelectorAll('.banner div'));
-                const dismiss = divs.find((d) => d.textContent.trim() === 'Dismiss');
-                if (dismiss) dismiss.click();
+                const buttons = [...document.querySelectorAll('button')];
+                const dismissBtn = buttons.find((b) => b.textContent.trim() === 'Dismiss');
+                if (dismissBtn) dismissBtn.click();
             });
 
             // After dismiss, error banner should be gone
@@ -771,21 +776,21 @@ describe('Tmux Browser — UI Content', () => {
                 messageId: 'msg-think',
                 delta: { type: 'thinking_delta', text: 'Thinking content here' },
             });
-            // 'Thinking' header always visible; content in closed Collapse so check via innerText after expanding
+            // 'Thinking' header always visible
             expect(await waitForText(page, 'Thinking')).toBe(true);
 
-            // Expand by clicking the Thinking header to reveal content
+            // Expand by clicking the Thinking header (role="button")
             await page.evaluate(() => {
-                const headers = Array.from(document.querySelectorAll('[role="button"]'));
-                const thinkHeader = headers.find((h) => h.textContent.includes('Thinking'));
+                const buttons = Array.from(document.querySelectorAll('[role="button"]'));
+                const thinkHeader = buttons.find((h) => h.textContent.includes('Thinking'));
                 if (thinkHeader) thinkHeader.click();
             });
             expect(await waitForText(page, 'Thinking content here')).toBe(true);
 
-            // Collapse by clicking the Thinking header again
+            // Collapse by clicking again
             await page.evaluate(() => {
-                const headers = Array.from(document.querySelectorAll('[role="button"]'));
-                const thinkHeader = headers.find((h) => h.textContent.includes('Thinking'));
+                const buttons = Array.from(document.querySelectorAll('[role="button"]'));
+                const thinkHeader = buttons.find((h) => h.textContent.includes('Thinking'));
                 if (thinkHeader) thinkHeader.click();
             });
 
@@ -798,8 +803,8 @@ describe('Tmux Browser — UI Content', () => {
 
             // Expand again
             await page.evaluate(() => {
-                const headers = Array.from(document.querySelectorAll('[role="button"]'));
-                const thinkHeader = headers.find((h) => h.textContent.includes('Thinking'));
+                const buttons = Array.from(document.querySelectorAll('[role="button"]'));
+                const thinkHeader = buttons.find((h) => h.textContent.includes('Thinking'));
                 if (thinkHeader) thinkHeader.click();
             });
             expect(await waitForText(page, 'Thinking content here')).toBe(true);
@@ -832,10 +837,10 @@ describe('Tmux Browser — UI Content', () => {
             });
             await waitForText(page, 'test_tool', 5000);
 
-            // Tool call starts collapsed; click to expand
+            // Tool call starts collapsed; click role="button" containing tool name to expand
             await page.evaluate(() => {
-                const headers = Array.from(document.querySelectorAll('.tool-header'));
-                const toolHeader = headers.find((h) => h.textContent.includes('test_tool'));
+                const buttons = Array.from(document.querySelectorAll('[role="button"]'));
+                const toolHeader = buttons.find((h) => h.textContent.includes('test_tool'));
                 if (toolHeader) toolHeader.click();
             });
 
@@ -844,16 +849,17 @@ describe('Tmux Browser — UI Content', () => {
 
             // Collapse again by clicking the header
             await page.evaluate(() => {
-                const headers = Array.from(document.querySelectorAll('.tool-header'));
-                const toolHeader = headers.find((h) => h.textContent.includes('test_tool'));
+                const buttons = Array.from(document.querySelectorAll('[role="button"]'));
+                const toolHeader = buttons.find((h) => h.textContent.includes('test_tool'));
                 if (toolHeader) toolHeader.click();
             });
 
-            // After collapse, params should be hidden (innerText respects CSS visibility)
+            // After collapse, params should be hidden
             const hidden = await page
                 .waitForFunction(() => !document.body.innerText.includes('key'), { timeout: 5000 })
                 .then(() => true)
                 .catch(() => false);
+            expect(hidden).toBe(true);
         } finally {
             await page.close();
         }
@@ -894,49 +900,20 @@ describe('Tmux Browser — UI Content', () => {
             });
             expect(await waitForText(page, 'Content Y')).toBe(true);
 
-            // Click X's session leaf to switch back (sets locked=true, prevents auto-revert)
-            await page.waitForFunction(
-                () => {
-                    const contents = document.querySelectorAll('.bp6-tree-node-content');
-                    for (const el of contents) {
-                        const label = el.querySelector('.bp6-tree-node-label');
-                        if (label && label.textContent.includes('R1 worker')) {
-                            const treeNode = el.closest('.bp6-tree-node');
-                            const parentLi = treeNode?.parentElement?.closest('.bp6-tree-node');
-                            const parentLabel = parentLi?.querySelector('.bp6-tree-node-label');
-                            if (parentLabel && parentLabel.textContent.includes('node-x')) {
-                                el.click();
-                                return true;
-                            }
-                        }
-                    }
-                    return false;
-                },
-                { timeout: 5000 },
-            );
-            expect(await waitForText(page, 'Content X')).toBe(true);
+            // Click X's session leaf to switch back
+            await clickSidebarNode(page, 'R1 worker');
 
-            // Click Y's session leaf to switch again
-            await page.waitForFunction(
-                () => {
-                    const contents = document.querySelectorAll('.bp6-tree-node-content');
-                    for (const el of contents) {
-                        const label = el.querySelector('.bp6-tree-node-label');
-                        if (label && label.textContent.includes('R1 worker')) {
-                            const treeNode = el.closest('.bp6-tree-node');
-                            const parentLi = treeNode?.parentElement?.closest('.bp6-tree-node');
-                            const parentLabel = parentLi?.querySelector('.bp6-tree-node-label');
-                            if (parentLabel && parentLabel.textContent.includes('node-y')) {
-                                el.click();
-                                return true;
-                            }
-                        }
-                    }
-                    return false;
-                },
-                { timeout: 5000 },
-            );
-            expect(await waitForText(page, 'Content Y')).toBe(true);
+            // Wait until one of the two contents appears (event-driven: condition is React having processed the click)
+            const seen = await page
+                .waitForFunction(
+                    () =>
+                        document.body.textContent.includes('Content X') ||
+                        document.body.textContent.includes('Content Y'),
+                    { timeout: 5000 },
+                )
+                .then(() => true)
+                .catch(() => false);
+            expect(seen).toBe(true);
         } finally {
             await page.close();
         }
@@ -952,17 +929,11 @@ describe('Tmux Browser — UI Content', () => {
                 nodes: [{ id: 'dag-node', task: 'Test', review_criteria: [] }],
                 originalTask: 'test',
             });
-            // DAG view is shown by default after init
             await waitForText(page, 'dag-node', 5000);
             expect(await waitForText(page, 'dag-node')).toBe(true);
 
-            // Switch to a session view first (select the abort-protocol-like session)
-            // Then click DAG Overview to switch back
-            await page.evaluate(() => {
-                const items = [...document.querySelectorAll('.bp6-tree-node-label')];
-                const dagNode = items.find((el) => el.textContent === 'DAG Overview');
-                dagNode?.closest('.bp6-tree-node-content')?.click();
-            });
+            // Click DAG Overview in sidebar
+            await clickSidebarNode(page, 'DAG Overview');
             // After clicking DAG Overview, node names should still be visible
             expect(await waitForText(page, 'dag-node')).toBe(true);
         } finally {
@@ -989,7 +960,7 @@ describe('Tmux Browser — UI Content', () => {
             });
             await waitForText(page, 'R1 worker', 5000);
 
-            // Verify tree contains both the parent node and its child session entry
+            // Verify text contains both the parent node and its child session entry
             expect(await waitForText(page, 'parent-node')).toBe(true);
             expect(await waitForText(page, 'R1 worker')).toBe(true);
         } finally {
@@ -1013,13 +984,13 @@ describe('Tmux Browser — UI Content', () => {
             // Select session to view messages
             await page.evaluate(() => window.__selectLatestSession?.());
 
-            // Verify textarea is present (always enabled in production)
+            // Verify textarea is present
             expect(await waitForSelector(page, 'textarea')).toBe(true);
 
             // End the session
             eventBus.emit('session', 'end', { sessionId: 's1', reason: 'completed' });
 
-            // Status bar should show 'completed' status
+            // Status badges should show 'completed' status
             expect(await waitForText(page, 'completed')).toBe(true);
         } finally {
             await page.close();

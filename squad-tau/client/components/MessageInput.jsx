@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
-import { Button, ControlGroup, TextArea } from '@blueprintjs/core';
-import { IconNames } from '@blueprintjs/icons';
+import { Button, Flex, Textarea } from '@chakra-ui/react';
+import { SendHorizonal } from 'lucide-react';
 
 export function MessageInput({ sessionId, send, onOptimisticMessage }) {
   const [text, setText] = useState('');
@@ -24,23 +24,25 @@ export function MessageInput({ sessionId, send, onOptimisticMessage }) {
   }, [handleSend]);
 
   return (
-    <div className="bp6-padding" style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
-      <TextArea
-        fill
-        growVertically
+    <Flex gap={3} alignItems="flex-end">
+      <Textarea
+        flex={1}
         placeholder="Type a message... (Enter to send)"
         value={text}
         onChange={e => setText(e.target.value)}
         onKeyDown={handleKeyDown}
-        style={{ flex: 1, minHeight: 40, maxHeight: 200 }}
+        minHeight={12}
+        maxHeight={56}
+        resize="vertical"
       />
       <Button
-        intent="primary"
-        icon={IconNames.SEND_MESSAGE}
-        text="Send"
+        colorScheme="blue"
+        leftIcon={<SendHorizonal />}
         onClick={handleSend}
         disabled={!text.trim()}
-      />
-    </div>
+      >
+        Send
+      </Button>
+    </Flex>
   );
 }

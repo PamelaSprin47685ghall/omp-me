@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { Flex, Box } from '@chakra-ui/react';
 import Header from './components/Header.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import MainContent from './components/MainContent.jsx';
@@ -8,11 +9,6 @@ import { useWebSocket } from './hooks/useWebSocket.js';
 import useSquadState from './hooks/useSquadState.js';
 import { useSessionState } from './hooks/useSessionState.js';
 import { useModelPool } from './hooks/useModelPool.js';
-
-const APP_ROOT_STYLE = { minHeight: '100vh', display: 'flex', flexDirection: 'column' };
-const APP_BODY_STYLE = { display: 'flex', flex: 1, minHeight: 0 };
-const SIDEBAR_STYLE = { width: 320, flex: '0 0 320px', minHeight: 0 };
-const MAIN_STYLE = { flex: 1, minWidth: 0, minHeight: 0 };
 
 function useAppEventHandlers(squadDispatch, sessionDispatch, modelPoolDispatch) {
   return useCallback((type, payload) => {
@@ -49,6 +45,11 @@ function useAppEventHandlers(squadDispatch, sessionDispatch, modelPoolDispatch) 
 
 export default function App() {
   const { isDark } = useDarkMode();
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('bp6-dark', isDark);
+  }, [isDark]);
+
   const { squad, nodes, results, dispatch: squadDispatch } = useSquadState();
   const { sessions, messages, activeSessionId, setActiveSessionId, dispatch: sessionDispatch } = useSessionState();
   const { isOpen: modelPoolOpen, openDrawer: openModelPool, closeDrawer: closeModelPool, slots, updateSlot, sendModelPoolUpdate, dispatch: modelPoolDispatch } = useModelPool();
@@ -65,10 +66,6 @@ export default function App() {
   useEffect(() => {
     if (send) sendModelPoolUpdate(send);
   }, [send, sendModelPoolUpdate]);
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('bp6-dark', isDark);
-  }, [isDark]);
 
   useEffect(() => {
     window.__squadEventBus = handleEvent;
@@ -88,17 +85,25 @@ export default function App() {
 
   const sessionList = [...sessions.values()];
   const squadActive = squad !== null;
+  const sidebarBorderColor = isDark ? 'rgba(255,255,255,0.15)' : 'rgba(16,22,26,0.15)';
 
   return (
-    <div className={`app-root ${isDark ? 'bp6-dark' : ''}`} style={APP_ROOT_STYLE}>
+    <Flex direction="column" minH="100vh" w="full">
       <Header
         connected={connected}
         onOpenModelPool={openModelPool}
         squadActive={squadActive}
         onAbort={() => send({ type: 'abort', payload: {} })}
       />
-      <div style={APP_BODY_STYLE}>
-        <div style={SIDEBAR_STYLE}>
+      <Flex flex={1} minH={0}>
+        <Box
+          w="320px"
+          flex="0 0 320px"
+          minH={0}
+          borderRight="1px solid"
+          borderColor={sidebarBorderColor}
+          overflowY="auto"
+        >
           <Sidebar
             sessions={sessionList}
             nodes={nodes}
@@ -107,8 +112,8 @@ export default function App() {
             viewMode={viewMode}
             onSelectDAG={() => setViewMode('dag')}
           />
-        </div>
-        <div style={MAIN_STYLE}>
+        </Box>
+        <Box flex={1} minW={0} minH={0}>
           <MainContent
             viewMode={viewMode}
             squadActive={squadActive}
@@ -122,14 +127,14 @@ export default function App() {
             send={send}
             results={results}
           />
-        </div>
-      </div>
+        </Box>
+      </Flex>
       <ModelPoolDrawer
         isOpen={modelPoolOpen}
         onClose={closeModelPool}
         slots={slots}
         onUpdateSlot={updateSlot}
       />
-    </div>
+    </Flex>
   );
 }

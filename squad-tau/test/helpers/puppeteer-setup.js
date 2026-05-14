@@ -22,21 +22,19 @@ export async function teardownBrowser(browser) {
  */
 export async function selectLatestSession(page, timeoutMs = 5000) {
     await page.evaluate(() => {
-        // Blueprint Tree: find all node labels with "R" pattern (e.g. "R1-worker")
-        const items = [...document.querySelectorAll('.bp6-tree-node-label')];
-        // Find the deepest R-node (latest session)
+        // Tree items use role="treeitem" in the Chakra sidebar
+        const items = [...document.querySelectorAll('[role="treeitem"]')];
+        // Find the deepest R-node (latest session, e.g. "R1-worker")
         for (let i = items.length - 1; i >= 0; i--) {
             const text = items[i].textContent || '';
             if (text.startsWith('R')) {
-                items[i].closest('.bp6-tree-node-content')?.click();
+                items[i].click();
                 return true;
             }
         }
-        // Fallback: if no R nodes found, just click the DAG Overview node
-        const dag = [...document.querySelectorAll('.bp6-tree-node-label')].find(
-            (el) => el.textContent === 'DAG Overview',
-        );
-        dag?.closest('.bp6-tree-node-content')?.click();
+        // Fallback: if no R nodes found, click DAG Overview
+        const dag = items.find((el) => (el.textContent || '').includes('DAG Overview'));
+        dag?.click();
         return false;
     });
 }
@@ -46,9 +44,9 @@ export async function selectLatestSession(page, timeoutMs = 5000) {
  */
 export async function clickSidebarNode(page, textPattern, timeoutMs = 5000) {
     await page.evaluate((pattern) => {
-        const items = [...document.querySelectorAll('.bp6-tree-node-label')];
+        const items = [...document.querySelectorAll('[role="treeitem"]')];
         const node = items.find((el) => el.textContent && el.textContent.includes(pattern));
-        if (node) node.closest('.bp6-tree-node-content')?.click();
+        if (node) node.click();
     }, textPattern);
 }
 

@@ -1,28 +1,48 @@
 import React, { useState, useCallback } from 'react';
-import { Collapse, Icon, Tag } from '@blueprintjs/core';
-import { IconNames } from '@blueprintjs/icons';
+import { Box, Flex, Text, Badge } from '@chakra-ui/react';
+import Collapse from './Collapse.jsx';
+import { ChevronDown, ChevronRight, Lightbulb } from 'lucide-react';
 
 export default function ThinkingBlock({ content, isStreaming = false }) {
   const [open, setOpen] = useState(false);
   const toggle = useCallback(() => setOpen((value) => !value), []);
 
   return (
-    <div>
-      <div
+    <Box>
+      <Flex
         onClick={toggle}
         role="button"
         tabIndex={0}
-        className="bp6-text-small thinking-header"
-        style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', padding: '4px 0' }}
+        cursor="pointer"
+        p={2}
+        alignItems="center"
+        gap={2}
+        borderRadius="sm"
+        _hover={{ bg: 'blackAlpha.50' }}
+        _dark={{ _hover: { bg: 'whiteAlpha.50' } }}
+        fontSize="sm"
       >
-        <Icon icon={open ? IconNames.CHEVRON_DOWN : IconNames.CHEVRON_RIGHT} size={12} />
-        <Icon icon={IconNames.LIGHTBULB} size={12} intent="primary" />
-        <span>Thinking</span>
-        {isStreaming && <Tag minimal round intent="primary">live</Tag>}
-      </div>
-      <Collapse isOpen={open}>
-        <pre className="bp6-padded bp6-monospace-text" style={{ margin: 0 }}>{content}</pre>
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+        <Lightbulb size={12} color="var(--chakra-colors-blue-500)" />
+        <Text>Thinking</Text>
+        {isStreaming && <Badge colorScheme="blue" variant="subtle" borderRadius="full" px={2}>live</Badge>}
+      </Flex>
+      <Collapse in={open} animateOpacity>
+        <Box
+          as="pre"
+          fontFamily="mono"
+          p={3}
+          m={0}
+          bg="blackAlpha.50"
+          _dark={{ bg: 'whiteAlpha.100' }}
+          borderRadius="sm"
+          overflowX="auto"
+          fontSize="sm"
+          whiteSpace="pre-wrap"
+        >
+          {content}
+        </Box>
       </Collapse>
-    </div>
+    </Box>
   );
 }

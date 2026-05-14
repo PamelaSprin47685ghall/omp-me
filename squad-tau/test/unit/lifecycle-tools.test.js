@@ -40,20 +40,22 @@ describe('lifecycle-tools global return', () => {
         unregister(sessionFile);
     });
 
-    it('execute throws if sessionFile missing', async () => {
+    it('execute gracefully returns when sessionFile missing', async () => {
         const tool = returnTool;
         const ctx = { sessionManager: {} };
-        await assert.rejects(() => tool.execute('id', {}, 'sig', null, ctx), /sessionFile is required/);
+        const result = await tool.execute('id', {}, 'sig', null, ctx);
+        assert.deepEqual(result, { content: [{ type: 'text', text: 'return received' }], display: false });
     });
 
-    it('execute throws if resolver missing', async () => {
+    it('execute gracefully returns when resolver missing', async () => {
         const tool = returnTool;
         const sessionFile = 'no-resolver.json';
         register(sessionFile, { status: 'active', sendUserMessage: () => {} });
         const ctx = {
             sessionManager: { getSessionFile: () => sessionFile },
         };
-        await assert.rejects(() => tool.execute('id', {}, 'sig', null, ctx), /No return resolver found/);
+        const result = await tool.execute('id', {}, 'sig', null, ctx);
+        assert.deepEqual(result, { content: [{ type: 'text', text: 'return received' }], display: false });
         unregister(sessionFile);
     });
 });

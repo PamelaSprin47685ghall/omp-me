@@ -33,7 +33,7 @@ describe('Standalone E2E', () => {
     }, 30000);
 
     test('page loads and React mounts', async () => {
-        const text = await page.$eval('.app-title', (el) => el.textContent);
+        const text = await page.$eval('[data-app-title]', (el) => el.textContent);
         expect(text).toBe('Squad-Tau');
     });
 
@@ -117,12 +117,9 @@ describe('Standalone E2E', () => {
         // Wait for session tree to appear, then click the session node to select it (no auto-follow)
         await page.waitForFunction(() => document.body.innerText.includes('R1 worker'), { timeout: 8000 });
         await page.evaluate(() => {
-            const nodeLabel = [...document.querySelectorAll('.bp6-tree-node-label')].find((el) =>
-                el.textContent.includes('R1 worker'),
-            );
-            if (nodeLabel) {
-                nodeLabel.closest('.bp6-tree-node-content')?.click();
-            }
+            const items = [...document.querySelectorAll('[role="treeitem"]')];
+            const node = items.find((el) => el.textContent.includes('R1 worker'));
+            if (node) node.click();
         });
         // Wait for the session to be selected and visible in main area
         await page.waitForFunction(() => document.body.innerText.includes('No messages yet'), { timeout: 5000 });
@@ -158,12 +155,9 @@ describe('Standalone E2E', () => {
         // Wait for session tree to appear, then click the session node to select it
         await page.waitForFunction(() => document.body.innerText.includes('R1 worker'), { timeout: 5000 });
         await page.evaluate(() => {
-            const nodeLabel = [...document.querySelectorAll('.bp6-tree-node-label')].find((el) =>
-                el.textContent.includes('R1 worker'),
-            );
-            if (nodeLabel) {
-                nodeLabel.closest('.bp6-tree-node-content')?.click();
-            }
+            const items = [...document.querySelectorAll('[role="treeitem"]')];
+            const node = items.find((el) => el.textContent.includes('R1 worker'));
+            if (node) node.click();
         });
         await page.waitForFunction(() => document.body.innerText.includes('No messages yet'), { timeout: 5000 });
 
@@ -187,7 +181,8 @@ describe('Standalone E2E', () => {
         await page.waitForFunction(() => document.body.innerText.includes('done'), { timeout: 5000 });
         // Click to expand the collapsed result section
         await page.evaluate(() => {
-            const btn = document.querySelector('.tool-header[role]') || document.querySelector('.tool-header');
+            const buttons = [...document.querySelectorAll('[role="button"]')];
+            const btn = buttons.find((b) => b.textContent.includes('run_test'));
             btn?.click();
         });
         await page.waitForFunction(() => document.body.innerText.includes('output'), { timeout: 5000 });

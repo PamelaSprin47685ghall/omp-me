@@ -76,23 +76,19 @@ describe('Chaos: Command rapid operations', () => {
         // Wait for all storm sessions to render in sidebar
         await page.waitForFunction(
             () => {
-                const labels = [...document.querySelectorAll('.bp6-tree-node-label')].filter(
-                    (el) => el.textContent === 'R1 worker',
-                );
-                return labels.length >= 20;
+                const items = [...document.querySelectorAll('[role="treeitem"]')];
+                const workers = items.filter((el) => (el.textContent || '').trim() === 'R1 worker');
+                return workers.length >= 20;
             },
             { timeout: 5000 },
         );
 
-        // Click the last R1 worker label to select the final storm session
-        // Direct DOM interaction mirrors real user behavior
+        // Click the last R1 worker to select the final storm session
         await page.evaluate(() => {
-            const labels = [...document.querySelectorAll('.bp6-tree-node-label')].filter(
-                (el) => el.textContent === 'R1 worker',
-            );
-            const last = labels[labels.length - 1];
-            const content = last.closest('.bp6-tree-node-content');
-            if (content) content.click();
+            const items = [...document.querySelectorAll('[role="treeitem"]')];
+            const workers = items.filter((el) => (el.textContent || '').trim() === 'R1 worker');
+            const last = workers[workers.length - 1];
+            if (last) last.click();
         });
         // Confirm session view is active: 'No messages yet' appears
         await page.waitForFunction(() => document.body.innerText.includes('No messages yet'), { timeout: 5000 });
@@ -109,10 +105,9 @@ describe('Chaos: Command rapid operations', () => {
 
         // New squad after storm
         await page.evaluate(() => {
-            const dagLabel = [...document.querySelectorAll('.bp6-tree-node-label')].find(
-                (el) => el.textContent === 'DAG Overview',
-            );
-            dagLabel?.closest('.bp6-tree-node-content')?.click();
+            const items = [...document.querySelectorAll('[role="treeitem"]')];
+            const dagNode = items.find((el) => (el.textContent || '').includes('DAG Overview'));
+            if (dagNode) dagNode.click();
         });
         eb.emit('squad', 'init', {
             mode: 'M',

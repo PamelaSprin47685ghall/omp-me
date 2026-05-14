@@ -1,95 +1,96 @@
-import React, { useMemo, useCallback } from 'react';
-import { Tree, Icon } from '@blueprintjs/core';
-import { IconNames } from '@blueprintjs/icons';
+import React, { useMemo, useCallback, useState } from 'react';
+import { VStack, Flex, Text, Icon, Box } from '@chakra-ui/react';
+import Collapse from './Collapse.jsx';
+import { CheckCircle, XCircle, Clock, RefreshCw, Ban, Circle, Network } from 'lucide-react';
 
-function statusIcon(status) {
-  switch (status) {
-    case 'approved': return IconNames.TICK_CIRCLE;
-    case 'rejected': return IconNames.CROSS_CIRCLE;
-    case 'pending': return IconNames.TIME;
-    case 'active':
-    case 'authoring':
-    case 'confirming':
-    case 'reviewing': return IconNames.REFRESH;
-    case 'failed':
-    case 'blocked': return IconNames.BAN_CIRCLE;
-    default: return IconNames.CIRCLE;
-  }
+const STATUS_ICONS = { approved: CheckCircle, rejected: XCircle, pending: Clock, active: RefreshCw, authoring: RefreshCw, confirming: RefreshCw, reviewing: RefreshCw, failed: Ban, blocked: Ban };
+const STATUS_COLOR_MAP = { approved: 'green.600', rejected: 'red.600', failed: 'red.600', blocked: 'red.600', active: 'orange.600', authoring: 'orange.600', confirming: 'orange.600', reviewing: 'orange.600' };
+
+function TreeIcon({ status, ...rest }) {
+  const IconCmp = STATUS_ICONS[status] ?? Circle;
+  return <Icon as={IconCmp} boxSize={4} color={STATUS_COLOR_MAP[status] ?? 'gray.400'} {...rest} />;
 }
 
-function statusIntent(status) {
-  switch (status) {
-    case 'approved': return 'success';
-    case 'rejected':
-    case 'failed':
-    case 'blocked': return 'danger';
-    case 'active':
-    case 'authoring':
-    case 'confirming':
-    case 'reviewing': return 'warning';
-    default: return 'none';
-  }
+/** Shared styling for selectable rows */
+const rowBg = (sel) => ({ bg: sel ? 'blue.50' : 'transparent', _dark: { bg: sel ? 'blue.900' : 'transparent' }, color: sel ? 'blue.700' : 'inherit', _dark: { color: sel ? 'blue.200' : 'inherit' }, fontWeight: sel ? 600 : 400 });
+
+function SessionRow({ isSelected, sessionData, onClick }) {
+  const { sessionId, status } = sessionData;
+  const label = formatSessionLabel(sessionData);
+  return (
+    <Flex alignItems="center" p="2px 4px" cursor="pointer" borderRadius="md" {...rowBg(isSelected)} onClick={onClick} role="treeitem" title={sessionId}>
+      <TreeIcon status={status} mr={1} />
+      <Text fontSize="sm" isTruncated data-session-label>{label}</Text>
+    </Flex>
+  );
 }
 
-function buildTree(sessions, nodes, viewMode, activeSessionId) {
-  const dagNode = {
-    id: '__dag__',
-    label: 'DAG Overview',
-    icon: <Icon icon={IconNames.GRAPH} size={14} />,
-    isSelected: viewMode === 'dag',
-    nodeData: { isDag: true },
-  };
+function NodeGroup({ node, children }) {
+  const [expanded, setExpanded] = useState(true);
+  const label = node?.label || node?.id || '';
+  return (
+    <Box>
+      <Flex alignItems="center" p="2px 4px" cursor="pointer" borderRadius="md" onClick={() => setExpanded(!expanded)}>
+        <TreeIcon status={node?.status} mr={1} />
+        <Text fontSize="sm" isTruncated data-node-label>{label}</Text>
+      </Flex>
+      <Collapse in={expanded} animateOpacity>
+        <Box pl={3} borderLeft="1px solid" borderColor="gray.200" _dark={{ borderColor: 'gray.600' }}>
+          {children}
+        </Box>
+      </Collapse>
+    </Box>
+  );
+}
 
-  const nodeMap = new Map();
+function buildTreeData(sessions, nodes, activeSessionId) {
+  const groupMap = new Map();
   const topLevel = [];
-
   sessions.forEach(session => {
-    const { sessionId, nodeId, phase, retryCount, status } = session;
-    if (!nodeId) {
-      topLevel.push({
-        id: sessionId,
-        label: phase === 'outer_review' ? 'Outer Review' : 'Architect',
-        icon: <Icon icon={statusIcon(status)} intent={statusIntent(status)} size={14} />,
-        isSelected: activeSessionId === sessionId,
-        nodeData: { sessionId },
-      });
-      return;
-    }
-    if (!nodeMap.has(nodeId)) {
-      const info = nodes.get(nodeId);
-      nodeMap.set(nodeId, {
-        id: nodeId,
-        label: nodeId,
-        icon: <Icon icon={statusIcon(info?.status)} intent={statusIntent(info?.status)} size={14} />,
-        isExpanded: true,
-        childNodes: [],
-      });
-    }
-    nodeMap.get(nodeId).childNodes.push({
-      id: sessionId,
-      label: `R${(retryCount ?? 0) + 1} ${phase}`,
-      icon: <Icon icon={statusIcon(status)} intent={statusIntent(status)} size={12} />,
-      isSelected: activeSessionId === sessionId,
-      nodeData: { sessionId },
-    });
+    const { sessionId, nodeId, status } = session;
+    if (!nodeId) { topLevel.push({ type: 'session', id: sessionId, sessionData: session, isSelected: activeSessionId === sessionId }); return; }
+    if (!groupMap.has(nodeId)) { const info = nodes.get(nodeId); groupMap.set(nodeId, { type: 'group', id: nodeId, label: nodeId, status: info?.status, children: [] }); }
+    groupMap.get(nodeId).children.push({ type: 'session', id: sessionId, sessionData: session, isSelected: activeSessionId === sessionId });
   });
+  const result = []; groupMap.forEach(g => result.push(g)); topLevel.forEach(t => result.push(t));
+  return result;
+}
 
-  return [dagNode, ...Array.from(nodeMap.values()), ...topLevel];
+function DagRow({ isSelected, onClick }) {
+  return (
+    <Flex alignItems="center" p="2px 4px" cursor="pointer" borderRadius="md" {...rowBg(isSelected)} onClick={onClick} role="treeitem">
+      <Icon as={Network} boxSize={3} color="gray.500" mr={1} />
+      <Text fontSize="sm">DAG Overview</Text>
+    </Flex>
+  );
+}
+
+function formatSessionLabel(session) {
+  if (!session) return '';
+  const round = (session.retryCount != null ? session.retryCount : 0) + 1;
+  const phase = session.phase || 'worker';
+  return `R${round} ${phase.replace(/_/g, ' ')}`;
 }
 
 export default function Sidebar({ sessions, nodes, activeSessionId, onSelectSession, viewMode, onSelectDAG }) {
-  const treeNodes = useMemo(() => buildTree(sessions, nodes, viewMode, activeSessionId), [sessions, nodes, viewMode, activeSessionId]);
-
-  const handleNodeClick = useCallback((node) => {
-    if (node.nodeData?.isDag) { onSelectDAG(); return; }
-    const sid = node.nodeData?.sessionId;
-    if (sid) { onSelectSession(sid); }
-  }, [onSelectSession, onSelectDAG]);
+  const treeData = useMemo(() => buildTreeData(sessions, nodes, activeSessionId), [sessions, nodes, activeSessionId]);
+  const handleNodeClick = useCallback((node) => { if (node.type === 'session') onSelectSession(node.id); }, [onSelectSession]);
 
   return (
-    <div className="bp6-padded">
-      <span className="bp6-text-small bp6-text-muted">Sessions</span>
-      <Tree contents={treeNodes} onNodeClick={handleNodeClick} />
-    </div>
+    <VStack spacing={1} align="stretch" p={4}>
+      <DagRow isSelected={viewMode === 'dag'} onClick={onSelectDAG} />
+      {treeData.map(node => {
+        if (node.type === 'group') {
+          return (
+            <NodeGroup key={node.id} node={node}>
+              {node.children.map(child => (
+                <SessionRow key={child.id} sessionData={child.sessionData} isSelected={child.isSelected} onClick={() => handleNodeClick(child)} />
+              ))}
+            </NodeGroup>
+          );
+        }
+        return <SessionRow key={node.id} sessionData={node.sessionData} isSelected={node.isSelected} onClick={() => handleNodeClick(node)} />;
+      })}
+    </VStack>
   );
 }
