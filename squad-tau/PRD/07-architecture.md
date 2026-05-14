@@ -112,7 +112,7 @@ squad-tau/
 `createViteDevServer()` 返回惰性中间件：
 - 首次请求时才初始化 Vite（`startPromise` 确保并发请求只创建一次）
 - HMR 禁用（`hmr: false`）以避免与 `ws` 服务器的 WebSocket 冲突
-- 测试环境通过 `NODE_ENV=test` 或 `SKIP_VITE=true` 跳过 Vite 加载
+- 纯 WS 集成测试如需跳过 Vite，必须通过显式测试参数传入，不使用环境变量开关；默认运行路径始终加载 Vite 中间件
 
 ## 7.4 依赖关系
 

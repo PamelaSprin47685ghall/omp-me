@@ -4,7 +4,7 @@ import { createWsServer } from './ws-server.js';
 import { startHeartbeat } from './ws-heartbeat.js';
 import { routeMessage } from './ws-handler.js';
 import { EventBus } from './event-bus.js';
-import { createViteDevServer, closeViteServer } from './vite-setup.js';
+import { createViteDevServer, closeViteServer, CLIENT_ROOT } from './vite-setup.js';
 import { ModelPool } from './model-pool.js';
 import {
     loadModelsConfig,
@@ -90,7 +90,7 @@ function createCloseHandler(wss, rawServer, heartbeatCleanup, unsub) {
     };
 }
 
-export async function startServer() {
+export async function startServer({ skipVite = false } = {}) {
     _refCount++;
     if (_server) return { port: _server.port, eventBus: _server.eventBus, modelPool: _server.modelPool, close: _close };
 
@@ -98,7 +98,7 @@ export async function startServer() {
     const config = loadModelsConfig();
     const modelPool = new ModelPool(config);
     const rawServer = createServer();
-    const viteMiddlewares = await createViteDevServer();
+    const viteMiddlewares = await createViteDevServer({ skipVite });
     const { wss, unsub } = await createWsServer(rawServer, eventBus, {
         onConnection: createConnectionHandler(modelPool, eventBus),
         onMessage: async (msg, ws) => {
@@ -106,7 +106,7 @@ export async function startServer() {
         },
     });
     const heartbeatCleanup = startHeartbeat(wss.clients);
-    const http = await createHttpServer({ viteMiddlewares, server: rawServer });
+    const http = await createHttpServer({ viteMiddlewares, server: rawServer, clientRoot: CLIENT_ROOT });
     const close = createCloseHandler(wss, rawServer, heartbeatCleanup, unsub);
 
     watchConfig(() => {

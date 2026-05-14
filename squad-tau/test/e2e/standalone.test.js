@@ -13,7 +13,6 @@ describe('Standalone E2E', () => {
     let browser, page, port, eb;
 
     beforeAll(async () => {
-        process.env.SQUAD_E2E = 'true';
         const result = await startServer();
         port = result.port;
         eb = getGlobalEventBus();

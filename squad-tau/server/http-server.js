@@ -1,4 +1,6 @@
 import { createServer } from 'http';
+import { join } from 'path';
+import { readFileSync } from 'fs';
 
 /**
  * Create a middleware-based HTTP app.
@@ -10,15 +12,15 @@ export function createApp() {
     const stack = [];
 
     const app = (req, res) => {
+        const _indexHtmlPath = app._indexHtmlPath;
         let i = 0;
         const next = (err) => {
             if (err) return handleError(res, err);
-            if (i >= stack.length) return handleNotFound(res);
+            if (i >= stack.length) return handleNotFound(req, res, _indexHtmlPath);
             const mw = stack[i++];
 
-            // If it's an API route that didn't match any handler, don't fall through to Vite/SPA
             if (req.url.startsWith('/api/') && mw._isVite) {
-                return handleNotFound(res);
+                return handleNotFound(req, res, _indexHtmlPath);
             }
             mw(req, res, next);
         };
@@ -48,7 +50,15 @@ function handleError(res, err) {
     res.end(err ? err.stack : 'Internal Server Error');
 }
 
-function handleNotFound(res) {
+function handleNotFound(req, res, indexHtmlPath) {
+    const isFileRequest = req.url.includes('.');
+    if (req.method === 'GET' && !req.url.startsWith('/api/') && !isFileRequest && indexHtmlPath) {
+        try {
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end(readFileSync(indexHtmlPath, 'utf8'));
+            return;
+        } catch {}
+    }
     res.writeHead(404, { 'Content-Type': 'text/plain' });
     res.end('Not Found');
 }
@@ -58,7 +68,7 @@ function handleNotFound(res) {
  * Can optionally receive a pre-created server (for sharing with Vite's WS).
  * Returns { server, port, close }.
  */
-export async function createHttpServer({ viteMiddlewares, server: existingServer } = {}) {
+export async function createHttpServer({ viteMiddlewares, server: existingServer, clientRoot } = {}) {
     const { app, attach } = createApp();
 
     app.get('/api/status', (req, res) => {
@@ -73,6 +83,8 @@ export async function createHttpServer({ viteMiddlewares, server: existingServer
     });
 
     if (viteMiddlewares) app.use(viteMiddlewares, { isVite: true });
+
+    app._indexHtmlPath = clientRoot ? join(clientRoot, 'index.html') : null;
 
     const server = existingServer || createServer();
     attach(server);

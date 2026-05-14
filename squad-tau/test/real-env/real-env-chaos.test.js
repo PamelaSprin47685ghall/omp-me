@@ -1,56 +1,38 @@
-/**
- * Real Environment Chaos — Stability test during live Squad execution.
- * Starts a real /squad run in tmux, then hammers HTTP + WS while
- * the architect/worker/reviewer lifecycle progresses.
- */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { exec } from 'child_process';
-import { promisify } from 'util';
 import path from 'path';
-
-const execAsync = promisify(exec);
+import { setupBrowser, teardownBrowser } from '../helpers/puppeteer-setup.js';
 
 function sleep(ms) {
-    return new Promise((r) => setTimeout(r, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function getSquadUiUrl(session, timeoutMs = 30000) {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-        try {
-            const { stdout } = await execAsync(`tmux capture-pane -t ${session} -p 2>/dev/null | tail -20`);
-            const match = stdout.match(/Squad UI: (http:\/\/127\.0\.0\.1:\d+)/);
-            if (match) return match[1];
-        } catch {}
-        await sleep(1000);
-    }
-    throw new Error('Failed to get Squad UI URL');
+function fileExists(fp) {
+    return Bun.spawnSync({ cmd: ['test', '-f', fp] }).exitCode === 0;
 }
 
-async function wsPingPong(wsUrl, count = 5, timeoutMs = 10000) {
+function wsPingPong(wsUrl, count, timeoutMs) {
     return new Promise((resolve, reject) => {
         const ws = new WebSocket(wsUrl);
         const pongs = [];
-        const timer = setTimeout(() => {
-            ws.close();
-            reject(new Error(`WS ping-pong timeout after ${pongs.length} pongs`));
+        const timeout = setTimeout(() => {
+            try {
+                ws.close();
+            } catch {}
+            reject(new Error('timeout'));
         }, timeoutMs);
 
         ws.onopen = () => {
-            for (let i = 0; i < count; i++) {
-                ws.send(JSON.stringify({ type: 'ping' }));
-            }
+            for (let i = 0; i < count; i++) ws.send(JSON.stringify({ type: 'ping' }));
         };
 
         ws.onmessage = (event) => {
             try {
-                const msg = JSON.parse(
-                    typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data),
-                );
+                const raw = typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data);
+                const msg = JSON.parse(raw);
                 if (msg.type === 'pong') {
                     pongs.push(msg);
                     if (pongs.length >= count) {
-                        clearTimeout(timer);
+                        clearTimeout(timeout);
                         ws.close();
                         resolve(pongs);
                     }
@@ -59,99 +41,149 @@ async function wsPingPong(wsUrl, count = 5, timeoutMs = 10000) {
         };
 
         ws.onerror = () => {
-            clearTimeout(timer);
+            clearTimeout(timeout);
+            try {
+                ws.close();
+            } catch {}
             reject(new Error('WS error'));
         };
     });
 }
 
 describe('Real Environment Chaos', () => {
-    let tmuxSession;
+    let tmuxSess;
     let testDir;
     let uiUrl;
-    const messages = [];
+    let browser;
+    let page;
 
     beforeAll(async () => {
-        testDir = `/tmp/squad-real-chaos-${Date.now()}`;
-        tmuxSession = `squad-real-chaos-${process.pid}`;
+        console.log('[setup] starting chaos');
+        testDir = `/tmp/squad-chaos-${Date.now()}`;
+        tmuxSess = `squad-chaos-${process.pid}`;
         const pluginPath = path.resolve(process.cwd(), 'index.js');
+        const model = process.env.SQUAD_MODEL;
+        const modelArgs = model ? ['--model', model] : [];
 
-        await execAsync(`mkdir -p ${testDir}`);
-        const cmd = `cd ${testDir} && SQUAD_E2E=1 omp -e ${pluginPath}`;
-        await execAsync(`tmux new-session -d -s ${tmuxSession} "${cmd}"`);
+        console.log('[setup] testDir:', testDir, 'model:', model || 'default');
+        Bun.spawnSync({ cmd: ['mkdir', '-p', testDir] });
+        Bun.spawnSync({
+            cmd: ['tmux', 'new-session', '-d', '-s', tmuxSess, '-c', testDir, 'omp', ...modelArgs, '-e', pluginPath],
+        });
+        console.log('[setup] tmux created:', tmuxSess);
+
         await sleep(3000);
+        Bun.spawnSync({
+            cmd: [
+                'tmux',
+                'send-keys',
+                '-t',
+                tmuxSess,
+                '/squad 在当前目录写一个简单的计算器程序，支持加减乘除，用 JavaScript 实现',
+                'C-m',
+            ],
+        });
+        console.log('[setup] /squad sent, polling URL...');
 
-        await execAsync(
-            `tmux send-keys -t ${tmuxSession} "/squad 在当前目录写一个简单的计算器程序，支持加减乘除，用 JavaScript 实现" C-m`,
-        );
-
-        uiUrl = await getSquadUiUrl(tmuxSession, 30000);
+        const end = Date.now() + 30000;
+        while (Date.now() < end) {
+            const r = Bun.spawnSync({ cmd: ['tmux', 'capture-pane', '-t', tmuxSess, '-p', '-S', '-20'] });
+            const out = new TextDecoder().decode(r.stdout);
+            const match = out.match(/Squad UI: (http:\/\/127\.0\.0\.1:\d+)/);
+            if (match) {
+                uiUrl = match[1];
+                console.log('[setup] URL:', uiUrl);
+                break;
+            }
+            await sleep(1000);
+        }
         if (!uiUrl) throw new Error('Failed to get Squad UI URL');
+
+        const launched = await setupBrowser();
+        browser = launched.browser;
+        page = launched.page;
     }, 60000);
 
     afterAll(async () => {
+        console.log('[teardown] chaos cleanup');
+        if (browser) await teardownBrowser(browser);
         try {
-            await execAsync(`tmux kill-session -t ${tmuxSession} 2>/dev/null || true`);
+            Bun.spawnSync({ cmd: ['tmux', 'kill-session', '-t', tmuxSess] });
         } catch {}
     });
 
-    test('HTTP health remains 200 during squad execution', async () => {
-        const results = [];
-        for (let i = 0; i < 20; i++) {
-            const resp = await fetch(`${uiUrl}/api/status`);
-            results.push(resp.status);
-            await sleep(500);
-        }
-        expect(results.every((s) => s === 200)).toBe(true);
-    }, 15000);
+    test('Browser mounts the app shell', async () => {
+        await page.goto(uiUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+        await page.waitForSelector('.app-title', { timeout: 10000 });
+        const title = await page.$eval('.app-title', (element) => element.textContent);
+        expect(title).toBe('Squad-Tau');
+    });
 
-    test('WebSocket survives rapid reconnections during squad execution', async () => {
+    test('HTTP /main.jsx serves the client bundle', async () => {
+        const resp = await fetch(`${uiUrl}/main.jsx`);
+        expect(resp.status).toBe(200);
+        expect(resp.headers.get('content-type')).toContain('javascript');
+        const text = await resp.text();
+        expect(text).toContain('createRoot');
+    });
+
+    test('WS survives rapid reconnections', async () => {
+        console.log('[test] WS reconnect x5');
         const wsUrl = uiUrl.replace('http', 'ws') + '/ws';
         const sessions = [];
-
         for (let i = 0; i < 5; i++) {
-            const pongs = await wsPingPong(wsUrl, 3, 5000);
-            sessions.push(pongs.length);
+            try {
+                sessions.push((await wsPingPong(wsUrl, 3, 5000)).length);
+            } catch {
+                sessions.push(0);
+            }
             await sleep(500);
         }
-
-        expect(sessions.every((c) => c >= 3)).toBe(true);
+        expect(sessions.every((count) => count >= 3)).toBe(true);
     }, 30000);
 
     test('concurrent HTTP + WS stress does not crash server', async () => {
+        console.log('[test] stress: 10 HTTP + 3 WS concurrent');
         const wsUrl = uiUrl.replace('http', 'ws') + '/ws';
-
         const httpStorm = Array.from({ length: 10 }, async () => {
-            const resp = await fetch(`${uiUrl}/api/status`);
-            return resp.status;
+            try {
+                return (await fetch(`${uiUrl}/api/status`)).status;
+            } catch {
+                return 503;
+            }
         });
-
         const wsStorm = Array.from({ length: 3 }, async () => {
-            const pongs = await wsPingPong(wsUrl, 3, 8000);
-            return pongs.length;
+            try {
+                return (await wsPingPong(wsUrl, 3, 8000)).length;
+            } catch {
+                return 0;
+            }
         });
-
-        const httpResults = await Promise.all(httpStorm);
-        const wsResults = await Promise.all(wsStorm);
-
-        expect(httpResults.every((s) => s === 200)).toBe(true);
-        expect(wsResults.every((c) => c >= 3)).toBe(true);
+        expect((await Promise.all(httpStorm)).every((status) => status === 200)).toBe(true);
+        expect((await Promise.all(wsStorm)).every((count) => count >= 3)).toBe(true);
     }, 20000);
 
     test('squad still completes after chaos stress', async () => {
-        const start = Date.now();
-        while (Date.now() - start < 900000) {
-            try {
-                await execAsync(`test -f ${testDir}/.squad-complete`);
-                const { stdout } = await execAsync(`cat ${testDir}/.squad-complete`);
-                const marker = JSON.parse(stdout);
-                expect(marker.completedAt).toBeGreaterThan(0);
-                expect(marker.durationMs).toBeGreaterThan(0);
-                expect(marker.nodes).toBeGreaterThanOrEqual(1);
-                return;
-            } catch {
+        console.log('[test] waiting for .squad-complete...');
+        const end = Date.now() + 900000;
+        const markerPath = `${testDir}/.squad-complete`;
+        while (Date.now() < end) {
+            if (!fileExists(markerPath)) {
                 await sleep(5000);
+                continue;
             }
+            const r = Bun.spawnSync({ cmd: ['cat', markerPath] });
+            const marker = JSON.parse(new TextDecoder().decode(r.stdout));
+            console.log(
+                '[test] complete! nodes:',
+                marker.nodes,
+                'duration:',
+                (marker.durationMs / 1000).toFixed(1) + 's',
+            );
+            expect(marker.completedAt).toBeGreaterThan(0);
+            expect(marker.durationMs).toBeGreaterThan(0);
+            expect(marker.nodes).toBeGreaterThanOrEqual(1);
+            return;
         }
         throw new Error('Squad did not complete after chaos stress');
     }, 910000);

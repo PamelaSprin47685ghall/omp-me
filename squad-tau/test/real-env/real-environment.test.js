@@ -1,75 +1,96 @@
-/**
- * Real Environment E2E — Tests Squad-Tau with actual OMP in tmux.
- * Verifies: HTTP API, WebSocket events, file creation, squad completion.
- * Uses tmux + curl (no mocks) — the plugin talks to real OMP sessions.
- */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
-import { spawn, exec } from 'child_process';
-import { promisify } from 'util';
 import path from 'path';
-
-const execAsync = promisify(exec);
+import { setupBrowser, teardownBrowser } from '../helpers/puppeteer-setup.js';
 
 function sleep(ms) {
-    return new Promise((r) => setTimeout(r, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function waitForTmuxOutput(session, pattern, timeoutMs = 30000) {
-    const start = Date.now();
-    while (Date.now() - start < timeoutMs) {
-        try {
-            const { stdout } = await execAsync(`tmux capture-pane -t ${session} -p 2>/dev/null | tail -20`);
-            if (stdout.match(pattern)) return stdout;
-        } catch {}
-        await sleep(1000);
-    }
-    throw new Error(`Timeout waiting for pattern in tmux session ${session}`);
-}
-
-async function getSquadUiUrl(session, timeoutMs = 30000) {
-    const output = await waitForTmuxOutput(session, /Squad UI: http:\/\/127\.0\.0\.1:\d+/, timeoutMs);
-    const match = output.match(/Squad UI: (http:\/\/127\.0\.0\.1:\d+)/);
-    return match ? match[1] : null;
+function fileExists(fp) {
+    return Bun.spawnSync({ cmd: ['test', '-f', fp] }).exitCode === 0;
 }
 
 describe('Real Environment E2E', () => {
-    let tmuxSession;
+    let tmuxSess;
     let testDir;
     let uiUrl;
     let ws;
+    let browser;
+    let page;
     const messages = [];
 
     beforeAll(async () => {
-        testDir = `/tmp/squad-real-e2e-${Date.now()}`;
-        tmuxSession = `squad-real-e2e-${process.pid}`;
+        console.log('[setup] starting');
+        testDir = `/tmp/squad-e2e-${Date.now()}`;
+        tmuxSess = `squad-e2e-${process.pid}`;
         const pluginPath = path.resolve(process.cwd(), 'index.js');
+        const model = process.env.SQUAD_MODEL;
+        const modelArgs = model ? ['--model', model] : [];
 
-        await execAsync(`mkdir -p ${testDir}`);
+        console.log('[setup] testDir:', testDir);
+        console.log('[setup] model:', model || 'default');
 
-        // Start OMP in tmux
-        const cmd = `cd ${testDir} && SQUAD_E2E=1 omp -e ${pluginPath}`;
-        await execAsync(`tmux new-session -d -s ${tmuxSession} "${cmd}"`);
+        Bun.spawnSync({ cmd: ['mkdir', '-p', testDir] });
+        console.log('[setup] mkdir done');
+
+        Bun.spawnSync({
+            cmd: ['tmux', 'new-session', '-d', '-s', tmuxSess, '-c', testDir, 'omp', ...modelArgs, '-e', pluginPath],
+        });
+        console.log('[setup] tmux session created:', tmuxSess);
+
         await sleep(3000);
+        console.log('[setup] sleep done, sending /squad');
 
-        // Send /squad command
-        await execAsync(
-            `tmux send-keys -t ${tmuxSession} "/squad 在当前目录写一个简单的计算器程序，支持加减乘除，用 JavaScript 实现" C-m`,
-        );
+        Bun.spawnSync({
+            cmd: [
+                'tmux',
+                'send-keys',
+                '-t',
+                tmuxSess,
+                '/squad 在当前目录写一个简单的计算器程序，支持加减乘除，用 JavaScript 实现',
+                'C-m',
+            ],
+        });
+        console.log('[setup] send-keys done, polling for URL...');
 
-        // Capture UI URL
-        uiUrl = await getSquadUiUrl(tmuxSession, 30000);
+        const end = Date.now() + 30000;
+        let attempt = 0;
+        while (Date.now() < end) {
+            attempt++;
+            const r = Bun.spawnSync({ cmd: ['tmux', 'capture-pane', '-t', tmuxSess, '-p', '-S', '-20'] });
+            const out = new TextDecoder().decode(r.stdout);
+            const m = out.match(/Squad UI: (http:\/\/127\.0\.0\.1:\d+)/);
+            if (m) {
+                uiUrl = m[1];
+                console.log('[setup] URL found after', attempt, 'attempts:', uiUrl);
+                break;
+            }
+            await sleep(1000);
+        }
         if (!uiUrl) throw new Error('Failed to get Squad UI URL');
+
+        const launched = await setupBrowser();
+        browser = launched.browser;
+        page = launched.page;
     }, 60000);
 
     afterAll(async () => {
-        if (ws) {
+        console.log('[teardown] cleaning up');
+        if (browser) await teardownBrowser(browser);
+        if (ws)
             try {
                 ws.close();
             } catch {}
-        }
         try {
-            await execAsync(`tmux kill-session -t ${tmuxSession} 2>/dev/null || true`);
+            Bun.spawnSync({ cmd: ['tmux', 'kill-session', '-t', tmuxSess] });
         } catch {}
+    });
+
+    test('Browser mounts the app shell', async () => {
+        await page.goto(uiUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
+        await page.waitForSelector('.app-title', { timeout: 10000 });
+        const title = await page.$eval('.app-title', (element) => element.textContent);
+        expect(title).toBe('Squad-Tau');
     });
 
     test('HTTP /api/status returns ok', async () => {
@@ -80,14 +101,12 @@ describe('Real Environment E2E', () => {
         expect(typeof data.port).toBe('number');
     });
 
-    test('HTTP / serves index.html or Vite is warming up', async () => {
-        const resp = await fetch(uiUrl);
-        // Vite dev server may return 404 briefly on first boot
-        expect([200, 404]).toContain(resp.status);
-        if (resp.status === 200) {
-            const text = await resp.text();
-            expect(text).toContain('<div id="root"></div>');
-        }
+    test('HTTP /main.jsx serves the client bundle', async () => {
+        const resp = await fetch(`${uiUrl}/main.jsx`);
+        expect(resp.status).toBe(200);
+        expect(resp.headers.get('content-type')).toContain('javascript');
+        const text = await resp.text();
+        expect(text).toContain('createRoot');
     });
 
     test('WebSocket connects and receives snapshot', async () => {
@@ -95,36 +114,37 @@ describe('Real Environment E2E', () => {
         ws = new WebSocket(wsUrl);
 
         await new Promise((resolve, reject) => {
-            const timer = setTimeout(() => reject(new Error('WS timeout')), 10000);
+            const timeout = setTimeout(() => reject(new Error('WS timeout')), 10000);
             ws.onopen = () => {
-                clearTimeout(timer);
+                clearTimeout(timeout);
                 resolve();
             };
             ws.onerror = () => {
-                clearTimeout(timer);
+                clearTimeout(timeout);
                 reject(new Error('WS error'));
             };
         });
 
         ws.onmessage = (event) => {
             try {
-                messages.push(JSON.parse(event.data));
+                const raw = typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data);
+                messages.push(JSON.parse(raw));
             } catch {}
         };
 
-        // Wait for snapshot
         await sleep(2000);
-        const snapshot = messages.find((m) => m.type === 'model_pool:snapshot');
-        expect(snapshot).toBeDefined();
-        expect(snapshot.payload).toBeDefined();
+        const snap = messages.find((message) => message.type === 'model_pool:snapshot');
+        expect(snap).toBeDefined();
+        expect(snap.payload).toBeDefined();
     }, 15000);
 
     test('WebSocket receives squad init event', async () => {
-        // Wait for squad init from real OMP — architect may take 60-180s to create plan
-        const start = Date.now();
-        while (Date.now() - start < 180000) {
-            const init = messages.find((m) => m.type === 'squad:init');
+        console.log('[test] waiting for squad:init...');
+        const end = Date.now() + 180000;
+        while (Date.now() < end) {
+            const init = messages.find((message) => message.type === 'squad:init');
             if (init) {
+                console.log('[test] got squad:init, mode:', init.payload.mode, 'nodes:', init.payload.nodes.length);
                 expect(init.payload).toBeDefined();
                 expect(init.payload.mode).toMatch(/^[ML]$/);
                 expect(Array.isArray(init.payload.nodes)).toBe(true);
@@ -136,12 +156,14 @@ describe('Real Environment E2E', () => {
     }, 190000);
 
     test('WebSocket receives node_state events', async () => {
-        const start = Date.now();
-        while (Date.now() - start < 300000) {
-            const nodeState = messages.find((m) => m.type === 'squad:node_state');
-            if (nodeState) {
-                expect(nodeState.payload.nodeId).toBeDefined();
-                expect(nodeState.payload.status).toBeDefined();
+        console.log('[test] waiting for node_state...');
+        const end = Date.now() + 300000;
+        while (Date.now() < end) {
+            const state = messages.find((message) => message.type === 'squad:node_state');
+            if (state) {
+                console.log('[test] got node_state:', state.payload.nodeId, state.payload.status);
+                expect(state.payload.nodeId).toBeDefined();
+                expect(state.payload.status).toBeDefined();
                 return;
             }
             await sleep(1000);
@@ -150,13 +172,13 @@ describe('Real Environment E2E', () => {
     }, 310000);
 
     test('JavaScript files are created by squad', async () => {
-        const start = Date.now();
-        while (Date.now() - start < 300000) {
-            try {
-                const { stdout } = await execAsync(`ls ${testDir}/*.js 2>/dev/null || true`);
-                if (stdout.trim().length > 0) return;
-            } catch {
-                /* ignore */
+        console.log('[test] waiting for .js files...');
+        const end = Date.now() + 300000;
+        while (Date.now() < end) {
+            const r = Bun.spawnSync({ cmd: ['sh', '-c', `ls '${testDir}'/*.js 2>/dev/null || true`] });
+            if (r.exitCode === 0 && new TextDecoder().decode(r.stdout).trim().length > 0) {
+                console.log('[test] .js files found');
+                return;
             }
             await sleep(2000);
         }
@@ -164,19 +186,26 @@ describe('Real Environment E2E', () => {
     }, 310000);
 
     test('squad completion marker is written', async () => {
-        const start = Date.now();
-        while (Date.now() - start < 600000) {
-            try {
-                await execAsync(`test -f ${testDir}/.squad-complete`);
-                const { stdout } = await execAsync(`cat ${testDir}/.squad-complete`);
-                const marker = JSON.parse(stdout);
-                expect(marker.completedAt).toBeGreaterThan(0);
-                expect(marker.durationMs).toBeGreaterThan(0);
-                expect(marker.nodes).toBeGreaterThanOrEqual(1);
-                return;
-            } catch {
+        console.log('[test] waiting for .squad-complete...');
+        const end = Date.now() + 600000;
+        const markerPath = `${testDir}/.squad-complete`;
+        while (Date.now() < end) {
+            if (!fileExists(markerPath)) {
                 await sleep(5000);
+                continue;
             }
+            const r = Bun.spawnSync({ cmd: ['cat', markerPath] });
+            const marker = JSON.parse(new TextDecoder().decode(r.stdout));
+            console.log(
+                '[test] squad complete! nodes:',
+                marker.nodes,
+                'duration:',
+                (marker.durationMs / 1000).toFixed(1) + 's',
+            );
+            expect(marker.completedAt).toBeGreaterThan(0);
+            expect(marker.durationMs).toBeGreaterThan(0);
+            expect(marker.nodes).toBeGreaterThanOrEqual(1);
+            return;
         }
         throw new Error('Squad completion marker not found');
     }, 610000);

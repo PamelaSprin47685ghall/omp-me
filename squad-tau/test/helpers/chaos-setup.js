@@ -16,7 +16,6 @@ async function cleanup() {
 }
 
 export async function setupChaos() {
-    process.env.SQUAD_E2E = '1';
     const r = await startServer();
     if (!started) {
         started = true;

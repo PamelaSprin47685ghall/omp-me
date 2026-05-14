@@ -12,14 +12,12 @@ describe('WebSocket Integration', () => {
     let port;
 
     beforeEach(async () => {
-        process.env.SKIP_VITE = 'true';
-        const result = await startServer();
+        const result = await startServer({ skipVite: true });
         port = result.port;
     });
 
     afterEach(async () => {
         await stopServer();
-        delete process.env.SKIP_VITE;
     });
 
     const getUrl = () => `ws://127.0.0.1:${port}/ws`;

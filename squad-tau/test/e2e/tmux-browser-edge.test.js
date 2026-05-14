@@ -34,7 +34,6 @@ describe('Edge Case Stress Tests', () => {
     let browser, port, eventBus;
 
     beforeAll(async () => {
-        process.env.SQUAD_E2E = '1';
         const server = await startServer();
         port = server.port;
         eventBus = server.eventBus;

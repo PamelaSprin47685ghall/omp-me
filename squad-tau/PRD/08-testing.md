@@ -101,7 +101,14 @@ RPC 协议格式详见 `test/helpers/rpc-tmux.js`。OMP RPC 使用 JSONL，`type
 
 自动化驱动代码详见 `test/helpers/rpc-tmux.js`。测试用例覆盖：基础连接、get_state、M/L 模式完整流程、bash 命令、异常命令。
 
-## 8.5 Chaos 测试（疯猴子测试）
+### 8.4.4 真实环境测试 (`real-environment.test.js`, `real-env-chaos.test.js`)
+
+- 通过 tmux 启动真实 `omp`，让插件走完整的 HTTP + WebSocket + Vite 链路
+- 浏览器必须先验证 `GET /main.jsx` 返回客户端 bundle，再验证页面可见内容（例如 `.app-title`、Welcome view、DAG 视图）
+- 真实环境不通过环境变量切换运行模式；用户侧只保留默认真实行为
+- 在混沌扰动、刷新、重连之后，页面仍必须恢复到同一套 UI 状态
+
+
 
 Chaos 测试位于测试金字塔最顶层。不使用 `--mode rpc` 的结构化协议，而是直接启动纯 `$ omp` 交互模式（TUI），通过 tmux 注入随机键盘事件，模拟真实用户的混乱操作。
 
