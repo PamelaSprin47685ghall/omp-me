@@ -11,7 +11,7 @@ function keyFile() {
 }
 
 let storedKey = '';
-let lastLoadedHome = null;
+let lastLoadedHome = undefined;
 
 function loadKeyFromFile() {
     const currentHome = process.env.OMP_OLLAMA_SEARCH_HOME || null;
