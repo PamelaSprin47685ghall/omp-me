@@ -1,18 +1,14 @@
 /**
  * Side-effect handlers — dumb muscle for the Event-Sourced Engine.
  *
- * Individual handler functions exported for direct use by the Engine.
- * No log-scanner (executeSideEffects), no isFulfilled — the Engine
- * routes Action[] directly to the appropriate handler.
+ * Subscription-based: `setupSideEffects()` registers EventLog listeners.
+ * When the Reactor emits a fact that requires async work (SESSION_CREATING,
+ * SESSION_PROMPTING), the subscriber fires the appropriate handler.
  *
  * Session handles stored locally (cannot be serialized to EventLog).
- * Model pool acquisition is now a pure fact emitted by the Reactor —
- * SideEffects have zero knowledge of model pool.
  */
+import { PromptDoc, PROMPT_TEMPLATES } from './prompt-builder.js';
 import { Events } from '../shared/events.js';
-import { buildWorkerPrompt, buildConfirmPrompt } from './run-worker-prompt.js';
-import { buildReviewerPrompt } from './run-reviewer-prompt.js';
-import { buildOuterReviewPrompt } from './outer-review-prompt.js';
 import { buildWorkerSessionOptions } from './session-options.js';
 import { subscribeToSessionEvents } from './session-events.js';
 
@@ -27,17 +23,47 @@ export async function getCodingAgentModule() {
 }
 
 /**
- * Create an LLM session for the given phase.
- * Appends SESSION_CREATING (transitional fact) before async API call,
- * then SESSION_START on success.
+ * Wire side-effect handlers as EventLog subscribers.
+ * The Engine calls this once during setup.
  *
+ * @param {Object} eventLog  — EventLog instance
+ * @param {Object} pi        — PI coding agent module
  * @param {Function} getState — () => state for consistent state access
+ * @returns {Function} cleanup function
+ */
+export function setupSideEffects(eventLog, pi, getState) {
+    const unsub = eventLog.subscribe((entry) => {
+        const { event, payload } = entry;
+
+        try {
+            if (event === Events.SESSION_CREATING) {
+                handleCreateSession(payload, eventLog, pi, getState).catch((err) => {
+                    console.error(`[SideEffects] createSession failed:`, err);
+                    const node = getState().squad.nodes.find((n) => n.id === payload.nodeId);
+                    if (node) node.sessionStatus = 'none';
+                });
+            } else if (event === Events.SESSION_PROMPTING) {
+                handlePrompt(payload, eventLog, pi, getState).catch((err) =>
+                    console.error(`[SideEffects] sendPrompt failed:`, err),
+                );
+            } else if (event === 'session:user_message_received') {
+                handleUserMessage(payload).catch((err) => console.error(`[SideEffects] userMessage failed:`, err));
+            }
+        } catch (err) {
+            console.error(`[SideEffects] unhandled error processing ${event}:`, err);
+        }
+    });
+
+    return unsub;
+}
+
+/**
+ * Create an LLM session for the given phase.
  */
 export async function handleCreateSession({ nodeId, phase, slotId }, eventLog, pi, getState) {
     const { SessionManager } = await getCodingAgentModule();
     const state = getState();
     const node = state.squad.nodes.find((n) => n.id === nodeId);
-    // Slot info from projected state (no ModelPool class needed)
     const slot = slotId ? state.modelPool.slots.find((s) => s.slotId === slotId) : undefined;
 
     const options = buildWorkerSessionOptions(
@@ -71,8 +97,6 @@ export async function handleCreateSession({ nodeId, phase, slotId }, eventLog, p
 
 /**
  * Send a prompt to an existing session.
- *
- * @param {Function} getState — () => state for consistent state access
  */
 export async function handlePrompt({ sessionId, phase, nodeId }, eventLog, pi, getState) {
     const entry = sessionStore.get(sessionId);
@@ -83,62 +107,16 @@ export async function handlePrompt({ sessionId, phase, nodeId }, eventLog, pi, g
 
     const state = getState();
     const node = state.squad.nodes.find((n) => n.id === nodeId);
-    let promptText = '';
 
-    if (phase === 'authoring') {
-        const upstreamResults = state.squad.nodes
-            .filter((n) => (node?.depends_on || []).includes(n.id))
-            .map((n) => ({
-                nodeId: n.id,
-                status: n.status,
-                summary: n.summary,
-                affectedFiles: n.affectedFiles,
-            }));
-        const history = node?.history || [];
-        promptText = buildWorkerPrompt(node || { task: '' }, upstreamResults, history);
-    } else if (phase === 'confirming') {
-        promptText = buildConfirmPrompt(node || { task: '' });
-    } else if (phase === 'reviewer') {
-        const history = node?.history || [];
-        const workerSession = Object.values(state.sessions).find(
-            (s) => s.nodeId === nodeId && s.role === 'worker_confirm',
-        );
-        const workerReturnMsg = workerSession?.messages?.find((m) =>
-            m.content?.some((c) => c.type === 'tool_call' && c.toolName === 'return'),
-        );
-        const workerReturnParams = workerReturnMsg?.content?.find((c) => c.type === 'tool_call')?.params;
-        const workerResult = workerReturnParams || {
-            status: 'ok',
-            reason: 'Initial submission',
-            affected_files: [],
-        };
-        promptText = buildReviewerPrompt({
-            node: node || { task: '' },
-            workerResult,
-            iterationHistory: history,
-        });
-    } else if (phase === 'outer_review') {
-        const allNodeResults = state.squad.nodes.map((n) => ({
-            id: n.id,
-            status: n.status,
-            summary: n.summary,
-            affectedFiles: n.affectedFiles,
-        }));
-        promptText = buildOuterReviewPrompt(
-            state.squad.originalTask,
-            allNodeResults,
-            state.squad.outerReview?.round || 1,
-        );
-    }
-
-    if (promptText) {
+    const phaseKey = phase === 'authoring' ? 'worker' : phase;
+    if (PROMPT_TEMPLATES[phaseKey]) {
+        const promptText = new PromptDoc(PROMPT_TEMPLATES[phaseKey](state, node || { task: '' })).compile();
         entry.session.prompt(promptText);
     }
 }
 
 /**
  * Forward a user message to an active LLM session.
- * Called by the Engine pulse when it detects session:user_message_received events.
  */
 export async function handleUserMessage({ sessionId, text, messageId }) {
     const entry = sessionStore.get(sessionId);

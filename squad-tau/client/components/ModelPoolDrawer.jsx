@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useAppState } from '../use-app-state.js';
 import {
   Button,
   IconButton,
@@ -202,7 +203,8 @@ function DeleteAlert({ slotId, onClose, onConfirm }) {
   );
 }
 
-export default function ModelPoolDrawer({ isOpen, onClose, slots, onUpdateSlot }) {
+export default function ModelPoolDrawer({ isOpen, onClose, onUpdateSlot }) {
+  const slots = useAppState(s => s.modelPool.slots || []);
   const [editingSlotId, setEditingSlotId] = useState(null);
   const [editingThinkingLevel, setEditingThinkingLevel] = useState('');
   const [deleteSlotId, setDeleteSlotId] = useState(null);

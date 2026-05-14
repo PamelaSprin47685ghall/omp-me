@@ -99,9 +99,9 @@ describe('SQUAD_COMPLETE — outer review rejection path', () => {
 
         // Apply reset: n1 → AUTHORING, retryCount=1, sessions cleared
         setStatus(st, 'n1', STATUS.AUTHORING, { retryCount: 1, feedback: 'rejected' });
-        st.squad.nodes[0].authoringSessionId = null;
-        st.squad.nodes[0].confirmingSessionId = null;
-        st.squad.nodes[0].reviewerSessionId = null;
+        st.squad.nodes[0].activeSessionId = null;
+        st.squad.nodes[0].activePhase = null;
+        st.squad.nodes[0].sessionStatus = 'none';
         delete st.sessions['n1-worker'];
         delete st.sessions['n1-worker_confirm'];
         delete st.sessions['n1-reviewer'];

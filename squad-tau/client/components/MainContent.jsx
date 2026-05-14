@@ -7,24 +7,22 @@ import {
   HStack,
   VStack,
 } from '@chakra-ui/react';
+import { useAppState } from '../use-app-state.js';
 import DAGView from './DAGView.jsx';
 import MessageList from './MessageList.jsx';
 import { MessageInput } from './MessageInput.jsx';
 import WelcomeView from './WelcomeView.jsx';
 
 export default function MainContent({
-  viewMode, squadActive, nodes, activeSessionId, sessions, messages,
-  onNodeClick, onOpenModelPool, onOptimisticMessage, send, results,
+  viewMode, activeSessionId, onNodeClick, onOpenModelPool, onOptimisticMessage, send,
 }) {
   const [bannerDismissed, setBannerDismissed] = useState(false);
-  const prevSquadActive = useRef(squadActive);
-  // nodes is now an array — use array methods
-  const failedNodes = useMemo(
-    () => nodes.filter(
-      (node) => node.status === 'failed' || node.status === 'blocked'
-    ),
-    [nodes]
-  );
+  const prevSquadActive = useRef(false);
+  const squadActive = useAppState(s => s.squad.mode && (s.squad.status === 'active' || s.squad.status === 'complete'));
+  const nodes = useAppState(s => s.squad.nodes || []);
+  const sessions = useAppState(s => s.sessions || {});
+  const results = useAppState(s => s.squad.results || []);
+  const messages = useAppState(s => activeSessionId ? (s.sessions[activeSessionId]?.messages || []) : []);
 
   useEffect(() => {
     if (squadActive && !prevSquadActive.current) setBannerDismissed(false);
@@ -36,19 +34,22 @@ export default function MainContent({
   if (!squadActive) {
     content = <WelcomeView onOpenModelPool={onOpenModelPool} />;
   } else if (viewMode === 'dag') {
-    const allSuccess = results?.length > 0 && results.every(r => r.status === 'approved');
-    const showFailed = !bannerDismissed && failedNodes.length > 0;
-    const fc = failedNodes.filter(n => n.status === 'failed').length;
-    const bc = failedNodes.filter(n => n.status === 'blocked').length;
-    const failReason = failedNodes.find(n => n.summary)?.summary || 'Unknown error';
+    const allSuccess = results.length > 0 && results.every(r => r.status === 'approved');
+    const showFailed = !bannerDismissed && nodes.some(n => n.status === 'failed' || n.status === 'blocked');
+    const failSummary = showFailed ? nodes.reduce((acc, n) => {
+      if (n.status === 'failed') acc.fc++;
+      else if (n.status === 'blocked') acc.bc++;
+      if (!acc.summary && n.summary) acc.summary = n.summary;
+      return acc;
+    }, { fc: 0, bc: 0, summary: null }) : null;
     content = (
       <VStack gap={3} p={4} h="full" overflow="auto">
-        {showFailed && (
+        {showFailed && failSummary && (
           <Alert.Root status="error" variant="solid">
             <Alert.Indicator />
             <Alert.Content>
-              <Alert.Title>Squad Failed — {fc} failed, {bc} blocked</Alert.Title>
-              <Alert.Description>{failReason}</Alert.Description>
+              <Alert.Title>Squad Failed — {failSummary.fc} failed, {failSummary.bc} blocked</Alert.Title>
+              <Alert.Description>{failSummary.summary || 'Unknown error'}</Alert.Description>
             </Alert.Content>
             <Button size="xs" variant="outline" ml="auto" onClick={() => setBannerDismissed(true)}>Dismiss</Button>
           </Alert.Root>
@@ -61,13 +62,12 @@ export default function MainContent({
             </Alert.Content>
           </Alert.Root>
         )}
-        <DAGView nodes={nodes} activeNodeId={null} onNodeClick={onNodeClick} />
+        <DAGView activeNodeId={null} onNodeClick={onNodeClick} />
       </VStack>
     );
   } else {
     const activeSession = Object.values(sessions).find((s) => s.sessionId === activeSessionId);
-    const activeMessages = messages[activeSessionId] || [];
-    const sessionRole = (!activeSession) ? 'user'
+    const sessionRole = !activeSession ? 'user'
       : activeSession.phase?.toLowerCase().includes('worker') ? 'worker'
       : activeSession.phase?.toLowerCase().includes('reviewer') ? 'reviewer'
       : activeSession.phase?.toLowerCase().includes('outer') ? 'outer'
@@ -82,7 +82,7 @@ export default function MainContent({
             <Badge>{activeSession.status}</Badge>
           </HStack>
         )}
-        <MessageList messages={activeMessages} sessionRole={sessionRole} flex={1} minH={0} />
+        <MessageList messages={messages} sessionRole={sessionRole} flex={1} minH={0} />
         {activeSession && (
           <MessageInput
             sessionId={activeSessionId}

@@ -40,10 +40,8 @@ export function applyEvent(state, type, payload) {
                 nodes: payload.nodes
                     ? payload.nodes.map((n) => ({
                           ...n,
-                          // Expanded node fields for Reactor fast-path (Phase 1: no behavior change)
-                          authoringSessionId: null,
-                          confirmingSessionId: null,
-                          reviewerSessionId: null,
+                          activeSessionId: null,
+                          activePhase: null,
                           sessionStatus: 'none',
                           waitingForModel: null,
                       }))
@@ -56,16 +54,15 @@ export function applyEvent(state, type, payload) {
                 const node = state.squad.nodes.find((n) => n.id === payload.nodeId);
                 if (node) {
                     Object.assign(node, payload);
-                    // Retry: clear stale session references so reactor starts fresh
+                    // Retry: clear active session cursor so reactor starts fresh
                     if (payload.status === 'authoring' && (payload.retryCount || 0) > 0) {
-                        node.authoringSessionId = null;
-                        node.confirmingSessionId = null;
-                        node.reviewerSessionId = null;
+                        node.activeSessionId = null;
+                        node.activePhase = null;
                         node.sessionStatus = 'none';
                         node.lastPromptedPhase = null;
                         node.waitingForModel = null;
                     }
-                    // Terminal or moving to next phase: clear model wait
+                    // Terminal status: clear model wait
                     if (['approved', 'failed', 'blocked'].includes(payload.status)) {
                         node.waitingForModel = null;
                     }
@@ -102,17 +99,12 @@ export function applyEvent(state, type, payload) {
                     messages: [],
                 };
             }
-            // Reverse-write sessionId into node's phase field for Reactor fast-path
+            // Set active cursor on node
             if (payload.nodeId) {
                 const node = state.squad.nodes.find((n) => n.id === payload.nodeId);
                 if (node) {
-                    const phaseField = {
-                        worker: 'authoringSessionId',
-                        worker_confirm: 'confirmingSessionId',
-                        reviewer: 'reviewerSessionId',
-                        outer_review: 'outerReviewSessionId',
-                    }[payload.phase];
-                    if (phaseField) node[phaseField] = payload.sessionId;
+                    node.activeSessionId = payload.sessionId;
+                    node.activePhase = payload.phase;
                     node.sessionStatus = 'active';
                 }
             }
@@ -155,7 +147,6 @@ export function applyEvent(state, type, payload) {
                 nodeId: payload.nodeId,
                 role: payload.role,
             };
-            // SideEffect succeeded: clear the waiting flag so Reactor won't re-emit
             if (payload.nodeId) {
                 const node = state.squad.nodes.find((n) => n.id === payload.nodeId);
                 if (node) node.waitingForModel = null;
@@ -170,25 +161,15 @@ export function applyEvent(state, type, payload) {
             break;
         case Events.SESSION_END:
             if (state.sessions[payload.sessionId]) {
-                state.sessions[payload.sessionId].status = payload.reason;
+                state.sessions[payload.sessionId].status = payload.reason || 'completed';
                 state.sessions[payload.sessionId].errorMessage = payload.errorMessage;
             }
-            // Clear reverse-written node fields so Reactor knows session is gone
-            for (const node of state.squad.nodes) {
-                if (node.authoringSessionId === payload.sessionId) {
-                    node.authoringSessionId = null;
-                    node.sessionStatus = 'none';
-                }
-                if (node.confirmingSessionId === payload.sessionId) {
-                    node.confirmingSessionId = null;
-                    node.sessionStatus = 'none';
-                }
-                if (node.reviewerSessionId === payload.sessionId) {
-                    node.reviewerSessionId = null;
-                    node.sessionStatus = 'none';
-                }
-                if (node.outerReviewSessionId === payload.sessionId) {
-                    node.outerReviewSessionId = null;
+            // Clear active cursor from the owning node
+            {
+                const node = state.squad.nodes.find((n) => n.activeSessionId === payload.sessionId);
+                if (node) {
+                    node.activeSessionId = null;
+                    node.activePhase = null;
                     node.sessionStatus = 'none';
                 }
             }
@@ -204,11 +185,16 @@ export function applyEvent(state, type, payload) {
         case Events.SESSION_TOOL_CALL:
             if (state.sessions[payload.sessionId]) {
                 const { sessionId, ...toolFields } = payload;
-                state.sessions[payload.sessionId].messages.push({
+                const sess = state.sessions[payload.sessionId];
+                sess.messages.push({
                     role: 'assistant',
                     messageId: payload.toolId,
                     content: [{ type: 'tool_call', ...toolFields }],
                 });
+                // Extract return params to session root for O(1) reactor access
+                if (payload.toolName === 'return') {
+                    sess.latestReturn = payload.params;
+                }
             }
             break;
         case Events.SESSION_TOOL_RESULT:

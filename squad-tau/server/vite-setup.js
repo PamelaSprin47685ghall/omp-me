@@ -22,7 +22,7 @@ async function startVite() {
 
     viteServer = await createServer({
         root: CLIENT_ROOT,
-        server: { middlewareMode: true, appType: 'spa', hmr: false, ws: false },
+        server: { middlewareMode: true, appType: 'custom', hmr: false, ws: false },
         clearScreen: false,
         customLogger: {
             info(msg, opts) {

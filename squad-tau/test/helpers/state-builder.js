@@ -11,40 +11,6 @@
 import { STATUS } from '../../server/constants.js';
 
 // ════════════════════════════════════════════════════════════════════
-// EVENT-LOG UTILITIES (for integration/engine-loop tests)
-// ════════════════════════════════════════════════════════════════════
-
-/**
- * Create a minimal EventLog-compatible array.
- * Auto-incrementing ids, pure in-memory.
- */
-export function makeEventLog() {
-    const a = [];
-    let i = 0;
-    return {
-        append(e, p) {
-            const o = { id: i++, event: e, payload: p };
-            a.push(o);
-            return o;
-        },
-        getSince(n = 0) {
-            return a.slice(n);
-        },
-        all() {
-            return a;
-        },
-        last() {
-            return a[a.length - 1];
-        },
-    };
-}
-
-/** Append every reactor action back into the event log. */
-export function appendAll(log, events) {
-    for (const e of events) log.append(e.type, e.payload);
-}
-
-// ════════════════════════════════════════════════════════════════════
 // STATE CONSTRUCTION (low-level)
 // ════════════════════════════════════════════════════════════════════
 
@@ -83,9 +49,8 @@ function normalizeNode(n) {
         summary: n.summary || undefined,
         feedback: n.feedback || undefined,
         affectedFiles: n.affectedFiles || undefined,
-        authoringSessionId: n.authoringSessionId || null,
-        confirmingSessionId: n.confirmingSessionId || null,
-        reviewerSessionId: n.reviewerSessionId || null,
+        activeSessionId: n.activeSessionId || null,
+        activePhase: n.activePhase || null,
         sessionStatus: n.sessionStatus || 'none',
         lastPromptedPhase: n.lastPromptedPhase || null,
         waitingForModel: n.waitingForModel || null,
@@ -95,23 +60,16 @@ function normalizeNode(n) {
 function buildSessions(nodes, sessionOverrides) {
     const sessions = { ...(sessionOverrides || {}) };
     for (const node of nodes) {
-        for (const field of ['authoringSessionId', 'confirmingSessionId', 'reviewerSessionId']) {
-            const sid = node[field];
-            if (sid && !sessions[sid]) {
-                const roleMap = {
-                    authoringSessionId: 'worker',
-                    confirmingSessionId: 'worker_confirm',
-                    reviewerSessionId: 'reviewer',
-                };
-                sessions[sid] = {
-                    sessionId: sid,
-                    nodeId: node.id,
-                    phase: roleMap[field],
-                    role: roleMap[field],
-                    status: 'active',
-                    messages: [],
-                };
-            }
+        const sid = node.activeSessionId;
+        if (sid && !sessions[sid] && node.activePhase) {
+            sessions[sid] = {
+                sessionId: sid,
+                nodeId: node.id,
+                phase: node.activePhase,
+                role: node.activePhase,
+                status: 'active',
+                messages: [],
+            };
         }
     }
     return sessions;
@@ -123,16 +81,13 @@ function buildModelPool(nodes, poolOverrides) {
     return { slots, usage, ...poolOverrides };
 }
 
-// ════════════════════════════════════════════════════════════════════
-// FORWARD COMPAT: legacy helpers used by integration tests
-// ════════════════════════════════════════════════════════════════════
-
 /**
  * Add a return tool call to a session.
  */
 export function addReturn(sessionId, sessions, status = 'ok', reason = 'auto', affectedFiles = []) {
     const sess = sessions[sessionId];
     if (!sess) return;
+    const params = { status, reason, affected_files: affectedFiles };
     sess.messages.push({
         role: 'assistant',
         messageId: `call-${Date.now()}`,
@@ -141,47 +96,11 @@ export function addReturn(sessionId, sessions, status = 'ok', reason = 'auto', a
                 type: 'tool_call',
                 toolName: 'return',
                 toolId: `call-${Date.now()}`,
-                params: { status, reason, affected_files: affectedFiles },
+                params,
             },
         ],
     });
-}
-
-/**
- * Build a node descriptor at a given phase with session wiring.
- * @deprecated Use the DSL mutators instead.
- */
-export function nodeInPhase(id, phase, sessionId, extras = {}) {
-    const phaseFieldMap = {
-        authoring: 'authoringSessionId',
-        confirming: 'confirmingSessionId',
-        reviewing: 'reviewerSessionId',
-    };
-
-    const n = {
-        id,
-        task: extras.task || 'task',
-        review_criteria: extras.review_criteria || [],
-        depends_on: extras.depends_on || [],
-        status:
-            {
-                reviewing: STATUS.REVIEWING,
-                confirming: STATUS.CONFIRMING,
-                authoring: STATUS.AUTHORING,
-                approved: STATUS.APPROVED,
-                failed: STATUS.FAILED,
-                blocked: STATUS.BLOCKED,
-            }[phase] || 'idle',
-        retryCount: extras.retryCount || 0,
-        ...extras,
-    };
-
-    if (sessionId && phaseFieldMap[phase]) {
-        n[phaseFieldMap[phase]] = sessionId;
-        n.sessionStatus = 'active';
-    }
-
-    return n;
+    sess.latestReturn = params;
 }
 
 // ════════════════════════════════════════════════════════════════════
@@ -216,7 +135,7 @@ export function setStatus(state, nodeId, status, extra = {}) {
 
 /**
  * Create a session linked to a node at a given phase.
- * Auto-wires the sessionId into the node's phase field (authoringSessionId/confirmingSessionId/reviewerSessionId).
+ * Auto-wires the sessionId into the node's activeSessionId/activePhase.
  * For outer_review, pass nodeId = null.
  * @returns {string} sessionId
  */
@@ -227,15 +146,9 @@ export function createSession(state, nodeId, phase) {
     if (nodeId) {
         const node = state.squad.nodes.find((n) => n.id === nodeId);
         if (node) {
-            const fieldMap = {
-                worker: 'authoringSessionId',
-                worker_confirm: 'confirmingSessionId',
-                reviewer: 'reviewerSessionId',
-            };
-            if (fieldMap[phase]) {
-                node[fieldMap[phase]] = sessionId;
-                node.sessionStatus = 'active';
-            }
+            node.activeSessionId = sessionId;
+            node.activePhase = phase;
+            node.sessionStatus = 'active';
         }
     }
 
@@ -286,10 +199,12 @@ export function acquireModel(state, nodeId, role, slotId) {
 /**
  * Inject a 'return' tool_call into a session's message history.
  * Shortcut for the common pattern: session gets a `return { status, reason }`.
+ * Sets both `messages` and `latestReturn` for O(1) reactor access.
  */
 export function giveReturn(state, sessionId, status, reason) {
     const sess = state.sessions[sessionId];
     if (!sess) return;
+    const params = { status, reason, affected_files: [] };
     sess.messages.push({
         role: 'assistant',
         messageId: `call-${Date.now()}`,
@@ -298,8 +213,9 @@ export function giveReturn(state, sessionId, status, reason) {
                 type: 'tool_call',
                 toolName: 'return',
                 toolId: `call-${Date.now()}`,
-                params: { status, reason, affected_files: [] },
+                params,
             },
         ],
     });
+    sess.latestReturn = params;
 }

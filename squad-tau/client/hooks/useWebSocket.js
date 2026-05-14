@@ -5,7 +5,7 @@ const BACKOFF_STEPS = [1000, 2000, 4000, 8000, 16000, 30000];
 const MAX_RECONNECT_ATTEMPTS = 50;
 const PING_INTERVAL = 30000;
 
-export function useWebSocket({ port, onEvent }) {
+export function useWebSocket({ port, onEvent } = {}) {
     const resolvedPort = port != null ? port : typeof window !== 'undefined' ? window.location.port : 9527;
     const wsRef = useRef(null);
     const reconnectTimeoutRef = useRef(null);
@@ -59,7 +59,6 @@ export function useWebSocket({ port, onEvent }) {
 
         ws.onopen = () => {
             setConnected(true);
-            if (typeof window !== 'undefined') window.__wsConnected = true;
             backoffIndexRef.current = 0;
             reconnectAttemptsRef.current = 0;
 
@@ -98,12 +97,10 @@ export function useWebSocket({ port, onEvent }) {
 
         ws.onerror = () => {
             setConnected(false);
-            if (typeof window !== 'undefined') window.__wsConnected = false;
         };
 
         ws.onclose = () => {
             setConnected(false);
-            if (typeof window !== 'undefined') window.__wsConnected = false;
             clearInterval(pingIntervalRef.current);
             pingIntervalRef.current = null;
 

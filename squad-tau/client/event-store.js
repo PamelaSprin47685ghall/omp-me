@@ -82,3 +82,6 @@ class EventStore {
 
 export { EventStore };
 export const eventStore = new EventStore();
+
+/* E2E test bridge — the only window global. EventStore is the app's single input port. */
+if (typeof window !== 'undefined') window.__es = eventStore;

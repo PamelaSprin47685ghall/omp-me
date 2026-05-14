@@ -1,8 +1,10 @@
 import React from 'react';
 import { Heading, Button, Badge, Portal, Tooltip, Icon, HStack } from '@chakra-ui/react';
 import { Settings, Wifi, WifiOff, Square } from 'lucide-react';
+import { useAppState } from '../use-app-state.js';
 
-function Header({ connected, onOpenModelPool, squadActive, onAbort }) {
+function Header({ connected, onOpenModelPool, onAbort }) {
+  const squadActive = useAppState(s => s.squad.mode && (s.squad.status === 'active' || s.squad.status === 'complete'));
   const port = typeof window !== 'undefined' ? window.location.port : '';
   return (
     <HStack

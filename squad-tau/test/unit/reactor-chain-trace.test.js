@@ -69,15 +69,13 @@ describe('full chain lifecycle trace', () => {
             role: 'worker',
         });
 
-        // Step 3: CMD_CREATE_SESSION (authoring)
+        // Step 3: SESSION_CREATING (authoring)
         events = engineStep();
         expect(events.length).toBe(1);
-        expect(events[0].type).toBe(Events.CMD_CREATE_SESSION);
+        expect(events[0].type).toBe(Events.SESSION_CREATING);
         expect(events[0].payload.phase).toBe('worker');
 
-        eventLog.append(Events.SESSION_CREATING, { nodeId: 'n1', phase: 'worker' });
-
-        // Step 4: no events (SESSION_CREATING prevents re-emission)
+        // Step 4: no events (sessionStatus='creating' prevents re-emission)
         events = engineStep();
         expect(events.length).toBe(0);
 
@@ -90,14 +88,13 @@ describe('full chain lifecycle trace', () => {
             model: { provider: 'test', id: 'worker-1' },
         });
 
-        // Step 5: CMD_PROMPT (authoring)
+        // Step 5: SESSION_PROMPTING (authoring)
         events = engineStep();
         expect(events.length).toBe(1);
-        expect(events[0].type).toBe(Events.CMD_PROMPT);
+        expect(events[0].type).toBe(Events.SESSION_PROMPTING);
         expect(events[0].payload.phase).toBe('authoring');
 
-        eventLog.append(Events.SESSION_PROMPTING, { sessionId: sessWorker, phase: 'authoring' });
-
+        // Step 6: no events (sessionStatus='prompting' prevents re-emission)
         events = engineStep();
         expect(events.length).toBe(0);
 
@@ -109,21 +106,20 @@ describe('full chain lifecycle trace', () => {
             params: { status: 'ok', reason: 'done', affected_files: ['f.js'] },
         });
 
-        // Step 6: n1 → CONFIRMING
+        // Step 7: n1 → CONFIRMING
         events = engineStep();
         expect(events.length).toBe(1);
         expect(events[0].payload.status).toBe(STATUS.CONFIRMING);
 
-        // Step 7: CMD_CREATE_SESSION for confirming (reuses worker slot)
+        // Step 8: SESSION_CREATING for confirming (reuses worker slot)
         events = engineStep();
         expect(events.filter((e) => e.type === Events.MODEL_POOL_ACQUIRE).length).toBe(0);
-        const createConfirm = events.filter((e) => e.type === Events.CMD_CREATE_SESSION);
+        const createConfirm = events.filter((e) => e.type === Events.SESSION_CREATING);
         expect(createConfirm.length).toBe(1);
         expect(createConfirm[0].payload.phase).toBe('worker_confirm');
         expect(createConfirm[0].payload.slotId).toBe('slot-w1');
 
-        eventLog.append(Events.SESSION_CREATING, { nodeId: 'n1', phase: 'worker_confirm' });
-
+        // Step 9: no events
         events = engineStep();
         expect(events.length).toBe(0);
 
@@ -136,14 +132,13 @@ describe('full chain lifecycle trace', () => {
             model: { provider: 'test', id: 'worker-1' },
         });
 
-        // Step 8: CMD_PROMPT (confirming)
+        // Step 10: SESSION_PROMPTING (confirming)
         events = engineStep();
         expect(events.length).toBe(1);
-        expect(events[0].type).toBe(Events.CMD_PROMPT);
+        expect(events[0].type).toBe(Events.SESSION_PROMPTING);
         expect(events[0].payload.phase).toBe('confirming');
 
-        eventLog.append(Events.SESSION_PROMPTING, { sessionId: sessConfirm, phase: 'confirming' });
-
+        // Step 11: no events
         events = engineStep();
         expect(events.length).toBe(0);
 
@@ -155,12 +150,12 @@ describe('full chain lifecycle trace', () => {
             params: { status: 'ok', reason: 'confirmed', affected_files: [] },
         });
 
-        // Step 9: n1 → REVIEWING
+        // Step 12: n1 → REVIEWING
         events = engineStep();
         expect(events.length).toBe(1);
         expect(events[0].payload.status).toBe(STATUS.REVIEWING);
 
-        // Step 10: MODEL_POOL_ACQUIRE for reviewer
+        // Step 13: MODEL_POOL_ACQUIRE for reviewer
         events = engineStep();
         expect(events.length).toBe(1);
         expect(events[0].type).toBe(Events.MODEL_POOL_ACQUIRE);
@@ -174,14 +169,13 @@ describe('full chain lifecycle trace', () => {
             role: 'reviewer',
         });
 
-        // Step 11: CMD_CREATE_SESSION for reviewer
+        // Step 14: SESSION_CREATING for reviewer
         events = engineStep();
         expect(events.length).toBe(1);
-        expect(events[0].type).toBe(Events.CMD_CREATE_SESSION);
+        expect(events[0].type).toBe(Events.SESSION_CREATING);
         expect(events[0].payload.phase).toBe('reviewer');
 
-        eventLog.append(Events.SESSION_CREATING, { nodeId: 'n1', phase: 'reviewer' });
-
+        // Step 15: no events
         events = engineStep();
         expect(events.length).toBe(0);
 
@@ -194,14 +188,13 @@ describe('full chain lifecycle trace', () => {
             model: { provider: 'test', id: 'reviewer-1' },
         });
 
-        // Step 12: CMD_PROMPT (reviewer)
+        // Step 16: SESSION_PROMPTING (reviewer)
         events = engineStep();
         expect(events.length).toBe(1);
-        expect(events[0].type).toBe(Events.CMD_PROMPT);
+        expect(events[0].type).toBe(Events.SESSION_PROMPTING);
         expect(events[0].payload.phase).toBe('reviewer');
 
-        eventLog.append(Events.SESSION_PROMPTING, { sessionId: sessReview, phase: 'reviewer' });
-
+        // Step 17: no events
         events = engineStep();
         expect(events.length).toBe(0);
 
@@ -213,12 +206,12 @@ describe('full chain lifecycle trace', () => {
             params: { status: 'ok', reason: 'approved', affected_files: [] },
         });
 
-        // Step 13: n1 → APPROVED
+        // Step 18: n1 → APPROVED
         events = engineStep();
         expect(events.length).toBe(1);
         expect(events[0].payload.status).toBe(STATUS.APPROVED);
 
-        // Step 14: model release + n2 wakes up
+        // Step 19: model release + n2 wakes up
         events = engineStep();
         const releases = events.filter((e) => e.type === Events.MODEL_POOL_RELEASE);
         expect(releases.length).toBe(2, 'Should release both worker and reviewer slots');

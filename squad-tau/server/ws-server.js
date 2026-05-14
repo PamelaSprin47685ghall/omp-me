@@ -1,10 +1,3 @@
-/**
- * WebSocket server — single owner of ws lifecycle and broadcast.
- * Subscribes directly to the event bus; no cross-module client Set passing.
- */
-
-import { getConnectionState, setConnectionState } from './connection-state.js';
-
 let nextConnId = 1;
 let wsModulePromise = null;
 
@@ -22,18 +15,17 @@ export async function createWsServer(httpServer, _unused, { onConnection, onMess
     const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
     wss.on('connection', (ws) => {
-        const state = getConnectionState(ws);
-        state.connId = nextConnId++;
-        state.missedPongs = 0;
+        ws.connId = nextConnId++;
+        ws.isAlive = true;
 
         ws.on('pong', () => {
-            getConnectionState(ws).missedPongs = 0;
+            ws.isAlive = true;
         });
 
         ws.send(
             JSON.stringify({
                 type: 'connection:established',
-                payload: { sessionId: state.connId, serverVersion: '1.0.0' },
+                payload: { sessionId: ws.connId, serverVersion: '1.0.0' },
                 timestamp: Date.now(),
             }),
         );
@@ -44,7 +36,7 @@ export async function createWsServer(httpServer, _unused, { onConnection, onMess
             try {
                 parsed = JSON.parse(data);
             } catch {
-                return; // drop malformed
+                return;
             }
             try {
                 await onMessage?.(parsed, ws);

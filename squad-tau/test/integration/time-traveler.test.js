@@ -1,13 +1,9 @@
 /**
- * Synchronous Time-Traveler Integration Tests (Step 3 strategy).
+ * Synchronous Time-Traveler Integration Tests (v3 — No Commands).
  *
- * Simulates the full Engine loop synchronously: react(f) → append → fake side effects → repeat.
- * No async, no mocks, no real LLMs — the entire Squad lifecycle runs in a while loop.
- *
- * Ported invariants from deprecated tests:
- *   - squad-flow.test.js (M mode, L chain, diamond, reject-retry)
- *   - engine-loop-sim.test.js (full lifecycle with model pool)
- *   - dag-execute.test.js (blocked propagation, abort)
+ * Simulates the full Engine loop synchronously: react(f) → append to log →
+ * fake side effects → repeat. No async, no mocks, no real LLMs.
+ * The reactor emits facts directly; side-effects are simulated inline.
  */
 import { describe, test, expect } from 'bun:test';
 import { reactState } from '../../server/reactor.js';
@@ -20,8 +16,8 @@ import { applyEvent } from '../../shared/projections.js';
  * Synchronous Time Traveler.
  * Drives the reactor loop to convergence using fake side effects.
  *
- * @param {Array} initialEvents  - Seed EventLog (array of {event, payload} with numeric ids)
- * @param {Function} promptBehavior - (cmdPayload) => {status, reason} for fake LLM responses
+ * @param {Array} initialEvents  - Seed EventLog (array of {event, payload})
+ * @param {Function} promptBehavior - (payload) => {status, reason} for fake LLM responses
  * @returns {Array}  Final EventLog after convergence
  */
 function timeTravel(initialEvents, promptBehavior = () => ({ status: 'ok', reason: 'auto' })) {
@@ -40,28 +36,26 @@ function timeTravel(initialEvents, promptBehavior = () => ({ status: 'ok', reaso
     }
 
     for (let i = 0; i < 200; i++) {
-        const cmds = reactState(project(getSince()));
-        if (cmds.length === 0) break;
+        const actions = reactState(project(getSince()));
+        if (actions.length === 0) break;
 
-        for (const cmd of cmds) {
-            append(cmd.type, cmd.payload);
+        for (const action of actions) {
+            append(action.type, action.payload);
 
-            switch (cmd.type) {
-                case Events.CMD_CREATE_SESSION:
-                    append(Events.SESSION_START, {
-                        sessionId: `sess-${idGen++}`,
-                        nodeId: cmd.payload.nodeId,
-                        phase: cmd.payload.phase,
-                    });
-                    break;
-                case Events.CMD_PROMPT:
-                    append(Events.SESSION_TOOL_CALL, {
-                        sessionId: cmd.payload.sessionId,
-                        toolName: 'return',
-                        toolId: `call-${idGen++}`,
-                        params: promptBehavior(cmd.payload),
-                    });
-                    break;
+            // Simulate side effects for facts that need async processing
+            if (action.type === Events.SESSION_CREATING) {
+                append(Events.SESSION_START, {
+                    sessionId: `sess-${idGen++}`,
+                    nodeId: action.payload.nodeId,
+                    phase: action.payload.phase,
+                });
+            } else if (action.type === Events.SESSION_PROMPTING) {
+                append(Events.SESSION_TOOL_CALL, {
+                    sessionId: action.payload.sessionId,
+                    toolName: 'return',
+                    toolId: `call-${idGen++}`,
+                    params: promptBehavior(action.payload),
+                });
             }
         }
     }
@@ -148,7 +142,6 @@ describe('L mode — chain n1 -> n2', () => {
         const n2IdleIdx = finalLog.findIndex(
             (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'n2' && e.payload.status === 'idle',
         );
-        // Both get idle in the same batch
         expect(n1IdleIdx).toBeGreaterThanOrEqual(0);
         expect(n2IdleIdx).toBeGreaterThanOrEqual(0);
 
@@ -270,7 +263,6 @@ describe('Reviewer rejection and retry', () => {
                 e.payload.nodeId === 'n1' &&
                 e.payload.status === STATUS.AUTHORING,
         );
-        // Should have been AUTHORING at least twice (initial + retry)
         expect(authAfterReject.length).toBeGreaterThanOrEqual(2);
 
         // Retry count should be recorded
@@ -280,7 +272,6 @@ describe('Reviewer rejection and retry', () => {
                 e.payload.nodeId === 'n1' &&
                 e.payload.status === STATUS.AUTHORING,
         );
-        // Second authoring should have retryCount=1
         expect(authoringEvents[1].payload.retryCount).toBe(1);
     });
 
@@ -295,10 +286,7 @@ describe('Reviewer rejection and retry', () => {
         );
 
         const state = project(finalLog);
-        // The node may be in any terminal state depending on MAX_RETRIES behavior
-        // At minimum, the reactor should not be in an infinite loop
         expect(state.squad.status).toBe('complete');
-        // Node should be in a terminal state (failed or blocked)
         const n1 = state.squad.nodes[0];
         expect([STATUS.APPROVED, STATUS.FAILED, STATUS.BLOCKED]).toContain(n1.status);
     });
@@ -332,7 +320,6 @@ describe('Outer review rejection cycle', () => {
         expect(state.squad.nodes[0].status).toBe(STATUS.APPROVED);
         expect(orCalls).toBe(2);
 
-        // Outer review round should have incremented
         const orStartEvents = finalLog.filter((e) => e.event === Events.SQUAD_OUTER_REVIEW_START);
         expect(orStartEvents.length).toBe(2);
         expect(orStartEvents[0].payload.round).toBe(1);
@@ -358,7 +345,6 @@ describe('Model pool invariants', () => {
 
         const state = project(finalLog);
         expect(state.squad.status).toBe('complete');
-        // All models released
         expect(Object.keys(state.modelPool.usage).length).toBe(0);
     });
 
@@ -371,7 +357,6 @@ describe('Model pool invariants', () => {
             }),
         );
 
-        // Count acquire/release pairs
         const acquires = finalLog.filter((e) => e.event === Events.MODEL_POOL_ACQUIRE);
         const releases = finalLog.filter((e) => e.event === Events.MODEL_POOL_RELEASE);
         expect(acquires.length).toBe(releases.length);
@@ -386,7 +371,6 @@ describe('Model pool invariants', () => {
             }),
         );
 
-        // For each slotId, verify acquire/release alternation
         const slotEvents = finalLog.filter(
             (e) => e.event === Events.MODEL_POOL_ACQUIRE || e.event === Events.MODEL_POOL_RELEASE,
         );
@@ -398,7 +382,6 @@ describe('Model pool invariants', () => {
         }
 
         for (const [sid, history] of Object.entries(slotHistories)) {
-            // Must alternate: acquire, release, acquire, release...
             for (let i = 0; i < history.length; i++) {
                 const expected = i % 2 === 0 ? Events.MODEL_POOL_ACQUIRE : Events.MODEL_POOL_RELEASE;
                 expect(history[i]).toBe(expected, `slot ${sid} event ${i}: expected ${expected} but got ${history[i]}`);
@@ -408,9 +391,9 @@ describe('Model pool invariants', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Invariant: inUse count never exceeds total slots per role
+// Fuzzy invariants
 // ---------------------------------------------------------------------------
-describe('Fuzzy invariants (step 5 seed)', () => {
+describe('Fuzzy invariants', () => {
     test('model pool usage count never exceeds total slot count per role', () => {
         const finalLog = timeTravel(
             initSquad({
@@ -423,23 +406,15 @@ describe('Fuzzy invariants (step 5 seed)', () => {
             }),
         );
 
-        // Count slot configurations: time-traveler doesn't emit model_pool:snapshot,
-        // so roleSlots.length === 0 → reactor bypasses model acquisition entirely.
-        // Invariant: MODEL_POOL_ACQUIRE events should NOT exist in log.
         const acquires = finalLog.filter((e) => e.event === Events.MODEL_POOL_ACQUIRE);
         expect(acquires.length).toBe(0, 'No model acquisitions without configured slots');
 
-        // Verify the rest still produces a complete result
         const state = project(finalLog);
         expect(state.squad.status).toBe('complete');
 
-        // Replay log: after each applyEvent(), model pool usage must be <= available slots
         const replayState = { squad: { status: 'active', nodes: [] }, modelPool: { usage: {} }, sessions: {} };
-        const perRoleSlots = {}; // no slots configured
-
         for (const entry of finalLog) {
             applyEvent(replayState, entry.event, entry.payload);
-            // No MODEL_POOL_ACQUIRE expected (no slots configured), so usage always 0
             expect(Object.keys(replayState.modelPool.usage).length).toBe(
                 0,
                 `usage must be empty at ${entry.event}:${entry.payload?.slotId || ''}`,

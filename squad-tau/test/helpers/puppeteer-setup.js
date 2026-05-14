@@ -51,13 +51,18 @@ export async function clickSidebarNode(page, textPattern, timeoutMs = 5000) {
 }
 
 /**
- * Wait for the React app's own WebSocket to connect.
- * The app sets window.__wsConnected when its WS opens.
+ * Wait for the React app's own WebSocket to connect by polling the header badge text.
  * @returns {Promise<boolean>} true if connected within timeout
  */
 export async function waitForAppWebSocket(page, timeoutMs = 10000) {
     try {
-        await page.waitForFunction(() => window.__wsConnected === true, { timeout: timeoutMs });
+        await page.waitForFunction(
+            () => {
+                const badge = document.querySelector('[data-header-connection]');
+                return badge && badge.textContent.includes('Connected');
+            },
+            { timeout: timeoutMs },
+        );
         return true;
     } catch {
         return false;
@@ -74,11 +79,18 @@ export async function waitForText(page, text, timeoutMs) {
 }
 
 /**
- * Check WebSocket connection status in the React app.
+ * Check WebSocket connection status via header badge DOM.
  * @returns {Promise<boolean>}
  */
 export async function isAppWebSocketConnected(page) {
-    return page.evaluate(() => window.__wsConnected === true).catch(() => false);
+    try {
+        return await page.evaluate(() => {
+            const badge = document.querySelector('[data-header-connection]');
+            return badge && badge.textContent.includes('Connected');
+        });
+    } catch {
+        return false;
+    }
 }
 
 export async function connectWebSocket(page, url) {

@@ -2,7 +2,7 @@
  * Dehydrated Chaos UI visual correctness.
  *
  * No backend engine. No WS. No db. Pure Vite + direct event injection.
- * Events injected directly into browser's EventStore via window.__injectEvents.
+ * Events injected directly into EventStore via window.__es.dispatch.
  * Screenshots and DOM assertions only — purely visual regression.
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
@@ -10,7 +10,14 @@ import { startViteOnly, stopViteOnly } from '../helpers/vite-only.js';
 import { setupBrowser, teardownBrowser } from '../helpers/puppeteer-setup.js';
 
 function inject(page, events) {
-    return page.evaluate((evts) => window.__injectEvents(evts), events);
+    return page.evaluate((evts) => {
+        const es = window.__es;
+        for (const e of evts) es.dispatch(e.type, e.payload, e.seq);
+    }, events);
+}
+
+function reset(page) {
+    return page.evaluate(() => window.__es.reset());
 }
 
 describe('Chaos: UI visual correctness', () => {
@@ -82,7 +89,7 @@ describe('Chaos: UI visual correctness', () => {
     });
 
     test('welcome view appears and disappears on init/abort', async () => {
-        await page.evaluate(() => window.__resetEventStore());
+        await reset(page);
         await page.waitForFunction(() => document.body.innerText.includes('Welcome to Squad-Tau'), { timeout: 3000 });
 
         await inject(page, [
@@ -102,7 +109,7 @@ describe('Chaos: UI visual correctness', () => {
     });
 
     test('header brand text survives event storms', async () => {
-        await page.evaluate(() => window.__resetEventStore());
+        await reset(page);
 
         for (let round = 0; round < 4; round++) {
             await inject(page, [

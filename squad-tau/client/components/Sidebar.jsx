@@ -1,6 +1,7 @@
 import React, { useMemo, useCallback, useState } from 'react';
 import { VStack, HStack, Text, Icon, Box, Collapsible } from '@chakra-ui/react';
 import { CheckCircle, XCircle, Clock, RefreshCw, Ban, Circle, Network } from 'lucide-react';
+import { useAppState } from '../use-app-state.js';
 
 const STATUS_ICONS = { approved: CheckCircle, rejected: XCircle, pending: Clock, active: RefreshCw, authoring: RefreshCw, confirming: RefreshCw, reviewing: RefreshCw, failed: Ban, blocked: Ban };
 const STATUS_COLOR_MAP = { approved: 'green.fg', rejected: 'red.fg', failed: 'red.fg', blocked: 'red.fg', active: 'orange.fg', authoring: 'orange.fg', confirming: 'orange.fg', reviewing: 'orange.fg' };
@@ -75,7 +76,10 @@ function NodeGroup({ nodeId, nodes, sessions, activeSessionId, onSelectSession }
   );
 }
 
-export default function Sidebar({ sessions, nodes, activeSessionId, onSelectSession, viewMode, onSelectDAG }) {
+export default function Sidebar({ activeSessionId, onSelectSession, viewMode, onSelectDAG }) {
+  const nodes = useAppState(s => s.squad.nodes || []);
+  const sessions = useAppState(s => Object.values(s.sessions || {}));
+
   const nodeIds = useMemo(() => {
     const ids = new Set(nodes.map(n => n.id));
     sessions.forEach(s => { if (s.nodeId) ids.add(s.nodeId); });

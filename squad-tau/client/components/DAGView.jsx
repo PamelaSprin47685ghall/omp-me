@@ -2,6 +2,7 @@ import React, { useMemo, useCallback, useRef } from 'react';
 import { Center, VStack, Text, Icon } from '@chakra-ui/react';
 import { GitBranch, AlertTriangle } from 'lucide-react';
 import { renderMermaidSVG, THEMES } from 'beautiful-mermaid';
+import { useAppState } from '../use-app-state.js';
 
 const STATUS_COLOR = Object.freeze({
   waiting_deps: '#6c7a89',
@@ -17,10 +18,11 @@ const STATUS_COLOR = Object.freeze({
 
 const MERMAID_THEME = THEMES['github-light'];
 
-export default function DAGView({ nodes, activeNodeId, onNodeClick }) {
+export default function DAGView({ activeNodeId, onNodeClick }) {
+  const nodes = useAppState(s => s.squad.nodes || []);
   const onClickRef = useRef(onNodeClick);
   onClickRef.current = onNodeClick;
-  const nodeList = nodes || [];
+  const nodeList = nodes;
 
   const svg = useMemo(() => {
     if (!nodeList?.length) return null;

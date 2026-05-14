@@ -1,24 +1,24 @@
 /**
- * Stateless Reactor Engine (v2 — Pure State Query).
+ * Stateless Reactor (v3 — Pure Fact Emission).
  *
- * f(state) → Action[]
+ * f(state) → Action[].
  *
  * No log scans, no isFulfilled, no nodeHistory, no hasPendingCommand.
- * All decisions derived from the projected State tree.
+ * No CMD_ events — only facts. Every output is directly appended to EventLog.
+ * Side-effects subscribe to the log and react to facts they care about.
  *
  * Composable sub-reactors:
  *   - initialStatus transitions (undefined → idle)
- *   - modelRelease (terminal nodes → CMD_RELEASE_MODEL)
+ *   - modelRelease (terminal nodes → MODEL_POOL_RELEASE)
  *   - outerReviewGate (all APPROVED → outer review → SQUAD_COMPLETE)
- *   - nodeFSM (per-node state machine: idle → authoring → confirming → reviewing → approved)
+ *   - nodeFSM (per-node state machine)
  */
 import { Events } from '../shared/events.js';
 import { STATUS, DEFAULTS } from './constants.js';
 
 /**
  * Pure state-based reactor.
- * f(state) → Action[]. No log scans, no isFulfilled, no nodeHistory.
- * All decisions derived from the projected State tree.
+ * f(state) → Action[]. No log scans, no traversals.
  *
  * @param {Object} state  — fully projected state (from project() or incremental fold)
  * @returns {Array<{type, payload}>}
@@ -37,7 +37,7 @@ export function reactState(state) {
         }));
     }
 
-    // ── 1. Model Release Rule (state-based) ──
+    // ── 1. Model Release Rule ──
     for (const [slotId, usage] of Object.entries(state.modelPool.usage)) {
         if (usage.nodeId === undefined && usage.role === 'reviewer') {
             // Outer review model — release after outer review terminal
@@ -69,15 +69,12 @@ export function reactState(state) {
                 });
             }
         } else if (orStatus === 'rejected') {
-            // Check if any node was already reset (if retryCount > 0, reset happened)
             const anyReset = allNodes.some((n) => (n.retryCount || 0) > 0);
             if (anyReset) {
-                // Nodes were reset and may be re-approved — start new outer review round
                 const lastO = state.squad.outerReview;
                 const round = (lastO?.round || 0) + 1;
                 actions.push({ type: Events.SQUAD_OUTER_REVIEW_START, payload: { round } });
             } else {
-                // First failure — reset nodes back to AUTHORING
                 const failReason = state.squad.outerReview?.feedback || 'Outer review rejected';
                 for (const node of allNodes) {
                     if (node.status === STATUS.APPROVED) {
@@ -96,7 +93,6 @@ export function reactState(state) {
         } else if (orStatus === 'pending') {
             handleOuterReviewPhase(state, actions);
         } else {
-            // INITIAL
             actions.push({ type: Events.SQUAD_OUTER_REVIEW_START, payload: { round: 1 } });
         }
     } else if (completedNodes.length + failedNodes.length === allNodes.length && allNodes.length > 0) {
@@ -113,7 +109,6 @@ export function reactState(state) {
         if (node.status === STATUS.APPROVED || node.status === STATUS.FAILED || node.status === STATUS.BLOCKED)
             continue;
 
-        // Dependency check
         const deps = node.depends_on || [];
         const depResults = deps.map((id) => allNodes.find((n) => n.id === id));
         const blockingDep = depResults.find((d) => d.status === STATUS.FAILED || d.status === STATUS.BLOCKED);
@@ -130,7 +125,6 @@ export function reactState(state) {
         const depsMet = depResults.every((d) => d.status === STATUS.APPROVED);
         if (!depsMet && node.status !== 'idle') continue;
 
-        // ── State Transitions ──
         switch (node.status) {
             case 'idle':
                 if (depsMet) {
@@ -142,15 +136,15 @@ export function reactState(state) {
                 break;
 
             case STATUS.AUTHORING:
-                handlePhase(node, 'worker', 'authoring', 'authoringSessionId', state, actions);
+                handlePhase(node, 'worker', 'authoring', state, actions);
                 break;
 
             case STATUS.CONFIRMING:
-                handlePhase(node, 'worker_confirm', 'confirming', 'confirmingSessionId', state, actions);
+                handlePhase(node, 'worker_confirm', 'confirming', state, actions);
                 break;
 
             case STATUS.REVIEWING:
-                handlePhase(node, 'reviewer', 'reviewer', 'reviewerSessionId', state, actions);
+                handlePhase(node, 'reviewer', 'reviewer', state, actions);
                 break;
         }
     }
@@ -161,22 +155,20 @@ export function reactState(state) {
 /**
  * Handle one phase of a node's state machine.
  *
- * State-based version — no log queries, no nodeHistory.
- * Pure: (node + state) → actions[]
+ * Pure O(1) decisions — no array traversals, no message scanning.
+ * The `session.latestReturn` projection handles return extraction.
+ * Active session determined by single `activeSessionId` cursor.
  */
-function handlePhase(node, role, promptPhase, sessionField, state, actions) {
-    const sessionId = node[sessionField];
+function handlePhase(node, role, promptPhase, state, actions) {
+    const sessionId = node.activeSessionId;
+    const hasActiveSession = sessionId && node.activePhase === role && state.sessions[sessionId];
 
-    // Check if the LLM already returned (tool_call 'return' present)
-    if (sessionId && state.sessions[sessionId]) {
+    if (hasActiveSession) {
         const sess = state.sessions[sessionId];
-        // Find the LATEST return tool call (messages are pushed in order)
-        const retCall = [...sess.messages]
-            .reverse()
-            .find((m) => m.content?.some((c) => c.type === 'tool_call' && c.toolName === 'return'));
-        if (retCall) {
-            const retPayload = retCall.content.find((c) => c.type === 'tool_call');
-            const params = retPayload?.params || { status: 'ok', reason: 'auto' };
+
+        // O(1) return check — projected by SESSION_TOOL_CALL handler
+        if (sess.latestReturn) {
+            const params = sess.latestReturn;
 
             if (role === 'reviewer') {
                 if (params.status === 'ok') {
@@ -218,70 +210,64 @@ function handlePhase(node, role, promptPhase, sessionField, state, actions) {
             }
             return;
         }
-    }
 
-    // No return yet — check if we need to acquire model, create session, or prompt
-    if (!sessionId || !state.sessions[sessionId]) {
-        // Need model or session
-        if (node.sessionStatus === 'creating') return; // session creation in flight
-
-        // Check if model already acquired for this node/role combo
-        const acquireRole = role.startsWith('worker') ? 'worker' : 'reviewer';
-        const hasSlot = Object.values(state.modelPool.usage).some(
-            (u) => u.nodeId === node.id && u.role === acquireRole,
-        );
-
-        if (hasSlot) {
-            // Model acquired but no session yet → emit CMD_CREATE_SESSION
-            const slotEntry = Object.entries(state.modelPool.usage).find(
-                ([, u]) => u.nodeId === node.id && u.role === acquireRole,
-            );
+        // No return yet — check if we need to prompt
+        if (node.sessionStatus !== 'prompting' && node.lastPromptedPhase !== promptPhase) {
             actions.push({
-                type: Events.CMD_CREATE_SESSION,
-                payload: { nodeId: node.id, phase: role, slotId: slotEntry[0] },
+                type: Events.SESSION_PROMPTING,
+                payload: { nodeId: node.id, sessionId, phase: promptPhase },
             });
-        } else {
-            const roleSlots = state.modelPool.slots.filter((s) => s.role === acquireRole);
-            if (roleSlots.length === 0) {
-                // No slots configured → skip acquisition, create session directly
-                actions.push({
-                    type: Events.CMD_CREATE_SESSION,
-                    payload: { nodeId: node.id, phase: role },
-                });
-            } else {
-                const freeSlot = roleSlots.find(
-                    (s) =>
-                        !state.modelPool.usage[s.slotId] &&
-                        !actions.some((a) => a.type === Events.MODEL_POOL_ACQUIRE && a.payload.slotId === s.slotId),
-                );
-                if (freeSlot) {
-                    actions.push({
-                        type: Events.MODEL_POOL_ACQUIRE,
-                        payload: { slotId: freeSlot.slotId, nodeId: node.id, role: acquireRole },
-                    });
-                }
-            }
         }
         return;
     }
 
-    // Session exists and active → send prompt if not already sent
-    if (node.sessionStatus !== 'prompting' && (!node.lastPromptedPhase || node.lastPromptedPhase !== promptPhase)) {
+    // No active session for this phase
+    if (node.sessionStatus === 'creating') return;
+
+    // Need model or session
+    const acquireRole = role.startsWith('worker') ? 'worker' : 'reviewer';
+    const hasSlot = Object.values(state.modelPool.usage).some((u) => u.nodeId === node.id && u.role === acquireRole);
+
+    if (hasSlot) {
+        // Model acquired but no session yet → emit SESSION_CREATING
+        const slotEntry = Object.entries(state.modelPool.usage).find(
+            ([, u]) => u.nodeId === node.id && u.role === acquireRole,
+        );
         actions.push({
-            type: Events.CMD_PROMPT,
-            payload: { nodeId: node.id, sessionId, phase: promptPhase },
+            type: Events.SESSION_CREATING,
+            payload: { nodeId: node.id, phase: role, slotId: slotEntry[0] },
         });
+    } else {
+        const roleSlots = state.modelPool.slots.filter((s) => s.role === acquireRole);
+        if (roleSlots.length === 0) {
+            // No slots configured → create session directly
+            actions.push({
+                type: Events.SESSION_CREATING,
+                payload: { nodeId: node.id, phase: role },
+            });
+        } else {
+            const freeSlot = roleSlots.find(
+                (s) =>
+                    !state.modelPool.usage[s.slotId] &&
+                    !actions.some((a) => a.type === Events.MODEL_POOL_ACQUIRE && a.payload.slotId === s.slotId),
+            );
+            if (freeSlot) {
+                actions.push({
+                    type: Events.MODEL_POOL_ACQUIRE,
+                    payload: { slotId: freeSlot.slotId, nodeId: node.id, role: acquireRole },
+                });
+            }
+        }
     }
 }
 
 /**
- * Outer Review Phase Handler (state-based).
+ * Outer Review Phase Handler.
  */
 function handleOuterReviewPhase(state, actions) {
     const session = Object.values(state.sessions).find((s) => s.role === 'outer_review' && s.status === 'active');
 
     if (!session) {
-        // Check for existing model acquisition
         const hasORSlot = Object.values(state.modelPool.usage).some(
             (u) => u.nodeId === undefined && u.role === 'reviewer',
         );
@@ -291,15 +277,14 @@ function handleOuterReviewPhase(state, actions) {
                 ([, u]) => u.nodeId === undefined && u.role === 'reviewer',
             );
             actions.push({
-                type: Events.CMD_CREATE_SESSION,
+                type: Events.SESSION_CREATING,
                 payload: { phase: 'outer_review', slotId: slotEntry[0] },
             });
         } else {
             const reviewSlots = state.modelPool.slots.filter((s) => s.role === 'reviewer');
             if (reviewSlots.length === 0) {
-                // No reviewer slots → create session without model assignment
                 actions.push({
-                    type: Events.CMD_CREATE_SESSION,
+                    type: Events.SESSION_CREATING,
                     payload: { phase: 'outer_review' },
                 });
             } else {
@@ -319,13 +304,9 @@ function handleOuterReviewPhase(state, actions) {
         return;
     }
 
-    // Session exists — check for return tool call (find LATEST)
-    const retCall = [...session.messages]
-        .reverse()
-        .find((m) => m.content?.some((c) => c.type === 'tool_call' && c.toolName === 'return'));
-    if (retCall) {
-        const retPayload = retCall.content.find((c) => c.type === 'tool_call');
-        const params = retPayload?.params || {};
+    // O(1) return check via latestReturn projection
+    if (session.latestReturn) {
+        const params = session.latestReturn;
         const isOk = params.status === 'ok';
 
         actions.push({
@@ -339,11 +320,11 @@ function handleOuterReviewPhase(state, actions) {
         return;
     }
 
-    // Prompt not yet sent — check if we already prompted this round
+    // Check if we already prompted this round
     const orState = state.squad.outerReview;
     if (orState && orState.round > 0 && !orState.lastPrompted) {
         actions.push({
-            type: Events.CMD_PROMPT,
+            type: Events.SESSION_PROMPTING,
             payload: { phase: 'outer_review', sessionId: session.sessionId },
         });
     }

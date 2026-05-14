@@ -51,9 +51,8 @@ describe('reviewer rejection', () => {
         // Apply retry: projection clears sessions, setup new cycle up to REVIEWING
         setStatus(st, 'n1', STATUS.AUTHORING, { retryCount: 1, feedback: 'fix 1' });
         // Projection also clears session refs on retry
-        st.squad.nodes[0].authoringSessionId = null;
-        st.squad.nodes[0].confirmingSessionId = null;
-        st.squad.nodes[0].reviewerSessionId = null;
+        st.squad.nodes[0].activeSessionId = null;
+        st.squad.nodes[0].activePhase = null;
         st.squad.nodes[0].sessionStatus = 'none';
         delete st.sessions['n1-worker'];
         delete st.sessions['n1-worker_confirm'];

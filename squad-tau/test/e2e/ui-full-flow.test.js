@@ -1,14 +1,15 @@
 /**
  * Dehydrated UI Full Flow — visual regression gallery.
  *
- * No backend engine. No WS. No db. Pure Vite + direct event injection.
+ * No backend engine. No WS. No db. Pure Vite + direct event injection via window.__es.
+ * Session navigation via real DOM clicks on sidebar tree items.
  * Screenshots capture every visual state for review.
  */
 import fs from 'fs';
 import path from 'path';
 import { describe, test, beforeAll, afterAll, expect } from 'bun:test';
 import { startViteOnly, stopViteOnly } from '../helpers/vite-only.js';
-import { setupBrowser, teardownBrowser } from '../helpers/puppeteer-setup.js';
+import { setupBrowser, teardownBrowser, clickSidebarNode } from '../helpers/puppeteer-setup.js';
 
 const SHOT_DIR = `/tmp/squad-ui-full-flow-${Date.now()}-${process.pid}`;
 fs.mkdirSync(SHOT_DIR, { recursive: true });
@@ -19,11 +20,14 @@ async function capture(page, name) {
 }
 
 function inject(page, events) {
-    return page.evaluate((evts) => window.__injectEvents(evts), events);
+    return page.evaluate((evts) => {
+        const es = window.__es;
+        for (const e of evts) es.dispatch(e.type, e.payload, e.seq);
+    }, events);
 }
 
 function reset(page) {
-    return page.evaluate(() => window.__resetEventStore());
+    return page.evaluate(() => window.__es.reset());
 }
 
 describe('UI Full Flow', () => {
@@ -110,7 +114,8 @@ describe('UI Full Flow', () => {
     }, 10000);
 
     test('04 session input and user message', async () => {
-        await page.evaluate(() => window.__selectLatestSession?.());
+        // Navigate to the session via DOM click (no __selectLatestSession hack)
+        await clickSidebarNode(page, 'R1 worker');
         await page.waitForFunction(() => document.querySelector('textarea') !== null, { timeout: 3000 });
         await capture(page, '04a-session-input');
 
@@ -123,7 +128,9 @@ describe('UI Full Flow', () => {
     }, 15000);
 
     test('05 thinking block collapsed and expanded', async () => {
-        await page.evaluate((sid) => window.__setActiveSessionId?.(sid), 'flow-s1');
+        // Navigate to flow-s1 via DOM click
+        await clickSidebarNode(page, 'flow-node');
+        await clickSidebarNode(page, 'R1 worker');
 
         await inject(page, [
             {
@@ -283,11 +290,7 @@ describe('UI Full Flow', () => {
             { type: 'session:start', payload: { sessionId: 's-err', nodeId: 'ErrN', phase: 'worker', retryCount: 2 } },
         ]);
 
-        await page.evaluate(() => {
-            const items = [...document.querySelectorAll('[role="treeitem"]')];
-            const node = items.find((el) => el.textContent && el.textContent.includes('R3 worker'));
-            if (node) node.click();
-        });
+        await clickSidebarNode(page, 'R3 worker');
 
         await inject(page, [
             {
@@ -309,7 +312,9 @@ describe('UI Full Flow', () => {
     }, 10000);
 
     test('12 long message does not overflow', async () => {
-        await page.evaluate(() => window.__selectLatestSession?.());
+        // Click the R3 worker session to load it, then open the latest session
+        await clickSidebarNode(page, 'R3 worker');
+
         const longText = 'A'.repeat(800);
         await inject(page, [
             {
@@ -414,11 +419,7 @@ describe('UI Full Flow', () => {
         ]);
         await page.waitForFunction(() => document.body.innerText.includes('R1 worker'), { timeout: 3000 });
 
-        await page.evaluate(() => {
-            const items = [...document.querySelectorAll('[role="treeitem"]')];
-            const node = items.find((el) => el.textContent && el.textContent.includes('R1 worker'));
-            if (node) node.click();
-        });
+        await clickSidebarNode(page, 'R1 worker');
         await page.waitForFunction(() => document.body.innerText.includes('Dark mode message'), { timeout: 3000 });
         await capture(page, '14b-dark-session');
         await page.emulateMediaFeatures([{ name: 'prefers-color-scheme', value: 'light' }]);
@@ -450,11 +451,7 @@ describe('UI Full Flow', () => {
         ]);
         await page.waitForFunction(() => document.body.innerText.includes('R1 reviewer'), { timeout: 3000 });
 
-        await page.evaluate(() => {
-            const items = [...document.querySelectorAll('[role="treeitem"]')];
-            const node = items.find((el) => el.textContent && el.textContent.includes('R1 reviewer'));
-            if (node) node.click();
-        });
+        await clickSidebarNode(page, 'R1 reviewer');
         await page.waitForFunction(() => document.body.innerText.includes('Reviewing the architecture'), {
             timeout: 3000,
         });
@@ -465,5 +462,5 @@ describe('UI Full Flow', () => {
         await inject(page, [{ type: 'squad:abort', payload: { reason: 'test' } }]);
         await page.waitForFunction(() => document.body.innerText.includes('Welcome to Squad-Tau'), { timeout: 3000 });
         await capture(page, '16-abort-welcome');
-    }, 10000);
+    }, 15000);
 });

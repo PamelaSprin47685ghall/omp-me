@@ -76,7 +76,7 @@ describe('outer review — happy path', () => {
         // Step 3: CMD_CREATE_SESSION for outer_review
         events = reactState(st);
         const createSessionEv = events.find(
-            (e) => e.type === Events.CMD_CREATE_SESSION && e.payload.phase === 'outer_review',
+            (e) => e.type === Events.SESSION_CREATING && e.payload.phase === 'outer_review',
         );
         expect(createSessionEv).toBeDefined();
         expect(createSessionEv.payload.slotId).toBe(orSlotId);
@@ -86,7 +86,7 @@ describe('outer review — happy path', () => {
 
         // Step 4: CMD_PROMPT for outer_review
         events = reactState(st);
-        const prompt = events.find((e) => e.type === Events.CMD_PROMPT && e.payload.phase === 'outer_review');
+        const prompt = events.find((e) => e.type === Events.SESSION_PROMPTING && e.payload.phase === 'outer_review');
         expect(prompt).toBeDefined();
 
         // Apply prompting
@@ -181,9 +181,9 @@ describe('outer review — rejection path', () => {
 
         // Apply reset then re-approve
         setStatus(st, 'n1', STATUS.AUTHORING, { retryCount: 1, feedback: 'bad' });
-        st.squad.nodes[0].authoringSessionId = null;
-        st.squad.nodes[0].confirmingSessionId = null;
-        st.squad.nodes[0].reviewerSessionId = null;
+        st.squad.nodes[0].activeSessionId = null;
+        st.squad.nodes[0].activePhase = null;
+        st.squad.nodes[0].sessionStatus = 'none';
         delete st.sessions['n1-worker'];
         delete st.sessions['n1-worker_confirm'];
         delete st.sessions['n1-reviewer'];

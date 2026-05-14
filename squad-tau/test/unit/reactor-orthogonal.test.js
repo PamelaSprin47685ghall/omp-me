@@ -97,13 +97,13 @@ describe('max retries boundary', () => {
 });
 
 describe('empty model pool fallback', () => {
-    test('node with empty pool skips MODEL_POOL_ACQUIRE, emits CMD_CREATE_SESSION directly', () => {
+    test('node with empty pool skips MODEL_POOL_ACQUIRE, emits SESSION_CREATING directly', () => {
         const st = createBaseState('n1');
         setStatus(st, 'n1', STATUS.AUTHORING);
 
         const events = reactState(st);
         expect(events.filter((e) => e.type === Events.MODEL_POOL_ACQUIRE).length).toBe(0);
-        const createCmds = events.filter((e) => e.type === Events.CMD_CREATE_SESSION);
+        const createCmds = events.filter((e) => e.type === Events.SESSION_CREATING);
         expect(createCmds.length).toBe(1);
         expect(createCmds[0].payload.nodeId).toBe('n1');
         expect(createCmds[0].payload.phase).toBe('worker');
@@ -122,7 +122,7 @@ describe('empty model pool fallback', () => {
         st.squad.outerReview = { status: 'pending', round: 1 };
         const events2 = reactState(st);
         expect(events2.filter((e) => e.type === Events.MODEL_POOL_ACQUIRE).length).toBe(0);
-        expect(events2.filter((e) => e.type === Events.CMD_CREATE_SESSION).length).toBe(1);
+        expect(events2.filter((e) => e.type === Events.SESSION_CREATING).length).toBe(1);
     });
 });
 

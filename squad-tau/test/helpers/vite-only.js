@@ -2,9 +2,8 @@
  * Bare Vite server for dehydrated UI tests.
  * No WebSocket, no engine, no model pool — just the frontend.
  */
-import { createViteDevServer } from '../../server/vite-setup.js';
+import { createViteDevServer, CLIENT_ROOT } from '../../server/vite-setup.js';
 import { createHttpServer } from '../../server/http-server.js';
-import { CLIENT_ROOT } from '../../server/vite-setup.js';
 
 let _server = null;
 

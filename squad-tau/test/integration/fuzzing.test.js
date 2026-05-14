@@ -160,28 +160,26 @@ function timeTravel(seedEvents, promptBehavior = () => ({ status: 'ok', reason: 
     }
 
     for (let i = 0; i < 200; i++) {
-        const cmds = reactState(project(getSince()));
-        if (cmds.length === 0) break;
+        const actions = reactState(project(getSince()));
+        if (actions.length === 0) break;
 
-        for (const cmd of cmds) {
-            append(cmd.type, cmd.payload);
+        for (const action of actions) {
+            append(action.type, action.payload);
 
-            switch (cmd.type) {
-                case Events.CMD_CREATE_SESSION:
-                    append(Events.SESSION_START, {
-                        sessionId: `sess-${idGen++}`,
-                        nodeId: cmd.payload.nodeId,
-                        phase: cmd.payload.phase,
-                    });
-                    break;
-                case Events.CMD_PROMPT:
-                    append(Events.SESSION_TOOL_CALL, {
-                        sessionId: cmd.payload.sessionId,
-                        toolName: 'return',
-                        toolId: `call-${idGen++}`,
-                        params: promptBehavior(cmd.payload),
-                    });
-                    break;
+            // Simulate side effects for facts that need async processing
+            if (action.type === Events.SESSION_CREATING) {
+                append(Events.SESSION_START, {
+                    sessionId: `sess-${idGen++}`,
+                    nodeId: action.payload.nodeId,
+                    phase: action.payload.phase,
+                });
+            } else if (action.type === Events.SESSION_PROMPTING) {
+                append(Events.SESSION_TOOL_CALL, {
+                    sessionId: action.payload.sessionId,
+                    toolName: 'return',
+                    toolId: `call-${idGen++}`,
+                    params: promptBehavior(action.payload),
+                });
             }
         }
     }

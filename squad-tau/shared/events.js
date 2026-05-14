@@ -36,10 +36,4 @@ export const Events = {
     // Declarative resource facts (emitted by Reactor or SideEffect)
     NODE_WAITING_FOR_MODEL: 'node:waiting_for_model',
     MODEL_ASSIGNED: 'model_pool:assigned',
-
-    // Commands (Reactor -> Side Effects) — kept for Phase 2-4 migration
-    CMD_ACQUIRE_MODEL: 'cmd:acquire_model',
-    CMD_CREATE_SESSION: 'cmd:create_session',
-    CMD_PROMPT: 'cmd:prompt',
-    CMD_RELEASE_MODEL: 'cmd:release_model',
 };
