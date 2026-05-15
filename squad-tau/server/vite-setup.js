@@ -30,6 +30,11 @@ async function startVite() {
             warnOnce() {},
             error() {},
         },
+        // Force pre-bundle: Custom Elements with bare imports may be missed
+        // by Vite's React-centric dependency crawler in middleware mode.
+        optimizeDeps: {
+            include: ['marked'],
+        },
     });
 
     return viteServer.middlewares;

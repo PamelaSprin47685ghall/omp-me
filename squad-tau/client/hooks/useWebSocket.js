@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { eventStore } from '../event-store.js';
+import { pushEarlyBuffer } from '../components/agent-message.js';
 
 const BACKOFF_STEPS = [1000, 2000, 4000, 8000, 16000, 30000];
 const MAX_RECONNECT_ATTEMPTS = 50;
@@ -18,7 +19,11 @@ const PING_INTERVAL = 30000;
 
 function routeDelta(payload) {
     const el = document.querySelector(`agent-message[message-id="${payload.messageId}"]`);
-    if (el) el.appendChunk(payload.delta?.text || '', payload.delta?.type || 'text');
+    if (el) {
+        el.appendChunk(payload.delta?.text || '', payload.delta?.type || 'text');
+    } else {
+        pushEarlyBuffer(payload.messageId, payload.delta?.text || '', payload.delta?.type || 'text');
+    }
 }
 
 function routeStreamEnd(payload) {

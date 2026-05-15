@@ -16,7 +16,7 @@ const ROLE_FG = { user: 'blue.fg', authoring: 'green.fg', confirming: 'green.fg'
  * ZERO content in state tree. ZERO streaming awareness in React.
  * The <agent-message> element manages its own lifecycle.
  */
-export default function MessageItem({ messageId, sessionRole = 'user' }) {
+function MessageItemComponent({ messageId, sessionRole }) {
   const meta = useMessageState(messageId);
   const agentRef = useRef(null);
 
@@ -66,3 +66,5 @@ export default function MessageItem({ messageId, sessionRole = 'user' }) {
     </Box>
   );
 }
+
+export default React.memo(MessageItemComponent);

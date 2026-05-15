@@ -9,6 +9,14 @@
  * Pure DOM component with style-isolated shadow DOM.
  */
 
+let _markedPromise = null;
+function getMarked() {
+    if (!_markedPromise) {
+        _markedPromise = import('marked').then((mod) => mod.default || mod);
+    }
+    return _markedPromise;
+}
+
 const STYLE = `
   :host {
     display: block;
@@ -103,7 +111,6 @@ class AgentMessage extends HTMLElement {
         this._badgeEl = null;
         this._detailsEl = null;
         this._textBox = null;
-        this._markedPromise = null;
     }
 
     connectedCallback() {
@@ -147,6 +154,20 @@ class AgentMessage extends HTMLElement {
         this.appendChild(thinkingSpan);
         this.appendChild(textSpan);
 
+        // Drain any early tokens that arrived before this element was mounted
+        const early = drainEarlyBuffer(messageId);
+        if (early) {
+            if (early.thinking) {
+                if (this._detailsEl) this._detailsEl.style.display = '';
+                this._thinking = early.thinking;
+                this._thinkingNode.appendData(early.thinking);
+            }
+            if (early.text) {
+                this._text = early.text;
+                this._textNode.appendData(early.text);
+            }
+        }
+
         if (this._finalized) this._setFinalizedUI();
     }
 
@@ -154,6 +175,11 @@ class AgentMessage extends HTMLElement {
 
     appendChunk(text, type = 'text') {
         if (this._finalized || !text) return;
+        // Buffer if not yet connected (Shadow DOM not ready)
+        if (!this._textNode) {
+            pushEarlyBuffer(this.getAttribute('message-id'), text, type);
+            return;
+        }
         if (type === 'thinking') {
             if (this._detailsEl) this._detailsEl.style.display = '';
             this._thinking += text;
@@ -186,9 +212,7 @@ class AgentMessage extends HTMLElement {
 
     async _renderMarkdown() {
         if (!this._text) return;
-        const marked = await loadMarked();
-        if (!marked) return;
-
+        const marked = await getMarked();
         const html = marked.parse(this._text, { breaks: true, gfm: true });
         const wrapper = document.createElement('div');
         wrapper.className = 'markdown-body';
@@ -203,22 +227,29 @@ class AgentMessage extends HTMLElement {
     }
 }
 
-let _markedModule = null;
-async function loadMarked() {
-    if (_markedModule) return _markedModule;
-    try {
-        _markedModule = await import('https://cdn.jsdelivr.net/npm/marked/marked.esm.js');
-        return _markedModule;
-    } catch {
-        _markedModule = {
-            parse: (text) => `<pre style="white-space:pre-wrap">${escapeHtml(text)}</pre>`,
-        };
-        return _markedModule;
-    }
+// ── Early-token buffer ──
+// StreamRouter may deliver deltas before <agent-message> is mounted in DOM.
+const _earlyBuffer = new Map();
+
+export function drainEarlyBuffer(messageId) {
+    const buf = _earlyBuffer.get(messageId);
+    if (!buf) return null;
+    _earlyBuffer.delete(messageId);
+    return buf;
 }
 
-function escapeHtml(text) {
-    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+export function pushEarlyBuffer(messageId, text, type) {
+    let buf = _earlyBuffer.get(messageId);
+    if (!buf) {
+        buf = { text: '', thinking: '' };
+        _earlyBuffer.set(messageId, buf);
+    }
+    if (type === 'thinking') buf.thinking += text;
+    else buf.text += text;
+}
+
+if (typeof window !== 'undefined') {
+    window.__earlyBuffer = { push: pushEarlyBuffer, drain: drainEarlyBuffer };
 }
 
 customElements.define('agent-message', AgentMessage);

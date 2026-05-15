@@ -12,6 +12,7 @@
  * the ephemeral channel — never touches EventLog.
  */
 import { buildPrompt } from './prompt-builder.js';
+import { returnTool } from './lifecycle-tools.js';
 
 const sessionStore = new Map();
 
@@ -32,7 +33,7 @@ register('session:creating')(async (payload, { pi, getState, eventLog, broadcast
     const state = getState();
     const { SessionManager } = await getCodingAgentModule();
     const options = buildWorkerSessionOptions(pi);
-    const sessionOpts = { ...options, sessionManager: SessionManager.create(options.cwd) };
+    const sessionOpts = { ...options, sessionManager: SessionManager.create(options.cwd), customTools: [returnTool] };
 
     const { session } = await pi.pi.createAgentSession(sessionOpts);
     const actualSessionId = session.sessionFile;
@@ -239,6 +240,15 @@ function handleToolEnd(event, { eventLog, sessionId, getState }) {
                 epoch: epoch ?? node.epoch ?? 0,
             });
         }
+
+        // Session is done — emit session:end so physical counting
+        // (countLiveSessions) releases the slot immediately.
+        // This must fire AFTER domain facts to ensure the node transition
+        // is folded before the session is freed.
+        eventLog.append('session:end', {
+            sessionId,
+            reason: 'completed',
+        });
     }
 }
 

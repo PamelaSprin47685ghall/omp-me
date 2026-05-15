@@ -29,9 +29,8 @@ const PLAN_WRITING_GUIDE = [
     '## Plan Writing Guide',
     '',
     '### Two-phase approach (avoids output truncation)',
-    '1. Write a JSON skeleton to a temp file — only fill `id`, `mode`, `reasoning`, and `depends_on`. Leave `task` and `review_criteria` as empty strings or `[]`.',
-    '2. Use `jq` to fill in `task` and `review_criteria` for each node, one at a time. Example:',
-    '   jq \'.nodes[0].task = "detailed task description"\' plan.json > tmp.json && mv tmp.json plan.json',
+    '1. Write a TOML skeleton file per node — each file is one node. Fill `id`, `mode`, `reasoning`, and `depends_on`. Leave `task` and `review_criteria` as empty or `[]`.',
+    '2. Fill in `task` and `review_criteria` for each node, one file at a time using the shell.',
     '',
     '### Each node MUST contain in its `task` field:',
     '- **Objective** — what this node accomplishes',
@@ -53,7 +52,7 @@ const CLASSIFICATION_PROMPT = [
     '',
     PLAN_WRITING_GUIDE,
     '',
-    'You MUST write the plan JSON to a temp file using the two-phase approach above, then call `squad_delegate` with the absolute path before ending your turn.',
+    'You MUST write the plan as .toml files in a temp directory using the two-phase approach above, then call `squad_delegate` with the absolute directory path before ending your turn.',
 ].join('\n');
 
 let _squadActive = false;
@@ -148,7 +147,7 @@ export default function squadPlugin(pi) {
                     '[Squad-Tau Architect Awakening — Re-prompt]',
                     '',
                     'You were given feedback to revise your plan but did not call `squad_delegate`.',
-                    'Write a revised plan JSON as .toml files in a temp directory, then call `squad_delegate`',
+                    'Write a revised plan as .toml files in a temp directory, then call `squad_delegate`',
                     'with the absolute path before ending your turn.',
                 ].join('\n'),
                 display: false,
@@ -207,10 +206,18 @@ export default function squadPlugin(pi) {
     // ignores the factory return value, so return void (matching ExtensionFactory).
     // Fire-and-forget: server initializes asynchronously and is referenced
     // by the global module-level _server in server-lifecycle.js.
-    startServer({ pi }).catch((err) => {
-        // OMP ExtensionAPI provides pi.logger for error reporting
-        pi?.logger?.error?.('Squad-Tau server failed to start', err);
-    });
+    startServer({ pi })
+        .then(({ port }) => {
+            const url = `http://127.0.0.1:${port}`;
+            if (pi?.setStatus) pi.setStatus('mirror', `Squad UI: ${url}`);
+            try {
+                pi?.notify?.(`Squad-Tau UI: ${url}`, 'info');
+            } catch {}
+            pi?.logger?.info?.(`Squad-Tau UI running at ${url}`);
+        })
+        .catch((err) => {
+            pi?.logger?.error?.('Squad-Tau server failed to start', err);
+        });
 }
 
 // Test helpers: reset squad state between test runs
@@ -227,3 +234,7 @@ export function _setTestEventLog(eventLog) {
 export function _restoreGlobalEventLog() {
     _testEventLog = null;
 }
+
+// Export prompts for contract verification
+// (changing these breaks the LLM ↔ squad_delegate handshake)
+export const _CLASSIFICATION_PROMPT = CLASSIFICATION_PROMPT;

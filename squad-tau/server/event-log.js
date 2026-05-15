@@ -10,6 +10,17 @@
  *
  * No Date.now() — the system is fully deterministic. EventLog replay on any machine
  * produces byte-identical state trees.
+ *
+ * ── ARCHITECTURAL INVARIANT ──
+ * EventLog.append() and EventLog.appendBatch() MUST remain synchronous.
+ * The engine's convergence loop (reactState → applyEvent → append) depends on
+ * synchronous append to guarantee causal ordering: node state transitions and
+ * session lifecycle events (session:end) are folded in the same microtask.
+ * Asynchronous append would create a window where countLiveSessions sees stale
+ * state, potentially overshooting maxWorkers.
+ *
+ * Disk I/O (NDJSON persistence) is a SUBSCRIBER, not part of append().
+ * Never add async/await to append or appendBatch.
  */
 export class EventLog {
     /**

@@ -20,6 +20,11 @@ describe('M mode — single node', () => {
         expect(state.squad.status).toBe('complete');
         expect(Object.values(state.squad.nodes).every((n) => n.status === 'approved')).toBe(true);
         expect(state.squad.results.length).toBe(1);
+        // session:end must clean up every session — no leaked active sessions
+        const activeSessions = Object.values(state.sessions).filter(
+            (s) => s.status === 'active' || s.status === 'creating',
+        );
+        expect(activeSessions.length).toBe(0);
     });
 
     test('SQUAD_COMPLETE is the last event', () => {

@@ -63,17 +63,17 @@ function parseTomlNode(plan_dir, file) {
  * Returns immediately. Engine pulse loop handles all subsequent state transitions.
  */
 export async function processDelegate(params, options = {}) {
-    const eventLog = options.eventLog || getGlobalEventLog();
-    if (!eventLog) throw new Error('EventLog not initialized');
-
     const mainSessionId = options.mainSessionId || null;
 
+    // Validate first — catches cycles/missing deps before requiring EventLog
     const { nodes, mode } = readNodesFromDir(params.plan_dir);
     const validation = validatePlan({ mode, nodes });
-
     if (!validation.valid) {
         throw new Error(`Invalid plan: ${validation.errors.join('; ')}`);
     }
+
+    const eventLog = options.eventLog || getGlobalEventLog();
+    if (!eventLog) throw new Error('EventLog not initialized');
 
     // Detect revising phase — if agent is re-planning after outer review rejection,
     // use squad:replan to preserve event history and overwrite only DAG topology.

@@ -80,6 +80,13 @@ export function timeTravel(initialEvents, promptBehavior = () => ({ status: 'ok'
                 });
             }
 
+            // Close the session — mirrors real side-effects handleToolEnd.
+            // Must be AFTER domain facts so node transition folds before slot frees.
+            facts.push({
+                type: 'session:end',
+                payload: { sessionId, reason: 'completed' },
+            });
+
             return facts;
         },
     };

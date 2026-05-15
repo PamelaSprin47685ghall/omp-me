@@ -27,21 +27,20 @@ function depsMet(s, n) {
 function hasFailedDep(s, n) {
     return (n.depends_on || []).some((id) => {
         const d = s.squad.nodes[id];
-        return d && (d.status === 'failed' || d.status === 'blocked');
+        return d && (d.status === 'failed' || d.status === 'blocked' || d.status === 'awaiting_replan');
     });
 }
 
 function countLiveSessions(state) {
     let c = 0;
     for (const sess of Object.values(state.sessions)) {
-        if (sess.status !== 'active' && sess.status !== 'creating') continue;
-        if (!sess.nodeId) {
-            c++;
-            continue;
-        }
-        const node = state.squad.nodes[sess.nodeId];
-        if (!node) continue;
-        if (node.status === sess.phase && node.epoch === sess.epoch) c++;
+        // Physical counting: unless session:end says otherwise, this session
+        // consumes resources (memory, handles, concurrency slot).
+        // DO NOT compare against node.status — the node may have transitioned
+        // while the underlying LLM session is still winding down (ctx.abort()
+        // is async, session:end arrives later across network boundaries).
+        // The only safe measure: is it alive in the log?
+        if (sess.status === 'active' || sess.status === 'creating') c++;
     }
     return c;
 }
@@ -115,7 +114,10 @@ function handleRejected(state, node) {
     if (node.id === '__or__') return [];
 
     if (c.resetOnRej) {
-        return [ac('squad:node_state', { nodeId: node.id, status: 'rejected', epoch: node.epoch })];
+        // 'awaiting_replan' is terminal — R3's when(n.status === 'rejected') won't match,
+        // breaking the infinite pulse loop. Outer review rejection replan path
+        // (squad:phase_changed) handles the macro-level flow.
+        return [ac('squad:node_state', { nodeId: node.id, status: 'awaiting_replan', epoch: node.epoch })];
     }
     if (nextEpoch >= (c.maxRetries || DEFAULT_MAX_RETRIES)) {
         return [ac('squad:node_state', { nodeId: node.id, status: 'failed' })];
