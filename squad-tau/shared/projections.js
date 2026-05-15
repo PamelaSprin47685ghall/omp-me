@@ -1,223 +1,79 @@
 /**
  * Homomorphic event projections — shared between client and server.
- * v5: Zero-content, flat normalized state, entity-level tracking.
+ * v6: Domain events only, invariant-driven, no defensive code.
  *
  * Messages have NO text/content — only topology metadata.
- * User messages carry staticContent (immutable once written).
  * Agent messages stream via CustomElements; state tree never holds their text.
  *
  * No .find() / .findIndex() — O(1) hash lookups only.
- * No != null fallbacks — fail fast on contract violation.
+ * No fallbacks — fail fast on contract violation.
  */
 
-const Reducers = {};
+function invariant(cond, msg) {
+    if (!cond) throw new Error(`[Projection] ${msg}`);
+}
 
-function register(event) {
+// ── Touch declarations: each reducer declares what keys it mutates.
+// EventStore consumes these for granular subscriptions without hardcoding.
+
+const TOUCHES = {};
+
+function touches(type, fn) {
+    TOUCHES[type] = fn;
+}
+
+function register(type) {
     return (fn) => {
-        Reducers[event] = fn;
+        Reducers[type] = fn;
     };
 }
 
+const Reducers = {};
+
 export function getInitialState() {
     return {
-        squad: { status: 'idle', nodes: {}, results: [], originalTask: '' },
+        squad: { status: 'idle', nodes: {}, results: [], originalTask: '', mode: 'M' },
         sessions: {},
         messages: {},
         toolCalls: {},
         modelPool: { maxWorkers: 3 },
+        ui: { viewMode: 'dag', activeSessionId: null, drawerOpen: false, bannerDismissed: false },
     };
 }
 
-// ── Entity Lifecycle (unified message lifecycle) ──
+// ── Message Lifecycle ──
 
-register('entity:created')((state, payload) => {
-    if (payload.entityType === 'message') {
-        state.messages[payload.entityId] = {
-            messageId: payload.entityId,
-            sessionId: payload.sessionId,
-            role: payload.role,
-            status: 'created',
-            parentId: payload.parentId,
-            staticContent: payload.staticContent,
-            toolIds: [],
-        };
-        const sess = state.sessions[payload.sessionId];
-        if (sess) sess.messageIds = [...sess.messageIds, payload.entityId];
-    }
+touches('message:created', (p) => ['messages', `messages:${p.messageId}`, `sessions:${p.sessionId}`]);
+
+register('message:created')((state, payload) => {
+    const { messageId, sessionId, role, parentId, staticContent } = payload;
+    invariant(sessionId, 'message:created requires sessionId');
+    invariant(messageId, 'message:created requires messageId');
+
+    state.messages[messageId] = { messageId, sessionId, role, status: 'created', parentId, staticContent, toolIds: [] };
+    invariant(state.sessions[sessionId], `message:created references nonexistent session ${sessionId}`);
+    state.sessions[sessionId].messageIds.push(messageId);
 });
 
-register('entity:finalized')((state, payload) => {
-    if (payload.entityType === 'message') {
-        const msg = state.messages[payload.entityId];
-        if (!msg) return;
-        msg.status = 'finalized';
-        if (payload.staticContent) msg.staticContent = payload.staticContent;
-    }
+touches('message:finalized', (p) => ['messages', `messages:${p.messageId}`]);
+
+register('message:finalized')((state, payload) => {
+    const msg = state.messages[payload.messageId];
+    invariant(msg, `message:finalized references nonexistent message ${payload.messageId}`);
+    msg.status = 'finalized';
+    if (payload.staticContent !== undefined) msg.staticContent = payload.staticContent;
 });
 
-// ── Squad Lifecycle ──
+// ── Tool Call Lifecycle ──
 
-register('squad:init')((state, payload) => {
-    const nodes = {};
-    if (payload.nodes) {
-        for (const n of payload.nodes) {
-            nodes[n.id] = {
-                id: n.id,
-                task: n.task || '',
-                review_criteria: n.review_criteria || [],
-                depends_on: n.depends_on || [],
-                status: undefined,
-                retryCount: 0,
-                summary: undefined,
-                feedback: undefined,
-                affectedFiles: undefined,
-                lastPromptedPhase: null,
-            };
-        }
-    }
-    state.squad = { ...state.squad, ...payload, nodes, status: 'active' };
-});
+touches('tool_call:started', (p) => [
+    'toolCalls',
+    `toolCalls:${p.toolId}`,
+    ...(p.messageId ? [`messages:${p.messageId}`] : []),
+    `sessions:${p.sessionId}`,
+]);
 
-register('squad:node_state')((state, payload) => {
-    const node = state.squad.nodes[payload.nodeId];
-    if (!node) return;
-    Object.assign(node, payload);
-});
-
-register('squad:complete')((state, payload) => {
-    state.squad.status = 'complete';
-    state.squad.results = payload.results;
-});
-
-register('squad:abort')((state) => {
-    state.squad.status = 'aborted';
-});
-
-register('squad:outer_review_start')((state, payload) => {
-    state.squad.outerReview = { status: 'pending', round: payload.round || 1 };
-});
-
-register('squad:outer_review_done')((state) => {
-    if (state.squad.outerReview) state.squad.outerReview.status = 'approved';
-});
-
-register('squad:outer_review_failed')((state, payload) => {
-    state.squad.outerReview = {
-        status: 'rejected',
-        round: state.squad.outerReview?.round || 1,
-        feedback: payload.reason,
-    };
-});
-
-// ── Session Lifecycle ──
-
-register('session:creating')((state, payload) => {
-    state.sessions[payload.sessionId] = state.sessions[payload.sessionId] || {
-        sessionId: payload.sessionId,
-        nodeId: payload.nodeId,
-        phase: payload.phase,
-        role: payload.phase,
-        status: 'creating',
-        messageIds: [],
-        retryCount: payload.retryCount,
-    };
-});
-
-register('session:start')((state, payload) => {
-    const sid = payload.sessionId;
-    if (state.sessions[sid]) {
-        state.sessions[sid].status = 'active';
-        state.sessions[sid].model = payload.model;
-        state.sessions[sid].retryCount = payload.retryCount;
-    } else {
-        state.sessions[sid] = {
-            sessionId: sid,
-            nodeId: payload.nodeId,
-            phase: payload.phase,
-            role: payload.phase,
-            status: 'active',
-            messageIds: [],
-            model: payload.model,
-            retryCount: payload.retryCount,
-        };
-    }
-});
-
-register('session:prompting')((state, payload) => {
-    const sess = state.sessions[payload.sessionId];
-    if (!sess) return;
-    sess.lastPromptedPhase = payload.phase;
-    if (sess.role === 'outer_review' && state.squad.outerReview) {
-        state.squad.outerReview.lastPrompted = true;
-    }
-});
-
-register('session:state')((state, payload) => {
-    const sess = state.sessions[payload.sessionId];
-    if (!sess) return;
-    sess.phase = payload.phase;
-    sess.status = ['completed', 'aborted', 'error'].includes(payload.phase) ? payload.phase : 'active';
-});
-
-register('session:end')((state, payload) => {
-    const sess = state.sessions[payload.sessionId];
-    if (!sess) return;
-    sess.status = payload.reason || 'completed';
-    if (payload.errorMessage) sess.errorMessage = payload.errorMessage;
-});
-
-// ── Legacy message events (server emits these; WS hook maps to entity:*) ──
-// These are kept for server-side projection where WS hook isn't involved.
-// Client-side only processes via EventStore which receives mapped events.
-// But for engine simulation (timeTravel), the server-side projections
-// must handle these directly.
-
-register('session:message_start')((state, payload) => {
-    state.messages[payload.messageId] = {
-        messageId: payload.messageId,
-        sessionId: payload.sessionId,
-        role: payload.role || 'assistant',
-        status: 'created',
-        parentId: payload.parentId,
-        staticContent: undefined,
-        toolIds: [],
-    };
-    const sess = state.sessions[payload.sessionId];
-    if (sess) sess.messageIds = [...sess.messageIds, payload.messageId];
-});
-
-register('session:message')((state, payload) => {
-    const sess = state.sessions[payload.sessionId];
-    if (!sess) return;
-    if (state.messages[payload.messageId]) {
-        state.messages[payload.messageId].status = 'finalized';
-        const text = extractText(payload.content);
-        if (text) state.messages[payload.messageId].staticContent = text;
-    } else {
-        const text = extractText(payload.content);
-        state.messages[payload.messageId] = {
-            messageId: payload.messageId,
-            sessionId: payload.sessionId,
-            role: payload.role,
-            status: 'finalized',
-            parentId: payload.parentId,
-            staticContent: text,
-            toolIds: [],
-        };
-        sess.messageIds = [...sess.messageIds, payload.messageId];
-    }
-});
-
-function extractText(content) {
-    if (!content) return '';
-    const blocks = Array.isArray(content) ? content : [content];
-    const tb = blocks.find((b) => b.type === 'text');
-    return tb ? tb.text : '';
-}
-
-// ── Tool Calls ──
-
-register('session:tool_call')((state, payload) => {
+register('tool_call:started')((state, payload) => {
     const { sessionId, toolId, toolName, params, messageId } = payload;
     state.toolCalls[toolId] = {
         toolId,
@@ -228,51 +84,179 @@ register('session:tool_call')((state, payload) => {
         result: undefined,
         isError: undefined,
     };
-    // Link to message if messageId provided
     if (messageId && state.messages[messageId]) {
         const msg = state.messages[messageId];
-        if (!msg.toolIds.includes(toolId)) msg.toolIds = [...msg.toolIds, toolId];
+        msg.toolIds.push(toolId);
     }
-    // Track latestReturn for reactor
     if (toolName === 'return') {
-        const sess = state.sessions[sessionId];
-        if (sess) sess.latestReturn = params;
+        state.sessions[sessionId].latestReturn = params;
     }
 });
 
-register('session:tool_result')((state, payload) => {
+touches('tool_call:finished', (p) => ['toolCalls', `toolCalls:${p.toolId}`]);
+
+register('tool_call:finished')((state, payload) => {
     const tc = state.toolCalls[payload.toolId];
-    if (!tc) return;
+    invariant(tc, `tool_call:finished references nonexistent tool call ${payload.toolId}`);
     tc.result = payload.result;
     tc.isError = payload.isError === true;
 });
 
+// ── Squad Lifecycle ──
+
+touches('squad:init', () => ['squad']); // node-level keys tracked individually
+
+register('squad:init')((state, payload) => {
+    const nodes = {};
+    const workerIds = [];
+    for (const n of payload.nodes || []) {
+        nodes[n.id] = {
+            id: n.id,
+            task: n.task || '',
+            review_criteria: n.review_criteria || [],
+            depends_on: n.depends_on || [],
+            status: undefined,
+            retryCount: 0,
+            summary: undefined,
+            feedback: undefined,
+            affectedFiles: undefined,
+            lastPromptedPhase: null,
+            phases: ['authoring', 'confirming', 'reviewing'],
+            maxRetries: 5,
+            resetDependentsOnRejection: false,
+        };
+        workerIds.push(n.id);
+    }
+    // L mode: inject __or__ outer review node as a regular task node
+    if (payload.mode === 'L') {
+        nodes.__or__ = {
+            id: '__or__',
+            task: payload.originalTask || '',
+            review_criteria: [],
+            depends_on: [...workerIds],
+            status: undefined,
+            retryCount: 0,
+            summary: undefined,
+            feedback: undefined,
+            affectedFiles: undefined,
+            lastPromptedPhase: null,
+            phases: ['reviewing'],
+            maxRetries: Infinity,
+            resetDependentsOnRejection: true,
+        };
+    }
+    state.squad.status = 'active';
+    state.squad.mode = payload.mode;
+    state.squad.nodes = nodes;
+    state.squad.originalTask = payload.originalTask || '';
+    state.squad.results = [];
+});
+
+touches('squad:node_state', (p) => ['squad', `squad:nodes:${p.nodeId}`]);
+
+register('squad:node_state')((state, payload) => {
+    const node = state.squad.nodes[payload.nodeId];
+    invariant(node, `squad:node_state references nonexistent node ${payload.nodeId}`);
+    Object.assign(node, payload);
+});
+
+touches('squad:complete', () => ['squad']);
+
+register('squad:complete')((state, payload) => {
+    state.squad.status = 'complete';
+    state.squad.results = payload.results;
+});
+
+touches('squad:abort', () => ['squad']);
+
+register('squad:abort')((state) => {
+    state.squad.status = 'aborted';
+});
+
+// ── Session Lifecycle ──
+
+touches('session:creating', (p) => ['sessions', `sessions:${p.sessionId}`]);
+
+register('session:creating')((state, payload) => {
+    state.sessions[payload.sessionId] = {
+        sessionId: payload.sessionId,
+        nodeId: payload.nodeId,
+        phase: payload.phase,
+        role: payload.phase,
+        status: 'creating',
+        messageIds: [],
+        retryCount: payload.retryCount,
+    };
+});
+
+touches('session:start', (p) => ['sessions', `sessions:${p.sessionId}`]);
+
+register('session:start')((state, payload) => {
+    const sess = state.sessions[payload.sessionId];
+    invariant(sess, `session:start references nonexistent session ${payload.sessionId}`);
+    sess.status = 'active';
+    sess.model = payload.model;
+    sess.retryCount = payload.retryCount;
+});
+
+touches('session:prompting', (p) => ['sessions', `sessions:${p.sessionId}`]);
+
+register('session:prompting')((state, payload) => {
+    const sess = state.sessions[payload.sessionId];
+    invariant(sess, `session:prompting references nonexistent session ${payload.sessionId}`);
+    sess.lastPromptedPhase = payload.phase;
+});
+
+touches('session:state', (p) => ['sessions', `sessions:${p.sessionId}`]);
+
+register('session:state')((state, payload) => {
+    const sess = state.sessions[payload.sessionId];
+    invariant(sess, `session:state references nonexistent session ${payload.sessionId}`);
+    sess.phase = payload.phase;
+    sess.status = ['completed', 'aborted', 'error'].includes(payload.phase) ? payload.phase : 'active';
+});
+
+touches('session:end', (p) => ['sessions', `sessions:${p.sessionId}`]);
+
+register('session:end')((state, payload) => {
+    const sess = state.sessions[payload.sessionId];
+    invariant(sess, `session:end references nonexistent session ${payload.sessionId}`);
+    sess.status = payload.reason || 'completed';
+    if (payload.errorMessage) sess.errorMessage = payload.errorMessage;
+});
+
 // ── Model Pool ──
+
+touches('model_pool:snapshot', () => ['modelPool']);
 
 register('model_pool:snapshot')((state, payload) => {
     if (payload.maxWorkers) state.modelPool.maxWorkers = payload.maxWorkers;
 });
 
-// ── UI State (client-side only) ──
+// ── UI State ──
+
+touches('ui:select_session', () => ['ui']);
 
 register('ui:select_session')((state, payload) => {
-    state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, drawerOpen: false, bannerDismissed: false };
     state.ui.activeSessionId = payload.sessionId;
     state.ui.viewMode = 'session';
 });
 
+touches('ui:set_view_mode', () => ['ui']);
+
 register('ui:set_view_mode')((state, payload) => {
-    state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, drawerOpen: false, bannerDismissed: false };
     state.ui.viewMode = payload.viewMode;
 });
 
+touches('ui:toggle_drawer', () => ['ui']);
+
 register('ui:toggle_drawer')((state, payload) => {
-    state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, drawerOpen: false, bannerDismissed: false };
     state.ui.drawerOpen = payload.open;
 });
 
+touches('ui:dismiss_banner', () => ['ui']);
+
 register('ui:dismiss_banner')((state) => {
-    state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, drawerOpen: false, bannerDismissed: false };
     state.ui.bannerDismissed = true;
 });
 
@@ -283,16 +267,20 @@ export function applyEvent(state, type, payload) {
     return state;
 }
 
+export function getTouchedKeys(type, payload) {
+    return TOUCHES[type]?.(payload) || [];
+}
+
 export function fold(state, entry) {
     const s = structuredClone(state);
-    Reducers[entry.event || entry.type]?.(s, entry.payload);
+    applyEvent(s, entry.event || entry.type, entry.payload);
     return s;
 }
 
 export function project(log) {
     const state = getInitialState();
     for (const entry of log) {
-        Reducers[entry.event || entry.type]?.(state, entry.payload);
+        applyEvent(state, entry.event || entry.type, entry.payload);
     }
     return state;
 }

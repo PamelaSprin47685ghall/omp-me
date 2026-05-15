@@ -1,10 +1,10 @@
 /**
- * Algebraic Fuzzing — Statistical Invariant Verification (v5).
+ * Algebraic Fuzzing — Statistical Invariant Verification (v6).
  *
  * A) Structural Fuzzing: generate garbage events, ONLY assert no crash.
  * B) Behavioral Fuzzing (TimeTraveler-driven): assert business causality.
  *
- * v5: Zero-content state, flat maps, entity-level tracking.
+ * v6: Domain events only, invariant-driven.
  */
 import { describe, test, expect } from 'bun:test';
 import { project, applyEvent, getInitialState } from '../../shared/projections.js';
@@ -23,32 +23,18 @@ const ALL_EVENT_TYPES = [
     'squad:node_state',
     'squad:complete',
     'squad:abort',
-    'squad:outer_review_start',
-    'squad:outer_review_done',
-    'squad:outer_review_failed',
-    'entity:created',
-    'entity:finalized',
+    'session:creating',
     'session:start',
     'session:state',
     'session:end',
-    'session:message',
-    'session:tool_call',
-    'session:tool_result',
-    'model_pool:snapshot',
-    'session:creating',
     'session:prompting',
+    'message:created',
+    'message:finalized',
+    'tool_call:started',
+    'tool_call:finished',
+    'model_pool:snapshot',
 ];
-const NODE_STATUSES = [
-    'waiting_deps',
-    'pending',
-    'authoring',
-    'confirming',
-    'reviewing',
-    'approved',
-    'rejected',
-    'blocked',
-    'failed',
-];
+const NODE_STATUSES = ['idle', 'authoring', 'confirming', 'reviewing', 'approved', 'rejected', 'blocked', 'failed'];
 
 function assertConvergedInvariants(state) {
     for (const node of Object.values(state.squad.nodes || {})) {
@@ -60,9 +46,6 @@ function assertConvergedInvariants(state) {
     }
 }
 
-// ======================================================================
-// A) Structural Fuzzing
-// ======================================================================
 describe('Structural Fuzzing (crash resistance)', () => {
     test('reactState never throws after random structurally-valid events', () => {
         const state = getInitialState();
@@ -73,18 +56,11 @@ describe('Structural Fuzzing (crash resistance)', () => {
                     case 'squad:init':
                         return { mode: pick(['M', 'L']), nodes: [], originalTask: '' };
                     case 'squad:node_state':
-                        return { nodeId: `n${randInt(0, 20)}`, status: pick(NODE_STATUSES.concat(['idle'])) };
+                        return { nodeId: `n${randInt(0, 20)}`, status: pick(NODE_STATUSES) };
                     case 'squad:complete':
                         return { results: [] };
                     case 'squad:abort':
                         return { reason: 'fuzz' };
-                    case 'session:start':
-                        return {
-                            sessionId: `s-${randInt(0, 999)}`,
-                            nodeId: `n${randInt(0, 20)}`,
-                            phase: pick(['authoring', 'reviewing']),
-                            retryCount: 0,
-                        };
                     case 'session:creating':
                         return {
                             sessionId: `s-${randInt(0, 999)}`,
@@ -92,35 +68,37 @@ describe('Structural Fuzzing (crash resistance)', () => {
                             phase: pick(['authoring', 'reviewing']),
                             retryCount: 0,
                         };
-                    case 'entity:created':
+                    case 'session:start':
                         return {
-                            entityType: 'message',
-                            entityId: `m-${i}`,
                             sessionId: `s-${randInt(0, 999)}`,
-                            role: pick(['user', 'assistant']),
+                            nodeId: `n${randInt(0, 20)}`,
+                            phase: pick(['authoring', 'reviewing']),
+                            retryCount: 0,
+                            model: undefined,
                         };
-                    case 'entity:finalized':
-                        return { entityType: 'message', entityId: `m-${i}`, sessionId: `s-${randInt(0, 999)}` };
                     case 'session:state':
                         return { sessionId: `s-${randInt(0, 999)}`, phase: pick(['completed', 'aborted', 'error']) };
                     case 'session:end':
                         return { sessionId: `s-${randInt(0, 999)}`, reason: pick(['completed', 'aborted', 'error']) };
-                    case 'session:message':
+                    case 'session:prompting':
+                        return { sessionId: `s-${randInt(0, 999)}`, phase: 'authoring' };
+                    case 'message:created':
                         return {
-                            sessionId: `s-${randInt(0, 999)}`,
-                            role: 'user',
-                            content: [{ type: 'text', text: 'fuzz' }],
                             messageId: `m-${i}`,
+                            sessionId: `s-${randInt(0, 999)}`,
+                            role: pick(['user', 'assistant']),
                         };
-                    case 'session:tool_call':
+                    case 'message:finalized':
+                        return { messageId: `m-${i}`, staticContent: 'fuzz' };
+                    case 'tool_call:started':
                         return {
                             sessionId: `s-${randInt(0, 999)}`,
                             toolName: 'return',
                             toolId: `c-${i}`,
                             params: { status: 'ok' },
                         };
-                    case 'session:tool_result':
-                        return { sessionId: `s-${randInt(0, 999)}`, toolId: `c-${i}`, result: {}, isError: false };
+                    case 'tool_call:finished':
+                        return { toolId: `c-${i}`, result: {}, isError: false };
                     case 'model_pool:snapshot':
                         return { maxWorkers: 3 };
                     default:
@@ -163,9 +141,6 @@ describe('Structural Fuzzing (crash resistance)', () => {
     });
 });
 
-// ======================================================================
-// B) Behavioral Fuzzing — via TimeTraveler
-// ======================================================================
 describe('Behavioral Fuzzing (causal invariants via TimeTraveler)', () => {
     test('M mode converges to SQUAD_COMPLETE', () => {
         const log = timeTravel([
@@ -291,9 +266,6 @@ describe('Behavioral Fuzzing (causal invariants via TimeTraveler)', () => {
     });
 });
 
-// ======================================================================
-// C) Edge case pressure
-// ======================================================================
 describe('Edge pressure tests', () => {
     test('100 consecutive aborts — no explosion', () => {
         const state = getInitialState();

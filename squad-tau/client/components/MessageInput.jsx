@@ -15,17 +15,13 @@ export function MessageInput() {
     if (!trimmed || !activeSessionId) return;
     const tempId = `usr_${Date.now()}`;
 
-    // Create message entity + dispatch delta+stream:end locally for instant display
-    eventStore.dispatch('entity:created', {
-      entityType: 'message',
-      entityId: tempId,
+    // Create message entity in EventStore for React rendering
+    eventStore.dispatch('message:created', {
+      messageId: tempId,
       sessionId: activeSessionId,
       role: 'user',
       staticContent: trimmed,
     });
-    document.dispatchEvent(new CustomEvent('stream:end', {
-      detail: { messageId: tempId, sessionId: activeSessionId, text: trimmed },
-    }));
 
     send({ type: 'session:user_message', payload: { sessionId: activeSessionId, text: trimmed, messageId: tempId } });
     setText('');

@@ -11,19 +11,25 @@ function dispatch(state, type, payload) {
     return applyEvent(state, type, payload);
 }
 
+function createSession(state, sessionId, phase = 'worker', retryCount = 0) {
+    dispatch(state, 'session:creating', { sessionId, phase, retryCount });
+    dispatch(state, 'session:start', { sessionId, phase, retryCount });
+}
+
 function createStore() {
     const store = new EventStore();
+    store.dispatch('session:creating', { sessionId: 's1', phase: 'worker', retryCount: 0 });
     store.dispatch('session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
     return store;
 }
 
-// ── Entity Lifecycle ──
+// ── Message Lifecycle ──
 
-test('entity:created creates message entity and appends to session', () => {
-    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    dispatch(state, 'entity:created', {
-        entityType: 'message',
-        entityId: 'm1',
+test('message:created creates message entity and appends to session', () => {
+    const state = freshState();
+    createSession(state, 's1');
+    dispatch(state, 'message:created', {
+        messageId: 'm1',
         sessionId: 's1',
         role: 'assistant',
     });
@@ -37,11 +43,11 @@ test('entity:created creates message entity and appends to session', () => {
     assert.equal(state.sessions.s1.messageIds.includes('m1'), true);
 });
 
-test('entity:created with staticContent creates user message', () => {
-    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    dispatch(state, 'entity:created', {
-        entityType: 'message',
-        entityId: 'm1',
+test('message:created with staticContent creates user message', () => {
+    const state = freshState();
+    createSession(state, 's1');
+    dispatch(state, 'message:created', {
+        messageId: 'm1',
         sessionId: 's1',
         role: 'user',
         staticContent: 'Hello world',
@@ -50,112 +56,83 @@ test('entity:created with staticContent creates user message', () => {
     assert.equal(state.messages['m1'].role, 'user');
 });
 
-test('entity:finalized sets status to finalized', () => {
-    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    dispatch(state, 'entity:created', {
-        entityType: 'message',
-        entityId: 'm1',
+test('message:finalized sets status to finalized', () => {
+    const state = freshState();
+    createSession(state, 's1');
+    dispatch(state, 'message:created', {
+        messageId: 'm1',
         sessionId: 's1',
         role: 'assistant',
     });
     assert.equal(state.messages['m1'].status, 'created');
-    dispatch(state, 'entity:finalized', {
-        entityType: 'message',
-        entityId: 'm1',
-        sessionId: 's1',
+    dispatch(state, 'message:finalized', {
+        messageId: 'm1',
     });
     assert.equal(state.messages['m1'].status, 'finalized');
 });
 
-test('entity:finalized with staticContent sets it only when provided', () => {
-    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    dispatch(state, 'entity:created', {
-        entityType: 'message',
-        entityId: 'm1',
+test('message:finalized with staticContent sets it only when provided', () => {
+    const state = freshState();
+    createSession(state, 's1');
+    dispatch(state, 'message:created', {
+        messageId: 'm1',
         sessionId: 's1',
         role: 'assistant',
     });
-    dispatch(state, 'entity:finalized', {
-        entityType: 'message',
-        entityId: 'm1',
-        sessionId: 's1',
+    dispatch(state, 'message:finalized', {
+        messageId: 'm1',
         staticContent: 'Final text',
     });
     assert.equal(state.messages['m1'].staticContent, 'Final text');
 });
 
-// ── Legacy session:message_start (mapped by WS hook) ──
+// ── Message lifecycle via message:created + message:finalized ──
 
-test('session:message_start creates message entity skeleton', () => {
-    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    dispatch(state, 'session:message_start', {
-        sessionId: 's1',
+test('message:created + message:finalized creates finalized message', () => {
+    const state = freshState();
+    createSession(state, 's1');
+    dispatch(state, 'message:created', {
         messageId: 'm1',
+        sessionId: 's1',
         role: 'assistant',
+    });
+    dispatch(state, 'message:finalized', {
+        messageId: 'm1',
+        staticContent: 'final text',
     });
     const msg = state.messages['m1'];
     assert.equal(msg.messageId, 'm1');
     assert.equal(msg.role, 'assistant');
-    assert.equal(msg.status, 'created');
-    assert.equal(msg.staticContent, undefined);
-    assert.equal(state.sessions.s1.messageIds.includes('m1'), true);
-});
-
-// ── session:message (legacy, final fact from server) ──
-
-test('session:message for assistant finalizes existing entity', () => {
-    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    dispatch(state, 'session:message_start', { sessionId: 's1', messageId: 'm1', role: 'assistant' });
-    dispatch(state, 'session:message', {
-        sessionId: 's1',
-        role: 'assistant',
-        content: [{ type: 'text', text: 'Hello' }],
-        messageId: 'm1',
-    });
-    const msg = state.messages['m1'];
     assert.equal(msg.status, 'finalized');
-    // staticContent is stored for all messages when provided in full
-    assert.equal(msg.staticContent, 'Hello');
+    assert.equal(msg.staticContent, 'final text');
 });
 
-test('session:message for user creates entity with staticContent', () => {
-    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    dispatch(state, 'session:message', {
+test('message:created with parentId stores it', () => {
+    const state = freshState();
+    createSession(state, 's1');
+    dispatch(state, 'message:created', {
+        messageId: 'm1',
         sessionId: 's1',
         role: 'user',
-        content: [{ type: 'text', text: 'Hello' }],
-        messageId: 'm1',
+        staticContent: 'hello',
     });
-    const msg = state.messages['m1'];
-    assert.equal(msg.messageId, 'm1');
-    assert.equal(msg.role, 'user');
-    assert.equal(msg.staticContent, 'Hello');
-    assert.equal(state.sessions.s1.messageIds.includes('m1'), true);
-});
-
-test('session:message with parentId stores it', () => {
-    let state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    state = dispatch(state, 'session:message', {
-        sessionId: 's1',
-        role: 'user',
-        content: [{ type: 'text', text: 'hello' }],
-        messageId: 'm1',
-    });
-    state = dispatch(state, 'session:message', {
+    dispatch(state, 'message:finalized', { messageId: 'm1', staticContent: 'hello' });
+    dispatch(state, 'message:created', {
+        messageId: 'm2',
         sessionId: 's1',
         role: 'assistant',
-        content: [{ type: 'text', text: 'reply' }],
-        messageId: 'm2',
         parentId: 'm1',
     });
+    dispatch(state, 'message:finalized', { messageId: 'm2' });
     assert.equal(state.messages['m2'].parentId, 'm1');
 });
 
 // ── Tool Calls ──
 
-test('session:tool_call creates toolCall entity', () => {
-    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    dispatch(state, 'session:tool_call', {
+test('tool_call:started creates toolCall entity', () => {
+    const state = freshState();
+    createSession(state, 's1');
+    dispatch(state, 'tool_call:started', {
         sessionId: 's1',
         toolName: 'read',
         toolId: 't1',
@@ -168,10 +145,11 @@ test('session:tool_call creates toolCall entity', () => {
     assert.deepEqual(tc.params, { path: 'file.js' });
 });
 
-test('session:tool_call with messageId links to message', () => {
-    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    dispatch(state, 'session:message_start', { sessionId: 's1', messageId: 'm1', role: 'assistant' });
-    dispatch(state, 'session:tool_call', {
+test('tool_call:started with messageId links to message', () => {
+    const state = freshState();
+    createSession(state, 's1');
+    dispatch(state, 'message:created', { messageId: 'm1', sessionId: 's1', role: 'assistant' });
+    dispatch(state, 'tool_call:started', {
         sessionId: 's1',
         toolName: 'read',
         toolId: 't1',
@@ -181,16 +159,16 @@ test('session:tool_call with messageId links to message', () => {
     assert.equal(state.messages['m1'].toolIds.includes('t1'), true);
 });
 
-test('session:tool_result updates toolCall', () => {
-    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    dispatch(state, 'session:tool_call', {
+test('tool_call:finished updates toolCall', () => {
+    const state = freshState();
+    createSession(state, 's1');
+    dispatch(state, 'tool_call:started', {
         sessionId: 's1',
         toolName: 'read',
         toolId: 't1',
         params: { path: 'file.js' },
     });
-    dispatch(state, 'session:tool_result', {
-        sessionId: 's1',
+    dispatch(state, 'tool_call:finished', {
         toolId: 't1',
         result: 'file content',
         isError: false,
@@ -200,16 +178,16 @@ test('session:tool_result updates toolCall', () => {
     assert.equal(tc.isError, false);
 });
 
-test('session:tool_result with error', () => {
-    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    dispatch(state, 'session:tool_call', {
+test('tool_call:finished with error', () => {
+    const state = freshState();
+    createSession(state, 's1');
+    dispatch(state, 'tool_call:started', {
         sessionId: 's1',
         toolName: 'bash',
         toolId: 't1',
         params: { command: 'rm -rf /' },
     });
-    dispatch(state, 'session:tool_result', {
-        sessionId: 's1',
+    dispatch(state, 'tool_call:finished', {
         toolId: 't1',
         result: 'permission denied',
         isError: true,
@@ -217,19 +195,10 @@ test('session:tool_result with error', () => {
     assert.equal(state.toolCalls['t1'].isError, true);
 });
 
-test('session:tool_result ignores missing tool call', () => {
-    const state = dispatch(freshState(), 'session:tool_result', {
-        sessionId: 'nonexistent',
-        toolId: 't1',
-        result: 'x',
-        isError: false,
-    });
-    assert.equal(state.toolCalls['t1'], undefined);
-});
-
-test('session:tool_call with return tracks latestReturn', () => {
-    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    dispatch(state, 'session:tool_call', {
+test('tool_call:started with return tracks latestReturn', () => {
+    const state = freshState();
+    createSession(state, 's1');
+    dispatch(state, 'tool_call:started', {
         sessionId: 's1',
         toolName: 'return',
         toolId: 'ret-1',
@@ -241,20 +210,14 @@ test('session:tool_call with return tracks latestReturn', () => {
 // ── Multiple sessions are isolated ──
 
 test('multiple sessions are isolated', () => {
-    let state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    state = dispatch(state, 'session:start', { sessionId: 's2', phase: 'reviewer', retryCount: 0 });
-    state = dispatch(state, 'session:message', {
-        sessionId: 's1',
-        role: 'user',
-        content: [{ type: 'text', text: 'msg1' }],
-        messageId: 'm1',
-    });
-    state = dispatch(state, 'session:message', {
-        sessionId: 's2',
-        role: 'user',
-        content: [{ type: 'text', text: 'msg2' }],
-        messageId: 'm2',
-    });
+    const state = freshState();
+    createSession(state, 's1');
+    dispatch(state, 'session:creating', { sessionId: 's2', phase: 'reviewer', retryCount: 0 });
+    dispatch(state, 'session:start', { sessionId: 's2', phase: 'reviewer', retryCount: 0 });
+    dispatch(state, 'message:created', { messageId: 'm1', sessionId: 's1', role: 'user', staticContent: 'msg1' });
+    dispatch(state, 'message:finalized', { messageId: 'm1', staticContent: 'msg1' });
+    dispatch(state, 'message:created', { messageId: 'm2', sessionId: 's2', role: 'user', staticContent: 'msg2' });
+    dispatch(state, 'message:finalized', { messageId: 'm2', staticContent: 'msg2' });
     assert.equal(state.sessions.s1.messageIds.length, 1);
     assert.equal(state.sessions.s2.messageIds.length, 1);
 });
@@ -262,4 +225,34 @@ test('multiple sessions are isolated', () => {
 test('unknown action type returns state unchanged', () => {
     const state = dispatch(freshState(), 'UNKNOWN', {});
     assert.equal(state.squad.status, 'idle');
+});
+
+// ── EventStore tracking tests ──
+
+test('EventStore dispatch tracks path versions', () => {
+    const store = createStore();
+    const v0 = store.getPathVersion('sessions');
+    store.dispatch('session:state', { sessionId: 's1', phase: 'completed' });
+    assert.equal(store.getPathVersion('sessions'), v0 + 1);
+});
+
+test('EventStore dispatch tracks entity versions', () => {
+    const store = createStore();
+    const v0 = store.getEntityVersion('sessions', 's1');
+    store.dispatch('session:state', { sessionId: 's1', phase: 'error' });
+    assert.equal(store.getEntityVersion('sessions', 's1'), v0 + 1);
+});
+
+test('EventStore subscribe receives paths and entities', () => {
+    const store = createStore();
+    let recPaths, recEntities;
+    store.subscribe((paths, entities) => {
+        recPaths = paths;
+        recEntities = entities;
+    });
+    store.dispatch('session:state', { sessionId: 's1', phase: 'completed' });
+    assert.ok(recPaths);
+    assert.ok(recPaths.size > 0);
+    assert.ok(recEntities);
+    assert.ok(recEntities.size > 0);
 });

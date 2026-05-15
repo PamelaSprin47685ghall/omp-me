@@ -83,6 +83,5 @@ describe('partial failure completion', () => {
         setStatus(st, 'n2', 'failed');
         const e = reactState(st);
         expect(e.find((a) => a.type === 'squad:complete')).toBeDefined();
-        expect(e.find((a) => a.type === 'squad:outer_review_start')).toBeUndefined();
     });
 });

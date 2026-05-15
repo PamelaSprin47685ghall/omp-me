@@ -19,86 +19,38 @@ async function capture(page, name) {
 function inject(page, events) {
     return page.evaluate(async (evts) => {
         const es = window.__es;
-        const started = new Set();
         const yieldToReact = () => new Promise((resolve) => setTimeout(resolve, 15));
 
         for (const e of evts) {
-            if (e.type === 'session:message_delta' || e.type === 'session:thinking_delta') {
-                const { sessionId, messageId } = e.payload;
-                const key = `${sessionId}:${messageId}`;
-
-                if (!started.has(key)) {
-                    started.add(key);
-                    es.dispatch('entity:created', {
-                        entityType: 'message',
-                        entityId: messageId,
-                        sessionId,
-                        role: 'assistant',
-                    });
-
-                    // [修复] 取消恶心的 while 轮询，直接连让 3 帧给 React 调度器
-                    await yieldToReact();
-                    await yieldToReact();
-                    await yieldToReact();
-                }
-
-                document.dispatchEvent(
-                    new CustomEvent('delta', {
-                        detail: {
-                            messageId,
-                            sessionId,
-                            type: e.type === 'session:thinking_delta' ? 'thinking' : 'text',
-                            text: e.payload.delta?.text || '',
-                        },
-                    }),
-                );
+            // Streaming deltas → direct DOM routing (no EventStore dispatch)
+            if (e.type === 'message:delta') {
+                const el = document.querySelector(`agent-message[message-id="${e.payload.messageId}"]`);
+                if (el) el.appendChunk(e.payload.delta?.text || '', e.payload.delta?.type || 'text');
                 await new Promise((r) => setTimeout(r, 0));
                 continue;
             }
 
-            if (e.type === 'session:message') {
-                const { sessionId, messageId, role, content } = e.payload;
-                if (!es.getState().messages[messageId]) {
-                    const blocks = content || [];
-                    const text = Array.isArray(blocks) && blocks[0]?.type === 'text' ? blocks[0].text : undefined;
-                    es.dispatch('entity:created', {
-                        entityType: 'message',
-                        entityId: messageId,
-                        sessionId,
-                        role,
-                        staticContent: text,
-                    });
-                    await yieldToReact();
-                }
-                if (role !== 'user') {
-                    es.dispatch('entity:finalized', {
-                        entityType: 'message',
-                        entityId: messageId,
-                        sessionId,
-                    });
-                    const blocks = content || [];
-                    const text = Array.isArray(blocks) && blocks[0]?.type === 'text' ? blocks[0].text : undefined;
-                    document.dispatchEvent(
-                        new CustomEvent('stream:end', {
-                            detail: { messageId, sessionId, text },
-                        }),
-                    );
-                }
+            // Finalized message → EventStore + DOM finalize
+            if (e.type === 'message:finalized') {
+                es.dispatch('message:finalized', e.payload, e.seq);
+                const el = document.querySelector(`agent-message[message-id="${e.payload.messageId}"]`);
+                if (el) el.finalize(e.payload.staticContent || '');
                 await yieldToReact();
                 continue;
             }
 
-            if (e.type === 'session:message_start') {
-                es.dispatch('entity:created', {
-                    entityType: 'message',
-                    entityId: e.payload.messageId,
+            // Auto-create session entity before session:start
+            if (e.type === 'session:start') {
+                es.dispatch('session:creating', {
                     sessionId: e.payload.sessionId,
-                    role: e.payload.role || 'assistant',
+                    nodeId: e.payload.nodeId,
+                    phase: e.payload.phase,
+                    retryCount: e.payload.retryCount || 0,
                 });
                 await yieldToReact();
-                continue;
             }
 
+            // All other events → EventStore dispatch
             es.dispatch(e.type, e.payload, e.seq);
             await yieldToReact();
         }
@@ -190,19 +142,23 @@ describe('UI Full Flow', () => {
 
         await inject(page, [
             {
-                type: 'session:message_delta',
+                type: 'message:created',
+                payload: { messageId: 'assistant-1', sessionId: 'flow-s1', role: 'assistant' },
+            },
+            {
+                type: 'message:delta',
                 payload: {
                     sessionId: 'flow-s1',
                     messageId: 'assistant-1',
-                    delta: { type: 'thinking_delta', text: 'Planning the implementation...' },
+                    delta: { type: 'thinking', text: 'Planning the implementation...' },
                 },
             },
             {
-                type: 'session:message_delta',
+                type: 'message:delta',
                 payload: {
                     sessionId: 'flow-s1',
                     messageId: 'assistant-1',
-                    delta: { type: 'text_delta', text: 'I will split the work into small modules.' },
+                    delta: { type: 'text', text: 'I will split the work into small modules.' },
                 },
             },
         ]);
@@ -245,11 +201,11 @@ describe('UI Full Flow', () => {
     test('06 tool call collapsed expanded and done', async () => {
         await inject(page, [
             {
-                type: 'session:message_start',
-                payload: { sessionId: 'flow-s1', messageId: 'assistant-2', role: 'assistant' },
+                type: 'message:created',
+                payload: { messageId: 'assistant-2', sessionId: 'flow-s1', role: 'assistant' },
             },
             {
-                type: 'session:tool_call',
+                type: 'tool_call:started',
                 payload: {
                     sessionId: 'flow-s1',
                     toolName: 'read',
@@ -272,7 +228,7 @@ describe('UI Full Flow', () => {
 
         await inject(page, [
             {
-                type: 'session:tool_result',
+                type: 'tool_call:finished',
                 payload: {
                     sessionId: 'flow-s1',
                     toolId: 'tool-1',
@@ -380,11 +336,11 @@ describe('UI Full Flow', () => {
 
         await inject(page, [
             {
-                type: 'session:message_start',
-                payload: { sessionId: 's-err', messageId: 'assistant-3', role: 'assistant' },
+                type: 'message:created',
+                payload: { messageId: 'assistant-3', sessionId: 's-err', role: 'assistant' },
             },
             {
-                type: 'session:tool_call',
+                type: 'tool_call:started',
                 payload: {
                     sessionId: 's-err',
                     toolName: 'bash',
@@ -394,7 +350,7 @@ describe('UI Full Flow', () => {
                 },
             },
             {
-                type: 'session:tool_result',
+                type: 'tool_call:finished',
                 payload: {
                     sessionId: 's-err',
                     toolId: 'tc-err',
@@ -414,13 +370,12 @@ describe('UI Full Flow', () => {
         const longText = 'A'.repeat(800);
         await inject(page, [
             {
-                type: 'session:message',
-                payload: {
-                    sessionId: 's-err',
-                    role: 'user',
-                    content: [{ type: 'text', text: longText }],
-                    messageId: 'ml1',
-                },
+                type: 'message:created',
+                payload: { messageId: 'ml1', sessionId: 's-err', role: 'user' },
+            },
+            {
+                type: 'message:finalized',
+                payload: { messageId: 'ml1', staticContent: longText },
             },
         ]);
         await page.waitForFunction(() => document.body.innerText.includes('AAAA'), { timeout: T });
@@ -465,13 +420,12 @@ describe('UI Full Flow', () => {
                 payload: { sessionId: 's-dark', nodeId: 'DarkN', phase: 'authoring', retryCount: 0 },
             },
             {
-                type: 'session:message',
-                payload: {
-                    sessionId: 's-dark',
-                    role: 'user',
-                    content: [{ type: 'text', text: 'Dark mode message' }],
-                    messageId: 'md1',
-                },
+                type: 'message:created',
+                payload: { messageId: 'md1', sessionId: 's-dark', role: 'user' },
+            },
+            {
+                type: 'message:finalized',
+                payload: { messageId: 'md1', staticContent: 'Dark mode message' },
             },
         ]);
         await page.waitForFunction(() => document.body.innerText.includes('R1 authoring'), { timeout: T });
@@ -497,13 +451,12 @@ describe('UI Full Flow', () => {
                 payload: { sessionId: 's-rev', nodeId: 'RevN', phase: 'reviewing', retryCount: 0 },
             },
             {
-                type: 'session:message',
-                payload: {
-                    sessionId: 's-rev',
-                    role: 'assistant',
-                    content: [{ type: 'text', text: 'Reviewing the architecture.' }],
-                    messageId: 'mr1',
-                },
+                type: 'message:created',
+                payload: { messageId: 'mr1', sessionId: 's-rev', role: 'assistant' },
+            },
+            {
+                type: 'message:finalized',
+                payload: { messageId: 'mr1', staticContent: 'Reviewing the architecture.' },
             },
         ]);
         await page.waitForFunction(() => document.body.innerText.includes('R1 reviewing'), { timeout: T });

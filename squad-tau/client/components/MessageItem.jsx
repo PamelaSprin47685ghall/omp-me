@@ -22,7 +22,7 @@ export default function MessageItem({ messageId, sessionRole = 'user' }) {
 
   useEffect(() => {
     if (meta?.status === 'finalized' && meta.staticContent && agentRef.current) {
-      agentRef.current.staticContent = meta.staticContent;
+      agentRef.current.finalize(meta.staticContent);
     }
   }, [meta?.status, meta?.staticContent]);
 

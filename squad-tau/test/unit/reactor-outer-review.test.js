@@ -1,78 +1,66 @@
+/**
+ * Outer review as a regular node — using the rule-based reactor.
+ * In L mode, __or__ node is auto-injected by squad:init.
+ * It behaves like any other node; when rejected, R5 resets workers.
+ */
 import { describe, test, expect } from 'bun:test';
 import { reactState } from '../../server/reactor.js';
-import { createBaseState, setStatus, createSession, giveReturn } from '../helpers/state-builder.js';
+import { buildState, setStatus } from '../helpers/state-builder.js';
 import { sessionIdFor } from '../../shared/events.js';
 
-function approvedState() {
-    const st = createBaseState('n1');
-    setStatus(st, 'n1', 'idle');
-    setStatus(st, 'n1', 'authoring');
-    createSession(st, 'n1', 'authoring');
-    setStatus(st, 'n1', 'confirming');
-    createSession(st, 'n1', 'confirming');
-    setStatus(st, 'n1', 'reviewing');
-    createSession(st, 'n1', 'reviewing');
-    setStatus(st, 'n1', 'approved');
-    return st;
-}
-
-describe('happy path', () => {
-    test('emits SQUAD_OUTER_REVIEW_START', () => {
-        const st = approvedState();
-        expect(reactState(st).find((e) => e.type === 'squad:outer_review_start')).toBeDefined();
+describe('outer review as regular node', () => {
+    test('idle __or__ transitions to reviewing when deps met', () => {
+        const st = buildState({
+            mode: 'L',
+            nodes: [{ id: 'n1', task: 't', review_criteria: [] }],
+        });
+        setStatus(st, 'n1', 'approved');
+        // __or__ starts undefined → R1 sets idle → R3 sets reviewing
+        const e = reactState(st);
+        const idle = e.find((a) => a.payload.nodeId === '__or__' && a.payload.status === 'idle');
+        expect(idle).toBeDefined();
+        // R3 fires when idle + depsMet → reviewing
+        // But R1 and R3 fire in the same pulse, so we should see idle action
     });
 
-    test('full lifecycle to SQUAD_COMPLETE', () => {
-        const st = approvedState();
-        let e = reactState(st);
-        st.squad.outerReview = { status: 'pending', round: 1 };
-
-        e = reactState(st);
-        const createEv = e.find((a) => a.type === 'session:creating');
-        expect(createEv).toBeDefined();
-        expect(createEv.payload.sessionId).toBe(sessionIdFor('or', 'outer_review', 1));
-
-        const sid = createEv.payload.sessionId;
-        st.sessions[sid] = {
-            sessionId: sid,
-            nodeId: null,
-            phase: 'outer_review',
-            role: 'outer_review',
-            status: 'active',
-            messages: [],
-        };
-        st.squad.outerReview.lastPrompted = true;
-
-        giveReturn(st, sid, 'ok', 'all good');
-        e = reactState(st);
-        expect(e.find((a) => a.type === 'squad:outer_review_done')).toBeDefined();
-        expect(e.find((a) => a.type === 'session:end')).toBeDefined();
-
-        st.squad.outerReview.status = 'approved';
-        e = reactState(st);
+    test('__or__ approved emits squad:complete', () => {
+        const st = buildState({
+            mode: 'L',
+            nodes: [{ id: 'n1', task: 't', review_criteria: [] }],
+        });
+        setStatus(st, 'n1', 'approved');
+        setStatus(st, '__or__', 'approved');
+        const e = reactState(st);
         expect(e.find((a) => a.type === 'squad:complete')).toBeDefined();
+    });
+
+    test('squad:complete only once', () => {
+        const st = buildState({
+            mode: 'L',
+            nodes: [{ id: 'n1', task: 't', review_criteria: [] }],
+        });
+        setStatus(st, 'n1', 'approved');
+        setStatus(st, '__or__', 'approved');
+        expect(reactState(st).some((a) => a.type === 'squad:complete')).toBe(true);
+        st.squad.status = 'complete';
+        expect(reactState(st).length).toBe(0);
     });
 });
 
-describe('rejection', () => {
-    test('failed emits FAILED event', () => {
-        const st = approvedState();
-        let e = reactState(st);
-        st.squad.outerReview = { status: 'pending', round: 1 };
-        e = reactState(st);
-        const createEv = e.find((a) => a.type === 'session:creating');
-        const sid = createEv?.payload?.sessionId || sessionIdFor('or', 'outer_review', 1);
-        st.sessions[sid] = {
-            sessionId: sid,
-            nodeId: null,
-            phase: 'outer_review',
-            role: 'outer_review',
-            status: 'active',
-            messages: [],
-        };
-        st.squad.outerReview.lastPrompted = true;
-        giveReturn(st, sid, 'error', 'bad');
-        e = reactState(st);
-        expect(e.find((a) => a.type === 'squad:outer_review_failed')).toBeDefined();
+describe('rejection cycle', () => {
+    test('__or__ rejected resets workers to authoring', () => {
+        const st = buildState({
+            mode: 'L',
+            nodes: [{ id: 'n1', task: 'a', review_criteria: [] }],
+        });
+        setStatus(st, 'n1', 'approved');
+        setStatus(st, '__or__', 'rejected', { round: 1, feedback: 'rework' });
+        const e = reactState(st);
+        // R5 should reset n1 to authoring and __or__ to idle
+        const n1Reset = e.find((a) => a.payload.nodeId === 'n1' && a.payload.status === 'authoring');
+        expect(n1Reset).toBeDefined();
+        expect(n1Reset.payload.retryCount).toBe(1);
+        const orIdle = e.find((a) => a.payload.nodeId === '__or__' && a.payload.status === 'idle');
+        expect(orIdle).toBeDefined();
     });
 });

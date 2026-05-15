@@ -6,7 +6,7 @@ export class EventLog {
     constructor() {
         this.log = [];
         this.listeners = new Set();
-        this.transientEvents = new Set(['session:message_delta', 'session:thinking_delta']);
+        this.transientEvents = new Set(['message:delta']);
     }
 
     /**

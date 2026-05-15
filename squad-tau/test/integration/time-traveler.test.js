@@ -148,7 +148,7 @@ describe('outer review rejection cycle', () => {
         const state = project(log);
         expect(state.squad.status).toBe('complete');
         expect(state.squad.nodes['n1'].status).toBe('approved');
-        expect(log.filter((e) => e.event === 'squad:outer_review_start').length).toBe(2);
+        expect(log.filter((e) => e.event === 'session:creating' && e.payload.nodeId === '__or__').length).toBe(2);
     });
 });
 

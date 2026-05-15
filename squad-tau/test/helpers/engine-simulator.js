@@ -1,69 +1,71 @@
 /**
- * Engine Simulator (v5 — Zero Content, Flat State) — synchronous time-travel.
+ * Engine Simulator (v7) — synchronous time-travel using real pipeline.
  *
- * Drives the pure reactor loop to convergence, simulating side effects
- * (session creation, prompt responses) inline with a promptBehavior hook.
+ * Uses real EventLog + real reactState + real setupSideEffects,
+ * *with mocked OMP-dependent handlers for synchronous execution.
  *
- * No content in state tree. Tool calls stored in flat toolCalls map.
- * Message lifecycle via session:message_start + session:message (legacy).
+ * No manual session:start or tool_call:started injection.
+ * Side effects respond to events just like in production.
  */
 import { reactState } from '../../server/reactor.js';
+import { setupSideEffects } from '../../server/side-effects.js';
 import { project } from '../../shared/projections.js';
+import { EventLog } from '../../server/event-log.js';
 
 /**
  * Synchronous Time Traveler.
- * Drives the reactor loop to convergence using fake side effects.
+ * Drives the real reactor + real side-effecs pipeline to convergence.
  *
- * @param {Array} initialEvents  - Seed EventLog (array of {event, payload})
- * @param {Function} promptBehavior - (payload) => {status, reason} for fake LLM responses
- * @returns {Array}  Final EventLog after convergence
+ * @param {Array} initialEvents - Seed events [{ event, payload }, ...]
+ * @param {Function} promptBehavior - (phaseContext) => { status, reason }
+ * @returns {Array} Full event log entries [{ id, event, payload }]
  */
 export function timeTravel(initialEvents, promptBehavior = () => ({ status: 'ok', reason: 'auto' })) {
-    const log = {
-        a: initialEvents.map((e, i) => ({ id: i, event: e.event || e.type, payload: e.payload })),
-        nextId: initialEvents.length,
+    const eventLog = new EventLog();
+    const getState = () => project(eventLog.log);
+
+    // Mock side-effects: synchronous, no real OMP API calls
+    const mockEffects = {
+        'session:creating': ({ sessionId, nodeId, phase, retryCount }, { eventLog }) => {
+            eventLog.append('session:start', {
+                sessionId,
+                nodeId,
+                phase,
+                retryCount: retryCount || 0,
+            });
+        },
+        'session:prompting': ({ sessionId, phase, nodeId }, { eventLog }) => {
+            const result = promptBehavior({ sessionId, phase, nodeId });
+            eventLog.append('tool_call:started', {
+                sessionId,
+                toolName: 'return',
+                toolId: `call-${eventLog.length}`,
+                params: result,
+            });
+        },
     };
-    function getSince() {
-        return log.a;
-    }
-    function append(type, payload) {
-        const o = { id: log.nextId++, event: type, payload };
-        log.a.push(o);
-        return o;
+
+    // Wire real setupSideEffects with mocked handlers
+    const cleanup = setupSideEffects(eventLog, null, getState, mockEffects);
+
+    // Append seed events
+    for (const e of initialEvents) {
+        eventLog.append(e.event || e.type, e.payload);
     }
 
+    // Drive reactor to convergence (synchronous loop)
     for (let i = 0; i < 200; i++) {
-        const actions = reactState(project(getSince()));
+        const actions = reactState(getState());
         if (actions.length === 0) break;
-
         for (const action of actions) {
-            append(action.type, action.payload);
-
-            // Simulate side effects for facts that need async processing
-            if (action.type === 'session:creating') {
-                append('session:start', {
-                    sessionId: action.payload.sessionId,
-                    nodeId: action.payload.nodeId,
-                    phase: action.payload.phase,
-                    retryCount: action.payload.retryCount || 0,
-                });
-            } else if (action.type === 'session:prompting') {
-                append('session:tool_call', {
-                    sessionId: action.payload.sessionId,
-                    toolName: 'return',
-                    toolId: `call-${log.nextId}`,
-                    params: promptBehavior(action.payload),
-                });
-            }
+            eventLog.append(action.type, action.payload);
         }
     }
 
-    return getSince();
+    cleanup();
+    return eventLog.log;
 }
 
-/**
- * Create a seed event array from a squad init payload.
- */
 export function initSquad(events) {
     return [{ event: 'squad:init', payload: events }];
 }

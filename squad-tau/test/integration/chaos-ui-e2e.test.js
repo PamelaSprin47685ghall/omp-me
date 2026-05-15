@@ -13,7 +13,17 @@ import { setupBrowser, teardownBrowser } from '../helpers/puppeteer-setup.js';
 function inject(page, events) {
     return page.evaluate((evts) => {
         const es = window.__es;
-        for (const e of evts) es.dispatch(e.type, e.payload, e.seq);
+        for (const e of evts) {
+            if (e.type === 'session:start') {
+                es.dispatch('session:creating', {
+                    sessionId: e.payload.sessionId,
+                    nodeId: e.payload.nodeId,
+                    phase: e.payload.phase,
+                    retryCount: e.payload.retryCount || 0,
+                });
+            }
+            es.dispatch(e.type, e.payload, e.seq);
+        }
     }, events);
 }
 

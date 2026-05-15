@@ -1,10 +1,11 @@
 /**
  * Side-effect handlers — dumb muscle for the Event-Sourced Engine.
  *
- * Routing Matrix (Cut 3): Effects = { [eventType]: handler }
- * No switch/case. No slot management (Cut 1).
+ * Routing Matrix: Effects = { [eventType]: handler }
+ * No switch/case. No slot management.
+ * Emits domain events: message:delta, message:finalized, tool_call:started, tool_call:finished
  */
-import { PromptDoc, PROMPT_TEMPLATES } from './prompt-builder.js';
+import { buildPrompt } from './prompt-builder.js';
 
 const sessionStore = new Map();
 
@@ -12,11 +13,11 @@ export async function getCodingAgentModule() {
     return (await import('@oh-my-pi/resolve-pi')).getCodingAgentModule();
 }
 
-const Effects = {};
+export const DefaultEffects = {};
 
 function register(event) {
     return (fn) => {
-        Effects[event] = fn;
+        DefaultEffects[event] = fn;
     };
 }
 
@@ -30,7 +31,7 @@ register('session:creating')(async (payload, { eventLog, pi, getState }) => {
 
 register('session:prompting')(async (payload, { eventLog, pi, getState }) => {
     try {
-        await handlePrompt(payload, eventLog, pi, getState);
+        await handlePromptSession(payload, eventLog, pi, getState);
     } catch (err) {
         console.error(`[SideEffects] sendPrompt failed:`, err);
     }
@@ -39,6 +40,16 @@ register('session:prompting')(async (payload, { eventLog, pi, getState }) => {
 register('session:message')(async (payload, { eventLog, pi, getState }) => {
     try {
         if (payload.role === 'user') {
+            const messageId = payload.messageId || `usr_${Date.now()}`;
+            eventLog.append('message:created', {
+                messageId,
+                sessionId: payload.sessionId,
+                role: 'user',
+            });
+            eventLog.append('message:finalized', {
+                messageId,
+                staticContent: extractText(payload.content),
+            });
             await handleUserMessage(payload);
         }
     } catch (err) {
@@ -49,9 +60,10 @@ register('session:message')(async (payload, { eventLog, pi, getState }) => {
 register('squad:complete')(() => sessionStore.clear());
 register('squad:abort')(() => sessionStore.clear());
 
-export function setupSideEffects(eventLog, pi, getState) {
+export function setupSideEffects(eventLog, pi, getState, effects = null) {
+    const effectMap = effects || DefaultEffects;
     const unsub = eventLog.subscribe((entry) => {
-        const handler = Effects[entry.event];
+        const handler = effectMap[entry.event];
         if (handler) handler(entry.payload, { eventLog, pi, getState });
     });
     return unsub;
@@ -61,23 +73,14 @@ async function handleCreateSession({ nodeId, sessionId, phase, retryCount }, eve
     const { SessionManager } = await getCodingAgentModule();
     const state = getState();
     const node = state.squad.nodes[nodeId];
-    const options = buildWorkerSessionOptions(pi, {
-        provider: 'test',
-        modelId: 'default',
-    });
+    const options = buildWorkerSessionOptions(pi, { provider: 'test', modelId: 'default' });
     const sessionOpts = { ...options, sessionManager: SessionManager.create(options.cwd) };
 
     const { session } = await pi.pi.createAgentSession(sessionOpts);
     const actualSessionId = session.sessionFile;
 
-    sessionStore.set(actualSessionId, {
-        session,
-        status: 'active',
-    });
-
-    if (actualSessionId !== sessionId) {
-        sessionStore.set(sessionId, sessionStore.get(actualSessionId));
-    }
+    sessionStore.set(actualSessionId, { session, status: 'active' });
+    if (actualSessionId !== sessionId) sessionStore.set(sessionId, sessionStore.get(actualSessionId));
 
     eventLog.append('session:start', {
         sessionId,
@@ -90,17 +93,14 @@ async function handleCreateSession({ nodeId, sessionId, phase, retryCount }, eve
     subscribeToSessionEvents(session, eventLog, sessionId);
 }
 
-async function handlePrompt({ sessionId, phase, nodeId }, eventLog, pi, getState) {
+async function handlePromptSession({ sessionId, phase, nodeId }, eventLog, pi, getState) {
     const entry = sessionStore.get(sessionId);
-    if (!entry) {
-        console.error(`[SideEffects] Session ${sessionId} not found in store`);
-        return;
-    }
+    if (!entry) return;
     const state = getState();
     const node = state.squad.nodes[nodeId];
-    if (PROMPT_TEMPLATES[phase]) {
-        const promptText = new PromptDoc(PROMPT_TEMPLATES[phase](state, node || { task: '' })).compile();
-        entry.session.prompt(promptText);
+    if (node && phase) {
+        const promptText = buildPrompt(phase, state, node);
+        if (promptText) entry.session.prompt(promptText);
     }
 }
 
@@ -129,6 +129,7 @@ function buildWorkerSessionOptions(pi, modelSlot) {
     return options;
 }
 
+// Map OMP session events to domain events
 const SessionEventHandlers = {
     message_update: handleMessageUpdate,
     tool_execution_start: handleToolStart,
@@ -136,7 +137,14 @@ const SessionEventHandlers = {
     message_end: handleMessageEnd,
 };
 
+/**
+ * Track which messageIds we've already emitted message:created for.
+ * First delta for a new messageId triggers message:created fact.
+ */
+const seenMessages = new Map(); // sessionId -> Set<messageId>
+
 function subscribeToSessionEvents(session, eventLog, sessionId) {
+    if (!seenMessages.has(sessionId)) seenMessages.set(sessionId, new Set());
     return session.subscribe((event) => {
         try {
             const handler = SessionEventHandlers[event.type];
@@ -150,38 +158,53 @@ function subscribeToSessionEvents(session, eventLog, sessionId) {
 function handleMessageUpdate(event, eventLog, sessionId) {
     const ae = event.assistantMessageEvent;
     if (!ae || !event.message || !event.message.id) return;
-    const t = ae.type === 'thinking_delta' ? 'thinking_delta' : 'text_delta';
-    eventLog.append('session:message_delta', {
+
+    // First delta for this messageId emits message:created fact
+    const sessionSeen = seenMessages.get(sessionId);
+    if (!sessionSeen.has(event.message.id)) {
+        sessionSeen.add(event.message.id);
+        eventLog.append('message:created', {
+            messageId: event.message.id,
+            sessionId,
+            role: 'assistant',
+        });
+    }
+
+    const deltaType = ae.type === 'thinking_delta' ? 'thinking' : 'text';
+    eventLog.append('message:delta', {
         sessionId,
         messageId: event.message.id,
-        delta: { type: t, text: ae.delta },
+        delta: { type: deltaType, text: ae.delta },
     });
 }
 
 function handleToolStart(event, eventLog, sessionId) {
-    eventLog.append('session:tool_call', {
+    eventLog.append('tool_call:started', {
+        toolId: event.toolId,
         sessionId,
         toolName: event.toolName,
-        toolId: event.toolId,
         params: event.input,
     });
 }
 
 function handleToolEnd(event, eventLog, sessionId) {
-    eventLog.append('session:tool_result', {
-        sessionId,
+    eventLog.append('tool_call:finished', {
         toolId: event.toolId,
         result: event.result,
-        isError: event.isError || false,
+        isError: event.isError ?? false,
     });
 }
 
 function handleMessageEnd(event, eventLog, sessionId) {
-    eventLog.append('session:message', {
-        sessionId,
-        role: event.message.role,
-        content: event.message.content,
+    eventLog.append('message:finalized', {
         messageId: event.message.id,
-        parentId: event.message.parentId,
+        staticContent: extractText(event.message.content),
     });
+}
+
+function extractText(content) {
+    if (!content) return '';
+    const blocks = Array.isArray(content) ? content : [content];
+    const tb = blocks.find((b) => b.type === 'text');
+    return tb ? tb.text : '';
 }

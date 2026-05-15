@@ -1,16 +1,12 @@
 /**
- * <agent-message> — Immortal Custom Element for streaming message display.
+ * <agent-message> — Zero-coupling streaming message Custom Element.
  *
- * Takes over the entire lifecycle of an assistant message:
- * - Streaming phase: receives delta CustomEvents, appends via appendData
- * - Finalization phase: receives stream:end, runs marked.js for markdown render
+ * Exposes two public methods:
+ *   appendChunk(text, type) — append streaming delta
+ *   finalize(text?)         — end streaming, render markdown
  *
- * React renders this element once and never touches it again.
- * No handoff, no content in state tree, no React re-renders during streaming.
- *
- * Attributes:
- *   message-id  — URN identifying this message
- *   role        — 'assistant' | 'user' (user messages use staticContent instead)
+ * No document.addEventListener. No global event awareness.
+ * Pure DOM component with style-isolated shadow DOM.
  */
 
 const STYLE = `
@@ -101,63 +97,21 @@ class AgentMessage extends HTMLElement {
         super();
         this._text = '';
         this._thinking = '';
-        this._streaming = true;
         this._finalized = false;
-        this._messageId = '';
         this._textNode = null;
         this._thinkingNode = null;
         this._badgeEl = null;
         this._detailsEl = null;
         this._textBox = null;
-        this._deltaHandler = null;
-        this._endHandler = null;
         this._markedPromise = null;
-    }
-
-    set staticContent(text) {
-        if (this._finalized && this._text === text) return;
-        this._text = text || '';
-        this._finalized = true;
-        this._streaming = false;
-
-        // Immediately detach any stream listeners
-        if (this._deltaHandler) {
-            document.removeEventListener('delta', this._deltaHandler);
-            this._deltaHandler = null;
-        }
-        if (this._endHandler) {
-            document.removeEventListener('stream:end', this._endHandler);
-            this._endHandler = null;
-        }
-
-        // If not yet connected, connectedCallback will handle the finalized state
-        if (this.shadowRoot && this._textNode) {
-            this._textNode.data = this._text;
-            if (this._badgeEl) {
-                this._badgeEl.classList.remove('live');
-                this._badgeEl.classList.add('final');
-                this._badgeEl.textContent = 'done';
-            }
-            if (this._textBox) {
-                this._textBox.classList.add('finalized');
-            }
-            this._renderMarkdown();
-        }
     }
 
     connectedCallback() {
         const messageId = this.getAttribute('message-id');
-        const role = this.getAttribute('role');
         if (!messageId) return;
 
-        this._messageId = messageId;
+        if (!this.shadowRoot) this.attachShadow({ mode: 'open' });
 
-        // Attach shadow DOM for style isolation
-        if (!this.shadowRoot) {
-            this.attachShadow({ mode: 'open' });
-        }
-
-        // Build skeleton
         this.shadowRoot.innerHTML = `
           <style>${STYLE}</style>
           <div class="thinking-section" style="display:none">
@@ -180,10 +134,6 @@ class AgentMessage extends HTMLElement {
         this._badgeEl = this.shadowRoot.querySelector('.thinking-badge');
         this._textBox = this.shadowRoot.querySelector('.text-box');
 
-        // Create text nodes in slots
-        const thinkingSlot = this.shadowRoot.querySelector('slot[name="thinking-text"]');
-        const textSlot = this.shadowRoot.querySelector('slot[name="message-text"]');
-
         const thinkingSpan = document.createElement('span');
         thinkingSpan.slot = 'thinking-text';
         this._thinkingNode = document.createTextNode('');
@@ -191,78 +141,47 @@ class AgentMessage extends HTMLElement {
 
         const textSpan = document.createElement('span');
         textSpan.slot = 'message-text';
-        this._textNode = document.createTextNode(this._finalized ? this._text : '');
+        this._textNode = document.createTextNode('');
         textSpan.appendChild(this._textNode);
 
         this.appendChild(thinkingSpan);
         this.appendChild(textSpan);
 
-        if (this._finalized) {
-            if (this._badgeEl) {
-                this._badgeEl.classList.remove('live');
-                this._badgeEl.classList.add('final');
-                this._badgeEl.textContent = 'done';
-            }
-            if (this._textBox) {
-                this._textBox.classList.add('finalized');
-            }
-            this._renderMarkdown();
-            return;
-        }
-
-        // Set up event listeners
-        this._deltaHandler = (e) => {
-            if (e.detail.messageId !== this._messageId) return;
-            if (this._finalized) return;
-
-            if (e.detail.type === 'thinking' || e.detail.type === 'thinking_delta') {
-                if (this._detailsEl) this._detailsEl.style.display = '';
-                this._thinking += e.detail.text;
-                if (this._thinkingNode) this._thinkingNode.appendData(e.detail.text);
-            } else {
-                this._text += e.detail.text;
-                if (this._textNode) this._textNode.appendData(e.detail.text);
-            }
-        };
-
-        this._endHandler = (e) => {
-            if (e.detail.messageId !== this._messageId) return;
-            if (this._finalized) return;
-            this._streaming = false;
-            this._finalized = true;
-
-            // If text was provided directly (non-streamed message), set it
-            if (e.detail.text && this._text === '' && this._thinking === '') {
-                if (e.detail.type === 'thinking') {
-                    this._thinking = e.detail.text;
-                    if (this._thinkingNode) this._thinkingNode.data = e.detail.text;
-                } else {
-                    this._text = e.detail.text;
-                    if (this._textNode) this._textNode.data = e.detail.text;
-                }
-            }
-
-            // Finalize UI
-            if (this._badgeEl) {
-                this._badgeEl.classList.remove('live');
-                this._badgeEl.classList.add('final');
-                this._badgeEl.textContent = 'done';
-            }
-            if (this._textBox) {
-                this._textBox.classList.add('finalized');
-            }
-
-            // Run markdown rendering on accumulated text
-            this._renderMarkdown();
-        };
-
-        document.addEventListener('delta', this._deltaHandler);
-        document.addEventListener('stream:end', this._endHandler);
+        if (this._finalized) this._setFinalizedUI();
     }
 
-    disconnectedCallback() {
-        if (this._deltaHandler) document.removeEventListener('delta', this._deltaHandler);
-        if (this._endHandler) document.removeEventListener('stream:end', this._endHandler);
+    disconnectedCallback() {}
+
+    appendChunk(text, type = 'text') {
+        if (this._finalized || !text) return;
+        if (type === 'thinking') {
+            if (this._detailsEl) this._detailsEl.style.display = '';
+            this._thinking += text;
+            this._thinkingNode?.appendData(text);
+        } else {
+            this._text += text;
+            this._textNode?.appendData(text);
+        }
+    }
+
+    finalize(text) {
+        if (this._finalized) return;
+        this._finalized = true;
+        if (text && this._text === '') {
+            this._text = text;
+            if (this._textNode) this._textNode.data = text;
+        }
+        this._setFinalizedUI();
+        this._renderMarkdown();
+    }
+
+    _setFinalizedUI() {
+        if (this._badgeEl) {
+            this._badgeEl.classList.remove('live');
+            this._badgeEl.classList.add('final');
+            this._badgeEl.textContent = 'done';
+        }
+        if (this._textBox) this._textBox.classList.add('finalized');
     }
 
     async _renderMarkdown() {
@@ -275,7 +194,6 @@ class AgentMessage extends HTMLElement {
         wrapper.className = 'markdown-body';
         wrapper.innerHTML = html;
 
-        // Replace the text node in the slot
         const textSlot = this.shadowRoot.querySelector('slot[name="message-text"]');
         const oldSpan = textSlot ? textSlot.parentNode : null;
         if (oldSpan) {
@@ -292,7 +210,6 @@ async function loadMarked() {
         _markedModule = await import('https://cdn.jsdelivr.net/npm/marked/marked.esm.js');
         return _markedModule;
     } catch {
-        // Fallback: basic inline rendering without marked
         _markedModule = {
             parse: (text) => `<pre style="white-space:pre-wrap">${escapeHtml(text)}</pre>`,
         };
