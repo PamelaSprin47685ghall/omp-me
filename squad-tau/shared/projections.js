@@ -191,12 +191,10 @@ register('session:message')((state, payload) => {
     if (!sess) return;
     if (state.messages[payload.messageId]) {
         state.messages[payload.messageId].status = 'finalized';
-        if (payload.role === 'user') {
-            const text = extractText(payload.content);
-            if (text) state.messages[payload.messageId].staticContent = text;
-        }
+        const text = extractText(payload.content);
+        if (text) state.messages[payload.messageId].staticContent = text;
     } else {
-        const text = payload.role === 'user' ? extractText(payload.content) : undefined;
+        const text = extractText(payload.content);
         state.messages[payload.messageId] = {
             messageId: payload.messageId,
             sessionId: payload.sessionId,

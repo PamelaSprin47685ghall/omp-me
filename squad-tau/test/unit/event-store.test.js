@@ -114,8 +114,8 @@ test('session:message for assistant finalizes existing entity', () => {
     });
     const msg = state.messages['m1'];
     assert.equal(msg.status, 'finalized');
-    // Content is NOT stored in state tree — only staticContent for user msgs
-    assert.equal(msg.staticContent, undefined);
+    // staticContent is stored for all messages when provided in full
+    assert.equal(msg.staticContent, 'Hello');
 });
 
 test('session:message for user creates entity with staticContent', () => {

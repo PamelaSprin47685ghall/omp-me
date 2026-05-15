@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef, useEffect } from 'react';
 import { Box } from '@chakra-ui/react';
 import ToolCall from './ToolCall.jsx';
 import { useMessageState } from '../hooks/useAtomicState.js';
@@ -18,6 +18,14 @@ const ROLE_FG = { user: 'blue.fg', authoring: 'green.fg', confirming: 'green.fg'
  */
 export default function MessageItem({ messageId, sessionRole = 'user' }) {
   const meta = useMessageState(messageId);
+  const agentRef = useRef(null);
+
+  useEffect(() => {
+    if (meta?.status === 'finalized' && meta.staticContent && agentRef.current) {
+      agentRef.current.staticContent = meta.staticContent;
+    }
+  }, [meta?.status, meta?.staticContent]);
+
   if (!meta || !meta.messageId) return null;
 
   const isUser = meta.role === 'user';
@@ -41,7 +49,11 @@ export default function MessageItem({ messageId, sessionRole = 'user' }) {
       ) : (
         // Immortal native box — handles streaming + finalized internally
         <>
-          <agent-message message-id={meta.messageId} role={meta.role} />
+          <agent-message 
+            ref={agentRef}
+            message-id={meta.messageId} 
+            role={meta.role}
+          />
           {meta.toolIds?.length > 0 && (
             <Box mt={2}>
               {meta.toolIds.map((tid) => (

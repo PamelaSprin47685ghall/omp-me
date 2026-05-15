@@ -66,7 +66,7 @@ function inject(page, events) {
                         entityId: messageId,
                         sessionId,
                         role,
-                        staticContent: role === 'user' ? text : undefined,
+                        staticContent: text,
                     });
                     await yieldToReact();
                 }

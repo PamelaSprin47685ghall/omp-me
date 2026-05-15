@@ -114,6 +114,37 @@ class AgentMessage extends HTMLElement {
         this._markedPromise = null;
     }
 
+    set staticContent(text) {
+        if (this._finalized && this._text === text) return;
+        this._text = text || '';
+        this._finalized = true;
+        this._streaming = false;
+
+        // Immediately detach any stream listeners
+        if (this._deltaHandler) {
+            document.removeEventListener('delta', this._deltaHandler);
+            this._deltaHandler = null;
+        }
+        if (this._endHandler) {
+            document.removeEventListener('stream:end', this._endHandler);
+            this._endHandler = null;
+        }
+
+        // If not yet connected, connectedCallback will handle the finalized state
+        if (this.shadowRoot && this._textNode) {
+            this._textNode.data = this._text;
+            if (this._badgeEl) {
+                this._badgeEl.classList.remove('live');
+                this._badgeEl.classList.add('final');
+                this._badgeEl.textContent = 'done';
+            }
+            if (this._textBox) {
+                this._textBox.classList.add('finalized');
+            }
+            this._renderMarkdown();
+        }
+    }
+
     connectedCallback() {
         const messageId = this.getAttribute('message-id');
         const role = this.getAttribute('role');
@@ -160,11 +191,24 @@ class AgentMessage extends HTMLElement {
 
         const textSpan = document.createElement('span');
         textSpan.slot = 'message-text';
-        this._textNode = document.createTextNode('');
+        this._textNode = document.createTextNode(this._finalized ? this._text : '');
         textSpan.appendChild(this._textNode);
 
         this.appendChild(thinkingSpan);
         this.appendChild(textSpan);
+
+        if (this._finalized) {
+            if (this._badgeEl) {
+                this._badgeEl.classList.remove('live');
+                this._badgeEl.classList.add('final');
+                this._badgeEl.textContent = 'done';
+            }
+            if (this._textBox) {
+                this._textBox.classList.add('finalized');
+            }
+            this._renderMarkdown();
+            return;
+        }
 
         // Set up event listeners
         this._deltaHandler = (e) => {
@@ -191,10 +235,10 @@ class AgentMessage extends HTMLElement {
             if (e.detail.text && this._text === '' && this._thinking === '') {
                 if (e.detail.type === 'thinking') {
                     this._thinking = e.detail.text;
-                    if (this._thinkingNode) this._thinkingNode.appendData(e.detail.text);
+                    if (this._thinkingNode) this._thinkingNode.data = e.detail.text;
                 } else {
                     this._text = e.detail.text;
-                    if (this._textNode) this._textNode.appendData(e.detail.text);
+                    if (this._textNode) this._textNode.data = e.detail.text;
                 }
             }
 
