@@ -25,20 +25,10 @@ async function startVite() {
         server: { middlewareMode: true, appType: 'custom', hmr: false, ws: false },
         clearScreen: false,
         customLogger: {
-            info(msg, opts) {
-                if (msg.includes('Re-optimizing dependencies')) return;
-                if (opts?.clear) console.clear();
-                console.log(msg);
-            },
-            warn(msg) {
-                console.warn(msg);
-            },
-            warnOnce(msg) {
-                console.warn(msg);
-            },
-            error(msg) {
-                console.error(msg);
-            },
+            info() {},
+            warn() {},
+            warnOnce() {},
+            error() {},
         },
     });
 

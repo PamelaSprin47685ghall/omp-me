@@ -115,8 +115,8 @@ export function useWebSocket({ port } = {}) {
 
                 // Everything else → EventStore (config:capacity_changed included)
                 eventStore.dispatch(type, payload, seq);
-            } catch (err) {
-                console.error('Failed to parse WebSocket message:', err);
+            } catch {
+                // malformed message, skip
             }
         };
 
@@ -128,7 +128,6 @@ export function useWebSocket({ port } = {}) {
             pingIntervalRef.current = null;
 
             if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-                console.error(`[WebSocket] Max reconnect attempts (${MAX_RECONNECT_ATTEMPTS}) reached.`);
                 return;
             }
 

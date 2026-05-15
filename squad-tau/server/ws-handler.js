@@ -18,7 +18,7 @@ const STRATEGIES = {
                     c: 'f',
                     event: event.event,
                     payload: event.payload,
-                    timestamp: event.timestamp,
+                    timestamp: event.tick,
                     seq: event.id,
                 }),
             );
@@ -33,7 +33,7 @@ const STRATEGIES = {
             sessionId,
             role: 'user',
             content: [{ type: 'text', text }],
-            messageId: messageId || `usr_${Date.now()}`,
+            messageId: messageId || `usr_${eventLog.currentTick()}`,
         });
         return true;
     },
@@ -43,8 +43,8 @@ const STRATEGIES = {
         }
         return true;
     },
-    ping: async ({ ws }) => {
-        ws.send(JSON.stringify({ c: 'f', event: 'pong', timestamp: Date.now() }));
+    ping: async ({ ws, eventLog }) => {
+        ws.send(JSON.stringify({ c: 'f', event: 'pong', timestamp: eventLog.currentTick() }));
         return true;
     },
     abort: async ({ payload, eventLog }) => {

@@ -26,6 +26,14 @@ function validatePlan(plan) {
     if (hasCycle(nodes)) {
         errors.push('plan contains a cyclic dependency');
     }
+    const idSet = new Set(nodes.map((n) => n.id));
+    for (const node of nodes) {
+        for (const depId of node.depends_on || []) {
+            if (!idSet.has(depId)) {
+                errors.push(`node "${node.id}" depends on unknown node: "${depId}"`);
+            }
+        }
+    }
     return { valid: errors.length === 0, errors };
 }
 

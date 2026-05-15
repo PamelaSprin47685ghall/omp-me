@@ -126,7 +126,7 @@ export function createSession(state, nodeId, phase) {
 }
 
 export function giveReturn(state, sessionId, status, reason) {
-    const toolId = `call-${Date.now()}`;
+    const toolId = `call-${state.squad?.nodes ? Object.keys(state.squad.nodes).length : 0}-${Math.random().toString(36).slice(2, 6)}`;
     let s = applyEvent(state, 'tool_call:started', {
         sessionId,
         toolName: 'return',

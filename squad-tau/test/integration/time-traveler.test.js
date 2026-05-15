@@ -1,6 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import { project } from '../../shared/projections.js';
 import { timeTravel, initSquad } from '../helpers/engine-simulator.js';
+import { EventLog } from '../../server/event-log.js';
 
 function firstNode(state) {
     return Object.values(state.squad.nodes)[0];
@@ -128,8 +129,8 @@ describe('retry', () => {
     });
 });
 
-describe('outer review rejection cycle', () => {
-    test('reject then approve round 2', () => {
+describe('outer review rejection → architect awakening', () => {
+    test('rejection freezes DAG with phase_changed', () => {
         let calls = 0;
         const log = timeTravel(
             initSquad({
@@ -140,15 +141,69 @@ describe('outer review rejection cycle', () => {
             (p) => {
                 if (p.phase === 'outer_review') {
                     calls++;
-                    return calls === 1 ? { status: 'error', reason: 'rework' } : { status: 'ok', reason: 'ok' };
+                    return { status: 'error', reason: 'needs fundamental redesign' };
                 }
                 return { status: 'ok', reason: 'auto' };
             },
         );
+
+        // After outer review rejection, the DAG should freeze with phase_changed
+        const phaseChanged = log.find((e) => e.event === 'squad:phase_changed');
+        expect(phaseChanged).toBeDefined();
+        expect(phaseChanged.payload.phase).toBe('revising');
+        expect(phaseChanged.payload.feedback).toBe('needs fundamental redesign');
+
+        // No more __or__ sessions should be created after rejection
+        const orSessions = log.filter((e) => e.event === 'session:creating' && e.payload.nodeId === '__or__');
+        // Only the one session for the outer review that was created
+        expect(orSessions.length).toBe(1);
+
+        // The state should be stuck in 'revising' — squad is NOT complete
         const state = project(log);
-        expect(state.squad.status).toBe('complete');
-        expect(state.squad.nodes['n1'].status).toBe('approved');
-        expect(log.filter((e) => e.event === 'session:creating' && e.payload.nodeId === '__or__').length).toBe(2);
+        expect(state.squad.status).toBe('active');
+        expect(state.squad.phase).toBe('revising');
+    });
+
+    test('squad:replan unfreezes the DAG for a new cycle', () => {
+        // Simulate: first cycle where outer review rejects
+        const log1 = timeTravel(
+            initSquad({
+                mode: 'L',
+                nodes: [{ id: 'n1', task: 'a', review_criteria: [], depends_on: [] }],
+                originalTask: 'test',
+            }),
+            (p) => {
+                if (p.phase === 'outer_review') {
+                    return { status: 'error', reason: 'redesign' };
+                }
+                return { status: 'ok', reason: 'auto' };
+            },
+        );
+
+        const state1 = project(log1);
+        expect(state1.squad.phase).toBe('revising');
+
+        // Now simulate agent calling delegate again → squad:replan
+        const eventLog2 = new EventLog(log1);
+        eventLog2.append('squad:replan', {
+            mode: 'M',
+            nodes: [
+                {
+                    id: 'n2',
+                    task: 'redesigned approach',
+                    review_criteria: ['quality'],
+                    depends_on: [],
+                },
+            ],
+            originalTask: 'test',
+        });
+
+        const state2 = project(eventLog2.log);
+        expect(state2.squad.status).toBe('active');
+        expect(state2.squad.phase).toBe(undefined);
+        expect(state2.squad.nodes.n1).toBeUndefined(); // old node gone
+        expect(state2.squad.nodes.n2).toBeDefined(); // new node present
+        expect(state2.squad.nodes.n2.status).toBe('authoring'); // fresh start
     });
 });
 

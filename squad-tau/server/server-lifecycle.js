@@ -4,6 +4,10 @@
  * EventLog-driven — no FSM, no SessionRegistry, no ModelPool class.
  * Dual-track protocol: fact channel (c:'f') + ephemeral channel (c:'e').
  * config:capacity_changed baked into EventLog — no separate env store/broadcast.
+ *
+ * Zero-State Bootstrapping: on startup, loads .ndjson into EventLog before
+ * engine creation. The engine folds all persisted events, instantly rehydrating
+ * the state tree to the pre-crash quantum.
  */
 import { createServer } from 'http';
 import { createHttpServer } from './http-server.js';
@@ -13,6 +17,7 @@ import { EventLog } from './event-log.js';
 import { createViteDevServer, closeViteServer, CLIENT_ROOT } from './vite-setup.js';
 import { loadModelsConfig } from './model-pool.js';
 import { setupEngine } from './engine.js';
+import { loadFromNDJSON, createNDJSONWriter } from './persistence.js';
 
 let _server = null;
 let _close = null;
@@ -22,6 +27,8 @@ let _refCount = 0;
 
 const BROADCAST_WHITELIST = new Set([
     'squad:init',
+    'squad:replan',
+    'squad:phase_changed',
     'squad:node_state',
     'squad:complete',
     'squad:abort',
@@ -46,7 +53,7 @@ function shouldBroadcast(eventType) {
     return BROADCAST_WHITELIST.has(eventType);
 }
 
-function createCloseHandler(wss, rawServer, heartbeatCleanup, unsub) {
+function createCloseHandler(wss, rawServer, heartbeatCleanup, unsub, ndjsonWriter) {
     let closing = false;
     return async () => {
         if (closing) return;
@@ -55,11 +62,12 @@ function createCloseHandler(wss, rawServer, heartbeatCleanup, unsub) {
             c: 'f',
             event: 'connection:close',
             payload: { reason: 'server_stop' },
-            timestamp: Date.now(),
+            timestamp: 0,
         });
         for (const client of wss.clients) client.send(closeMsg);
         heartbeatCleanup();
         unsub();
+        ndjsonWriter.close();
         for (const client of wss.clients) client.terminate();
         wss.close();
         if (typeof rawServer.closeAllConnections === 'function') rawServer.closeAllConnections();
@@ -74,7 +82,10 @@ export async function startServer({ pi, skipVite = false } = {}) {
     _refCount++;
     if (_server) return { port: _server.port, eventLog: _server.eventLog, close: _close };
 
-    const eventLog = new EventLog();
+    // Zero-state bootstrap: load persisted entries, seed EventLog
+    const persistedEntries = loadFromNDJSON();
+    const eventLog = new EventLog(persistedEntries);
+
     const config = loadModelsConfig();
 
     const rawServer = createServer();
@@ -84,6 +95,16 @@ export async function startServer({ pi, skipVite = false } = {}) {
         onMessage: async (msg, ws) => {
             await routeMessage(msg, eventLog, ws, engine.getState);
         },
+    });
+
+    // ── NDJSON persistence writer — every fact goes to disk ──
+    const ndjsonWriter = createNDJSONWriter();
+    // Write any pre-loaded entries to the new file (in case it was lost/deleted)
+    for (const entry of persistedEntries) {
+        ndjsonWriter.write(entry);
+    }
+    const unsubPersist = eventLog.subscribe((data) => {
+        ndjsonWriter.write(data);
     });
 
     // ── Broadcast helpers ──
@@ -107,7 +128,7 @@ export async function startServer({ pi, skipVite = false } = {}) {
                 c: 'f',
                 event: entry.event,
                 payload: entry.payload,
-                timestamp: entry.timestamp,
+                timestamp: entry.tick,
                 seq: entry.id,
             });
             for (const client of wss.clients) {
@@ -118,10 +139,17 @@ export async function startServer({ pi, skipVite = false } = {}) {
 
     const heartbeatCleanup = startHeartbeat(wss.clients);
     const http = await createHttpServer({ viteMiddlewares, server: rawServer, clientRoot: CLIENT_ROOT });
-    const close = createCloseHandler(wss, rawServer, heartbeatCleanup, () => {
-        unsubLog();
-        engine.cleanup();
-    });
+    const close = createCloseHandler(
+        wss,
+        rawServer,
+        heartbeatCleanup,
+        () => {
+            unsubLog();
+            unsubPersist();
+            engine.cleanup();
+        },
+        ndjsonWriter,
+    );
 
     _server = { port: http.port, eventLog };
     _close = close;

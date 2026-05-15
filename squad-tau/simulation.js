@@ -138,7 +138,7 @@ function awaitWsEvent(wsUrl, eventType, timeoutMs) {
 }
 
 beforeAll(async () => {
-    testDir = `/tmp/squad-physical-${Date.now()}`;
+    testDir = `/tmp/squad-physical-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
     tmuxSess = `squad-physical-${process.pid}`;
     const pluginPath = path.resolve(process.cwd(), 'index.js');
     const model = process.env.SQUAD_MODEL;

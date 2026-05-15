@@ -1,7 +1,8 @@
 /**
  * Outer review as a regular node — using the rule-based reactor.
  * In L mode, __or__ node is auto-injected by squad:init.
- * It behaves like any other node; when rejected, R5 resets workers.
+ * When rejected, R5 emits squad:phase_changed (Architect Awakening)
+ * instead of resetting workers — macro-level topology freeze.
  */
 import { describe, test, expect } from 'bun:test';
 import { reactState } from '../../server/reactor.js';
@@ -44,8 +45,8 @@ describe('outer review as regular node', () => {
     });
 });
 
-describe('rejection cycle', () => {
-    test('__or__ rejected resets workers to authoring', () => {
+describe('rejection → architect awakening', () => {
+    test('__or__ rejected emits squad:phase_changed, not worker reset', () => {
         const st = buildState({
             mode: 'L',
             nodes: [{ id: 'n1', task: 'a', review_criteria: [] }],
@@ -53,12 +54,40 @@ describe('rejection cycle', () => {
         setStatus(st, 'n1', 'approved');
         setStatus(st, '__or__', 'rejected', { round: 1, feedback: 'rework' });
         const e = reactState(st);
-        // R5 should reset n1 to authoring and __or__ to undefined (waits for re-approval)
-        const n1Reset = e.find((a) => a.payload.nodeId === 'n1' && a.payload.status === 'authoring');
-        expect(n1Reset).toBeDefined();
-        expect(n1Reset.payload.epoch).toBe(1);
+
+        // R5 should emit squad:phase_changed (not reset workers)
+        const phaseChanged = e.find((a) => a.type === 'squad:phase_changed');
+        expect(phaseChanged).toBeDefined();
+        expect(phaseChanged.payload.phase).toBe('revising');
+        expect(phaseChanged.payload.feedback).toBe('rework');
+
+        // No worker should be reset to authoring
+        const workerReset = e.find((a) => a.type === 'squad:node_state' && a.payload.status === 'authoring');
+        expect(workerReset).toBeUndefined();
+
+        // __or__ should NOT be reset to undefined
         const orUndef = e.find((a) => a.payload.nodeId === '__or__' && a.payload.status === undefined);
-        expect(orUndef).toBeDefined();
-        expect(orUndef.payload.epoch).toBe(1);
+        expect(orUndef).toBeUndefined();
+    });
+
+    test('squad:phase_changed only fires once (guarded by phase check)', () => {
+        const st = buildState({
+            mode: 'L',
+            nodes: [{ id: 'n1', task: 'a', review_criteria: [] }],
+        });
+        setStatus(st, 'n1', 'approved');
+        setStatus(st, '__or__', 'rejected', { round: 1, feedback: 'rework 1' });
+
+        // First call: R5 fires
+        const e1 = reactState(st);
+        expect(e1.some((a) => a.type === 'squad:phase_changed')).toBe(true);
+
+        // Simulate projections applied: set phase to 'revising'
+        st.squad.phase = 'revising';
+
+        // Second call: guard prevents re-trigger
+        const e2 = reactState(st);
+        expect(e2.some((a) => a.type === 'squad:phase_changed')).toBe(false);
+        expect(e2.length).toBe(0);
     });
 });

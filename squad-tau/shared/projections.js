@@ -32,7 +32,15 @@ function register(type) {
 
 export function getInitialState() {
     return {
-        squad: { status: 'idle', nodes: {}, results: [], originalTask: '', mode: 'M', planConfig: null },
+        squad: {
+            status: 'idle',
+            nodes: {},
+            results: [],
+            originalTask: '',
+            mode: 'M',
+            planConfig: null,
+            mainSessionId: null,
+        },
         sessions: {},
         messages: {},
         toolCalls: {},
@@ -104,6 +112,10 @@ register('tool_call:finished')((state, payload) => {
 
 // ── Squad Lifecycle ──
 
+register('squad:register_main_session')((state, payload) => {
+    return setIn(state, ['squad', 'mainSessionId'], payload.sessionId);
+});
+
 register('squad:init')((state, payload) => {
     const nodes = {};
     const workerIds = [];
@@ -158,15 +170,16 @@ register('squad:init')((state, payload) => {
     }
 
     return {
-        ...state,
+        ...getInitialState(),
+        config: state.config,
         squad: {
-            ...state.squad,
             status: 'active',
             mode: payload.mode,
             nodes,
             planConfig,
             originalTask: payload.originalTask || '',
             results: [],
+            mainSessionId: payload.mainSessionId || null,
         },
     };
 });
@@ -184,6 +197,84 @@ register('squad:complete')((state, payload) => {
 
 register('squad:abort')((state) => {
     return { ...state, squad: { ...state.squad, status: 'aborted' } };
+});
+
+register('squad:phase_changed')((state, payload) => {
+    return {
+        ...state,
+        squad: {
+            ...state.squad,
+            phase: payload.phase,
+            feedback: payload.feedback,
+        },
+    };
+});
+
+register('squad:replan')((state, payload) => {
+    const nodes = {};
+    const workerIds = [];
+    const planConfig = {};
+
+    for (const n of payload.nodes || []) {
+        const nodeId = n.id;
+        const deps = n.depends_on || [];
+        const initialStatus = deps.length === 0 ? 'authoring' : undefined;
+        nodes[nodeId] = {
+            id: nodeId,
+            depends_on: deps,
+            status: initialStatus,
+            epoch: 0,
+            summary: undefined,
+            feedback: undefined,
+            affectedFiles: undefined,
+            lastPromptedPhase: null,
+        };
+        workerIds.push(nodeId);
+        planConfig[nodeId] = {
+            task: n.task || '',
+            review_criteria: n.review_criteria || [],
+            phases: ['authoring', 'confirming', 'reviewing'],
+            maxRetries: 5,
+            resetOnRej: false,
+        };
+    }
+
+    if (payload.mode === 'L') {
+        const orId = '__or__';
+        nodes[orId] = {
+            id: orId,
+            depends_on: [...workerIds],
+            status: undefined,
+            epoch: 0,
+            summary: undefined,
+            feedback: undefined,
+            affectedFiles: undefined,
+            lastPromptedPhase: null,
+        };
+        planConfig[orId] = {
+            task: payload.originalTask || '',
+            review_criteria: [],
+            phases: ['reviewing'],
+            maxRetries: Infinity,
+            resetOnRej: true,
+        };
+    }
+
+    return {
+        ...state,
+        squad: {
+            ...state.squad,
+            status: 'active',
+            phase: undefined,
+            feedback: undefined,
+            mode: payload.mode,
+            nodes,
+            planConfig,
+            originalTask: payload.originalTask || '',
+            results: [],
+            mainSessionId: payload.mainSessionId || null,
+        },
+    };
 });
 
 // ── Domain Facts (elevated from raw tool_call return plumbing) ──

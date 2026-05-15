@@ -20,17 +20,22 @@ describe('happy path', () => {
 });
 
 describe('outer review rejection', () => {
-    test('rejected resets node to AUTHORING', () => {
+    test('rejected emits phase_changed, not worker reset', () => {
         const st = buildState({
             mode: 'L',
             nodes: [{ id: 'n1', task: 't', review_criteria: [] }],
         });
         setStatus(st, 'n1', 'approved', { summary: 'n1 done' });
         setStatus(st, '__or__', 'rejected', { round: 1, feedback: 'rework' });
-        const a = reactState(st).find((e) => e.type === 'squad:node_state' && e.payload.status === 'authoring');
-        expect(a).toBeDefined();
-        expect(a.payload.nodeId).toBe('n1');
-        expect(a.payload.epoch).toBe(1);
+        const e = reactState(st);
+
+        // Should emit squad:phase_changed, not reset nodes
+        const phaseChanged = e.find((a) => a.type === 'squad:phase_changed');
+        expect(phaseChanged).toBeDefined();
+        expect(phaseChanged.payload.phase).toBe('revising');
+
+        const workerReset = e.find((a) => a.type === 'squad:node_state' && a.payload.status === 'authoring');
+        expect(workerReset).toBeUndefined();
     });
 });
 

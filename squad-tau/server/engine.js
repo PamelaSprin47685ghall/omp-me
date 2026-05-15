@@ -8,6 +8,10 @@
  *
  * Config (maxWorkers) lives in state.config, seeded by config:capacity_changed.
  * No separate env object, no setEnv/getEnv escape hatch.
+ *
+ * Zero-State Bootstrapping: constructor folds any pre-existing EventLog
+ * entries (from .ndjson rehydration) into the initial state before
+ * subscribing to new entries. This gives process-crash immunity.
  */
 import { reactState } from './reactor.js';
 import { applyEvent, getInitialState } from '../shared/projections.js';
@@ -15,10 +19,18 @@ import { buildPrompt } from './prompt-builder.js';
 
 export function setupEngine(eventLog, pi, initialMaxWorkers = 3, effectHandlers = {}, broadcastEphemeral = null) {
     let state = getInitialState();
-    let pendingTick = false;
 
-    // Seed config as a domain event
-    state = applyEvent(state, 'config:capacity_changed', { maxWorkers: initialMaxWorkers });
+    // Fold any pre-existing entries (e.g. from .ndjson rehydration)
+    for (const entry of eventLog.log) {
+        state = applyEvent(state, entry.event, entry.payload);
+    }
+
+    // Seed config as a domain event (only if not already set from rehydration)
+    if (!state.config?.maxWorkers) {
+        state = applyEvent(state, 'config:capacity_changed', { maxWorkers: initialMaxWorkers });
+    }
+
+    let pendingTick = false;
 
     // Fold incoming events into state
     const unsubLog = eventLog.subscribe((data) => {
@@ -50,8 +62,8 @@ export function setupEngine(eventLog, pi, initialMaxWorkers = 3, effectHandlers 
                         const promptText = buildPrompt(payload.phase, state, node, eventLog);
                         payload = { ...payload, promptText };
                     }
-                } catch (err) {
-                    console.error('[Engine] buildPrompt failed:', err);
+                } catch {
+                    // buildPrompt failure is non-fatal; engine continues
                 }
             }
 
@@ -73,8 +85,6 @@ export function setupEngine(eventLog, pi, initialMaxWorkers = 3, effectHandlers 
                             reason: 'handler_error',
                             message: err?.message || String(err),
                         });
-                    } else {
-                        console.error('[Engine] Unhandled effect error:', err);
                     }
                 });
         }

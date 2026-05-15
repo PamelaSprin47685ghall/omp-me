@@ -74,14 +74,48 @@ register('session:prompting')(async (payload, { pi, getState, eventLog, broadcas
     }
 });
 
+let _msgCounter = 0;
+
 register('session:message')(async (payload, context) => {
     if (payload.role !== 'user') return;
     const { eventLog } = context;
-    const messageId = payload.messageId || `usr_${Date.now()}`;
+    const messageId = payload.messageId || `usr_${++_msgCounter}`;
     return [
         { type: 'message:created', payload: { messageId, sessionId: payload.sessionId, role: 'user' } },
         { type: 'message:finalized', payload: { messageId, staticContent: extractText(payload.content) } },
     ];
+});
+
+register('squad:phase_changed')(async (payload, { eventLog, getState, pi }) => {
+    if (payload.phase !== 'revising') return;
+    const state = getState();
+    const feedback = payload.feedback || 'No feedback provided';
+
+    // Architect Awakening: inject the rejection feedback into the main session
+    // so the agent can revise its plan and call delegate again.
+    const mainSessionId = state.squad.mainSessionId;
+    if (mainSessionId && state.sessions[mainSessionId]) {
+        // Update EventLog for UI visibility
+        const msg = `[Squad-Tau Architect Awakening]\n\nYour outer review was rejected:\n\n${feedback}\n\nPlease analyze the feedback, revise your plan, and call \`delegate\` again.`;
+        eventLog.append('session:message', {
+            sessionId: mainSessionId,
+            role: 'user',
+            content: [{ type: 'text', text: msg }],
+        });
+
+        // Prompt the main session's LLM via pi.sendMessage (like ../squad handleSquad)
+        // sendMessage is fire-and-forget (returns void per ExtensionAPI types)
+        if (pi && typeof pi.sendMessage === 'function') {
+            pi.sendMessage(
+                {
+                    customType: 'squad-awakening',
+                    content: msg,
+                    display: false,
+                },
+                { triggerTurn: true },
+            );
+        }
+    }
 });
 
 register('squad:complete')(() => {
@@ -126,8 +160,8 @@ function subscribeToSessionEvents(session, eventLog, sessionId, broadcast, getSt
         try {
             const handler = SessionEventHandlers[event.type];
             if (handler) handler(event, ctx);
-        } catch (err) {
-            console.error(`[SessionEvents] Error ${event.type} for ${sessionId}:`, err);
+        } catch {
+            // non-fatal session event handler error
         }
     });
 }

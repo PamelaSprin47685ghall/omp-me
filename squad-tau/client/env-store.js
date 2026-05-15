@@ -23,9 +23,8 @@ const unsub = eventStore.subscribe(sync);
 
 export const envStore = {
     getState: () => state,
-    update(patch) {
-        // No longer supported — dispatch config:capacity_changed via eventStore
-        console.warn('[envStore] update() deprecated — dispatch config:capacity_changed instead');
+    update() {
+        // No longer supported — dispatch config:capacity_changed via EventLog
     },
     subscribe: (fn) => {
         listeners.add(fn);

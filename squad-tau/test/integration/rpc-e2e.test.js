@@ -52,15 +52,16 @@ describe('OMP RPC E2E', () => {
             // 1. Plugin registration
             const registeredTools = [];
             const mockPi = {
-                registerTool: (name, def) => registeredTools.push({ name, def }),
+                registerTool: (def) => registeredTools.push(def),
+                sendMessage: () => {},
                 on: () => {},
             };
-            const plugin = squadPlugin(mockPi);
-            expect(plugin.name).toBe('squad-tau');
-            expect(plugin.tools).toHaveLength(1);
-            expect(plugin.tools[0].name).toBe('squad_delegate');
-            expect(typeof plugin.tools[0].handler).toBe('function');
-            expect(typeof plugin.onStart).toBe('function');
+            // Factory returns void (ExtensionFactory contract), server starts
+            // fire-and-forget via startServer which may fail in test — that's OK.
+            squadPlugin(mockPi);
+            expect(registeredTools).toHaveLength(1);
+            expect(registeredTools[0].name).toBe('squad_delegate');
+            expect(typeof registeredTools[0].execute).toBe('function');
 
             // 2. processDelegate with real EventLog + TOML files
             const eventLog = new EventLog();

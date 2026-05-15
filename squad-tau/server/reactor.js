@@ -179,34 +179,18 @@ const RULES = [
         perNode: true,
     },
 
-    // R5: __or__ rejected → reset all approved workers
+    // R5: __or__ rejected → emit squad:phase_changed (Architect Awakening)
+    // Outer review failure is a macro-level event, not a micro-level node reset.
+    // The entire DAG topology is frozen; the main session must re-plan.
+    // This rule fires only once — setting phase to 'revising' prevents re-trigger.
     {
-        when: (s) => s.squad.nodes.__or__?.status === 'rejected',
-        then: (s) => {
-            const actions = [];
-            const rejectedNode = s.squad.nodes.__or__;
-            const feedback = rejectedNode?.feedback || 'Rejected';
-            const nextEpoch = (rejectedNode?.epoch || 0) + 1;
-
-            for (const node of Object.values(s.squad.nodes)) {
-                const c = cfg(s, node.id);
-                if (c.resetOnRej) continue;
-                if (node.status === 'approved') {
-                    actions.push(
-                        ac('squad:node_state', {
-                            nodeId: node.id,
-                            status: 'authoring',
-                            epoch: (node.epoch || 0) + 1,
-                            feedback,
-                        }),
-                    );
-                }
-            }
-            // Set __or__ to undefined — R2 (undefined + deps met) will transition to
-            // 'reviewing' once ALL workers have been re-approved after the reset.
-            actions.push(ac('squad:node_state', { nodeId: '__or__', status: undefined, epoch: nextEpoch }));
-            return actions;
-        },
+        when: (s) => s.squad.nodes.__or__?.status === 'rejected' && s.squad.phase !== 'revising',
+        then: (s) => [
+            ac('squad:phase_changed', {
+                phase: 'revising',
+                feedback: s.squad.nodes.__or__.feedback || 'Outer review rejected the aggregate result',
+            }),
+        ],
     },
 
     // R6: __or__ approved → squad:complete
@@ -266,6 +250,8 @@ function ac(type, payload) {
 
 export function reactState(state) {
     if (state.squad.status !== 'active') return [];
+    // Revising phase freezes the DAG — the Architect is thinking. No actions until replan.
+    if (state.squad.phase === 'revising') return [];
     const actions = [];
     for (const rule of RULES) {
         if (rule.perNode) {

@@ -1,4 +1,6 @@
 import { validatePlan } from './validate-plan.js';
+import { project } from '../shared/projections.js';
+import { discardNDJSON } from './persistence.js';
 import fs from 'fs';
 import path from 'path';
 import { getGlobalEventLog } from './server-lifecycle.js';
@@ -54,13 +56,17 @@ function parseTomlNode(plan_dir, file) {
 /**
  * Fire-and-forget plan submission.
  *
- * Validates the plan directory, appends SQUAD_INIT to EventLog,
- * and returns immediately. Does NOT wait for SQUAD_COMPLETE —
- * the Engine pulse loop handles all subsequent state transitions.
+ * Validates the plan directory, checks current squad phase:
+ * - If squad is in 'revising' phase → emits squad:replan (Big Bang v2: topology overwrite)
+ * - Otherwise → emits squad:init (fresh start)
+ *
+ * Returns immediately. Engine pulse loop handles all subsequent state transitions.
  */
 export async function processDelegate(params, options = {}) {
     const eventLog = options.eventLog || getGlobalEventLog();
     if (!eventLog) throw new Error('EventLog not initialized');
+
+    const mainSessionId = options.mainSessionId || null;
 
     const { nodes, mode } = readNodesFromDir(params.plan_dir);
     const validation = validatePlan({ mode, nodes });
@@ -69,6 +75,28 @@ export async function processDelegate(params, options = {}) {
         throw new Error(`Invalid plan: ${validation.errors.join('; ')}`);
     }
 
-    eventLog.append('squad:init', { mode, nodes, originalTask: '' });
+    // Detect revising phase — if agent is re-planning after outer review rejection,
+    // use squad:replan to preserve event history and overwrite only DAG topology.
+    // Otherwise it's a fresh start (user typed /squad <new task>):
+    // discard old .ndjson and reset EventLog to absolute zero.
+    const state = project(eventLog.log);
+    if (state.squad.phase === 'revising') {
+        eventLog.append('squad:replan', {
+            mode,
+            nodes,
+            originalTask: state.squad.originalTask || '',
+            mainSessionId,
+        });
+    } else {
+        discardNDJSON();
+        eventLog.reset();
+        eventLog.append('squad:init', {
+            mode,
+            nodes,
+            originalTask: '',
+            mainSessionId,
+        });
+    }
+
     return { success: true, message: 'Squad started' };
 }

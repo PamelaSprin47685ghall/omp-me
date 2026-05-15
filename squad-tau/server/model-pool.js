@@ -21,7 +21,6 @@ function loadModelsConfig() {
         return { maxWorkers: slots.length || 3, slots };
     } catch (err) {
         if (err.code === 'ENOENT') return { maxWorkers: 3, slots: [] };
-        console.warn(`[squad] Failed to parse model config ${CONFIG_PATH}:`, err.message);
         return { maxWorkers: 3, slots: [] };
     }
 }

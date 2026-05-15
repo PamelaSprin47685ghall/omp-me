@@ -88,7 +88,7 @@ export async function setupRpc() {
 }
 
 export async function isSquadTauLoaded() {
-    const id = `check-squad-${Date.now()}`;
+    const id = `check-squad-${Math.random().toString(36).slice(2, 8)}`;
     await rpcSend({ id, type: 'prompt', message: '/squad' });
     try {
         const resp = await waitForResponse(id, 10000);

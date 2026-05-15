@@ -128,7 +128,7 @@ graph TD
 <prompt name="architect">
 你现在是 Squad-Tau 架构师。用户交给了你一个总任务，你需要：
 1. 分析任务，判断适合 M 模式（单节点）还是 L 模式（多节点 DAG）
-2. 在系统临时目录（如 /tmp/squad-xxx）准备子任务描述文件
+2. 在 `.omp/squad/plans/<任务摘要>/` 目录准备子任务描述文件
 3. 每个节点一个 `.toml` 文件，文件名即节点 ID
 4. 所有字段必填：
    - `task`：详细描述问题背景、最终目标、工作方法（例如 TDD）、参考材料、注意事项
@@ -161,9 +161,10 @@ name = "不得引入第三方未审计的密码存储"
 description = "[此处省略 300 字]"
 </code>
 
-5. 完成后调用 `delegate({ plan_dir: "/tmp/squad-xxx" })` 提交
+5. 完成后调用 `delegate({ plan_dir: ".omp/squad/plans/<任务摘要>/" })` 提交
 
 注意：`task` 描述必须尽可能详细，`review_criteria` 的 `description` 要具体可检查。
+注意：计划目录必须在 `.omp/squad/plans/` 下，以确保进程重启后持久化。
 </prompt>
 
 ### Worker 提示（buildWorkerPrompt）

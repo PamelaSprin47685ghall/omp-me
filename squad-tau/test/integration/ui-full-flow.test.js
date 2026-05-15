@@ -8,7 +8,7 @@ import { T } from '../helpers/timeout.test.js';
 import { startViteOnly, stopViteOnly } from '../helpers/vite-only.js';
 import { setupBrowser, teardownBrowser, clickSidebarNode } from '../helpers/puppeteer-setup.js';
 
-const SHOT_DIR = `/tmp/squad-ui-full-flow-${Date.now()}-${process.pid}`;
+const SHOT_DIR = `/tmp/squad-ui-full-flow-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
 fs.mkdirSync(SHOT_DIR, { recursive: true });
 
 async function capture(page, name) {

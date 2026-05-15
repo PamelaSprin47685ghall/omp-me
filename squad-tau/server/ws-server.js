@@ -48,7 +48,7 @@ export async function createWsServer(httpServer, _unused, { onConnection, onMess
             JSON.stringify({
                 type: 'connection:established',
                 payload: { sessionId: ws.connId, serverVersion: '1.0.0' },
-                timestamp: Date.now(),
+                timestamp: 0,
             }),
         );
         onConnection?.(ws);
