@@ -1,31 +1,13 @@
 import { applyEvent, project } from '../shared/projections.js';
 
 /**
- * Event-type to top-level state-path mapping for atomic subscriptions (Cut 5).
- * Each entry declares which state branches an event type modifies.
+ * Event-type to top-level state-path mapping via domain prefix routing.
+ * No dictionary to maintain — the namespace before ':' IS the path.
+ *   `squad:*`        → 'squad'
+ *   `session:*`      → 'sessions'
+ *   `model_pool:*`   → 'modelPool'
+ *   `ui:*`           → 'ui'
  */
-const EventPaths = {
-    'squad:init': 'squad',
-    'squad:node_state': 'squad',
-    'squad:complete': 'squad',
-    'squad:abort': 'squad',
-    'squad:outer_review_start': 'squad',
-    'squad:outer_review_done': 'squad',
-    'squad:outer_review_failed': 'squad',
-    'session:creating': 'sessions',
-    'session:start': 'sessions',
-    'session:state': 'sessions',
-    'session:end': 'sessions',
-    'session:message': 'sessions',
-    'session:tool_call': 'sessions',
-    'session:tool_result': 'sessions',
-
-    'model_pool:snapshot': 'modelPool',
-    'ui:select_session': 'ui',
-    'ui:set_view_mode': 'ui',
-    'ui:toggle_drawer': 'ui',
-    'ui:dismiss_banner': 'ui',
-};
 
 /**
  * Client-side Event Store with path-tracked notifications.
@@ -40,8 +22,9 @@ class EventStore {
     }
 
     _trackPath(type) {
-        const path = EventPaths[type];
-        if (path) this._changedPaths.add(path);
+        const domain = type.split(':')[0];
+        const path = domain === 'session' ? 'sessions' : domain === 'model_pool' ? 'modelPool' : domain;
+        this._changedPaths.add(path);
     }
 
     dispatch(type, payload, seq) {

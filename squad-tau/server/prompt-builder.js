@@ -3,6 +3,65 @@
  * Eliminates whitespace issues and enables dynamic pruning based on token limits.
  */
 
+/**
+ * Common sections injected into worker / confirming / reviewer prompts.
+ * Review criteria — 3 identical patterns collapsed into 1.
+ * Iteration history — unified format superset of worker & reviewer.
+ */
+function buildCommonSections(node) {
+    const sections = [];
+    if (node.review_criteria?.length) {
+        sections.push({
+            title: '评审标准:',
+            content: node.review_criteria.map((c) => `${c.name}: ${c.description}`),
+            priority: 80,
+        });
+    }
+    if (node.history?.length) {
+        sections.push({
+            title: 'Iteration History',
+            content: node.history.map((entry, i) => {
+                const lines = [`工作记录 (${i + 1}): ${entry.workRecord?.reason || ''}`];
+                if (entry.workRecord?.affected_files?.length > 0) {
+                    lines.push(`  文件: ${entry.workRecord.affected_files.join(', ')}`);
+                }
+                lines.push(`审阅者反馈 (${i + 1}): ${entry.feedback || ''}`);
+                return lines.join('\n');
+            }),
+            priority: 50,
+        });
+    }
+    return sections;
+}
+
+/**
+ * Mode-conditional section injected into worker prompts.
+ * M = single-node, L = multi-node — different psychological framings.
+ */
+function modeWarningSection(state) {
+    if (state.squad.mode === 'M') {
+        return [
+            {
+                title: '工作模式',
+                content:
+                    '你是本次任务的唯一执行者。你必须在本次提交中完成所有闭环，不要指望其他节点来擦屁股。确保全局变量、依赖引用在单个模块内绝对正确。',
+                priority: 110,
+            },
+        ];
+    }
+    if (state.squad.mode === 'L') {
+        return [
+            {
+                title: '工作模式',
+                content:
+                    '你只负责整个系统的一部分（见你的任务描述）。严禁越界修改不属于你职责的核心文件。若上游文件有误，记录在案，不要强行覆盖。',
+                priority: 110,
+            },
+        ];
+    }
+    return [];
+}
+
 class PromptDoc {
     constructor(sections) {
         this.sections = [];
@@ -43,20 +102,11 @@ const PROMPT_TEMPLATES = {
         const upstreamResults = state.squad.nodes
             .filter((n) => (node.depends_on || []).includes(n.id))
             .map((n) => ({ nodeId: n.id, status: n.status, summary: n.summary, affectedFiles: n.affectedFiles }));
-        const history = node.history || [];
-        const round = history.length + 1;
+        const round = (node.history?.length || 0) + 1;
         return [
             { title: 'Role', content: '你现在是 Squad-Tau 工程师，负责实现分配给你的子任务。', priority: 100 },
             { title: '你的任务:', content: node.task, priority: 100 },
-            ...(node.review_criteria?.length
-                ? [
-                      {
-                          title: '评审标准:',
-                          content: node.review_criteria.map((c) => `${c.name}: ${c.description}`),
-                          priority: 80,
-                      },
-                  ]
-                : []),
+            ...modeWarningSection(state),
             ...(upstreamResults.length
                 ? [
                       {
@@ -69,18 +119,7 @@ const PROMPT_TEMPLATES = {
                       },
                   ]
                 : []),
-            ...(history.length
-                ? [
-                      {
-                          title: 'Iteration History',
-                          content: history.map(
-                              (h, i) =>
-                                  `工作记录 (${i + 1}): ${h.workRecord.reason}\n审阅者反馈 (${i + 1}): ${h.feedback}`,
-                          ),
-                          priority: 50,
-                      },
-                  ]
-                : []),
+            ...buildCommonSections(node),
             { title: 'Status', content: `现在是第 ${round} 轮，请你继续完善后提交。`, priority: 100 },
             {
                 title: 'Constraints',
@@ -105,15 +144,7 @@ const PROMPT_TEMPLATES = {
                 priority: 100,
             },
             { title: '原始任务', content: task, priority: 100 },
-            ...(node?.review_criteria?.length
-                ? [
-                      {
-                          title: '评审标准',
-                          content: node.review_criteria.map((c) => `${c.name}: ${c.description}`),
-                          priority: 80,
-                      },
-                  ]
-                : []),
+            ...buildCommonSections(node),
             {
                 title: 'Dimensions',
                 content: [
@@ -146,31 +177,7 @@ const PROMPT_TEMPLATES = {
         return [
             { title: 'Role', content: '你现在是 Squad-Tau 审核专员，负责评审工程师的交付。', priority: 100 },
             { title: '原始任务:', content: node.task, priority: 100 },
-            ...(node.review_criteria?.length
-                ? [
-                      {
-                          title: '评审标准:',
-                          content: node.review_criteria.map((c) => `${c.name}: ${c.description}`),
-                          priority: 80,
-                      },
-                  ]
-                : []),
-            ...(history.length
-                ? [
-                      {
-                          title: 'Iteration History',
-                          content: history.map((entry, i) => {
-                              const lines = [`工作记录 (${i + 1}): ${entry.workRecord?.reason || ''}`];
-                              if (entry.workRecord?.affected_files?.length > 0) {
-                                  lines.push(`  文件: ${entry.workRecord.affected_files.join(', ')}`);
-                              }
-                              lines.push(`审阅者反馈 (${i + 1}): ${entry.feedback || ''}`);
-                              return lines.join('\n');
-                          }),
-                          priority: 50,
-                      },
-                  ]
-                : []),
+            ...buildCommonSections(node),
             {
                 title: `Work Record (${currentRound})`,
                 content: [

@@ -7,7 +7,7 @@ import { useWebSocketContext } from '../websocket-context.js';
 
 export default function Header() {
   const { connected } = useWebSocketContext();
-  const squadActive = usePathState('squad', s => s.squad.mode && (s.squad.status === 'active' || s.squad.status === 'complete'));
+  const squadActive = usePathState('squad', s => s.squad.status === 'active' || s.squad.status === 'complete');
   const { send } = useWebSocketContext();
   const port = typeof window !== 'undefined' ? window.location.port : '';
 

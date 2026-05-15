@@ -18,7 +18,7 @@ export default function MainContent() {
   const viewMode = usePathState('ui', s => s.ui?.viewMode || 'dag');
   const activeSessionId = usePathState('ui', s => s.ui?.activeSessionId);
   const bannerDismissed = usePathState('ui', s => s.ui?.bannerDismissed || false);
-  const squadActive = usePathState('squad', s => s.squad.mode && (s.squad.status === 'active' || s.squad.status === 'complete'));
+  const squadActive = usePathState('squad', s => s.squad.status === 'active' || s.squad.status === 'complete');
   const nodes = usePathState('squad', s => Object.values(s.squad.nodes || {}));
   const sessions = usePathState('sessions', s => s.sessions || {});
   const results = usePathState('squad', s => s.squad.results || []);

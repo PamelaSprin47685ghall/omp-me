@@ -12,6 +12,7 @@
 import { sessionIdFor } from '../shared/events.js';
 
 const MAX_RETRIES = 5;
+const NEXT_PHASE = { authoring: 'confirming', confirming: 'reviewing' };
 
 export function reactState(state) {
     const actions = [];
@@ -164,7 +165,7 @@ function handlePhase(node, role, state, actions) {
                     }
                 }
             } else {
-                const next = role === 'authoring' ? 'confirming' : 'reviewing';
+                const next = NEXT_PHASE[role];
                 actions.push({ type: 'squad:node_state', payload: { nodeId: node.id, status: next } });
             }
             return;
