@@ -29,9 +29,9 @@ function register(event) {
 
 register('session:creating')(async (payload, { pi, getState, eventLog, broadcast }) => {
     const { nodeId, sessionId, phase, epoch = 0 } = payload;
-    const { SessionManager } = await getCodingAgentModule();
     const state = getState();
-    const options = buildWorkerSessionOptions(pi, { provider: 'test', modelId: 'default' });
+    const { SessionManager } = await getCodingAgentModule();
+    const options = buildWorkerSessionOptions(pi);
     const sessionOpts = { ...options, sessionManager: SessionManager.create(options.cwd) };
 
     const { session } = await pi.pi.createAgentSession(sessionOpts);
@@ -70,7 +70,7 @@ register('session:prompting')(async (payload, { pi, getState, eventLog, broadcas
     }
 
     if (text) {
-        entry.session.prompt(text);
+        await entry.session.prompt(text);
     }
 });
 
@@ -95,16 +95,10 @@ register('squad:phase_changed')(async (payload, { eventLog, getState, pi }) => {
     // so the agent can revise its plan and call delegate again.
     const mainSessionId = state.squad.mainSessionId;
     if (mainSessionId && state.sessions[mainSessionId]) {
-        // Update EventLog for UI visibility
-        const msg = `[Squad-Tau Architect Awakening]\n\nYour outer review was rejected:\n\n${feedback}\n\nPlease analyze the feedback, revise your plan, and call \`delegate\` again.`;
-        eventLog.append('session:message', {
-            sessionId: mainSessionId,
-            role: 'user',
-            content: [{ type: 'text', text: msg }],
-        });
-
         // Prompt the main session's LLM via pi.sendMessage (like ../squad handleSquad)
         // sendMessage is fire-and-forget (returns void per ExtensionAPI types)
+        const msg = `[Squad-Tau Architect Awakening]\n\nYour outer review was rejected:\n\n${feedback}\n\nPlease analyze the feedback, revise your plan, and call \`squad_delegate\` again.`;
+
         if (pi && typeof pi.sendMessage === 'function') {
             pi.sendMessage(
                 {
@@ -115,6 +109,16 @@ register('squad:phase_changed')(async (payload, { eventLog, getState, pi }) => {
                 { triggerTurn: true },
             );
         }
+
+        // Return session:message fact for UI broadcast (Engine appends after handler resolution)
+        return {
+            type: 'session:message',
+            payload: {
+                sessionId: mainSessionId,
+                role: 'user',
+                content: [{ type: 'text', text: msg }],
+            },
+        };
     }
 });
 
@@ -128,15 +132,11 @@ register('squad:abort')(() => {
 
 // ── Builder helpers ──
 
-function buildWorkerSessionOptions(pi, modelSlot) {
+function buildWorkerSessionOptions(pi) {
     const options = { cwd: process.cwd(), hasUI: false };
     const tl = pi?.getThinkingLevel?.();
     if (tl) options.thinkingLevel = tl;
-    if (modelSlot) {
-        options.model = { provider: modelSlot.provider, id: modelSlot.modelId };
-        if (modelSlot.thinkingLevel) options.thinkingLevel = modelSlot.thinkingLevel;
-    }
-    const activeTools = pi?.getActiveTools?.()?.filter((t) => t !== 'delegate') ?? [];
+    const activeTools = pi?.getActiveTools?.()?.filter((t) => t !== 'squad_delegate') ?? [];
     if (activeTools.length > 0)
         options.toolNames = activeTools.includes('return') ? activeTools : [...activeTools, 'return'];
     return options;
@@ -192,16 +192,16 @@ function handleMessageUpdate(event, { eventLog, sessionId, broadcast }) {
 
 function handleToolStart(event, { eventLog, sessionId }) {
     eventLog.append('tool_call:started', {
-        toolId: event.toolId,
+        toolId: event.toolCallId,
         sessionId,
         toolName: event.toolName,
-        params: event.input,
+        params: event.args,
     });
 }
 
 function handleToolEnd(event, { eventLog, sessionId, getState }) {
     eventLog.append('tool_call:finished', {
-        toolId: event.toolId,
+        toolId: event.toolCallId,
         result: event.result,
         isError: event.isError ?? false,
     });
@@ -217,7 +217,7 @@ function handleToolEnd(event, { eventLog, sessionId, getState }) {
 
         // Params were stored by tool_call:started projection
         const tcs = Object.values(state.toolCalls);
-        const tc = tcs.find((t) => t.toolId === event.toolId && t.sessionId === sessionId);
+        const tc = tcs.find((t) => t.toolId === event.toolCallId && t.sessionId === sessionId);
         if (!tc) return;
         const params = tc.params || {};
 
@@ -254,4 +254,28 @@ function extractText(content) {
     const blocks = Array.isArray(content) ? content : [content];
     const tb = blocks.find((b) => b.type === 'text');
     return tb ? tb.text : '';
+}
+
+// ── Test-only exports ──
+// These expose internal state/helpers for regression testing
+// without polluting the production interface.
+
+/** @returns {Map} sessionStore for test inspection */
+export function _getSessionStore() {
+    return sessionStore;
+}
+
+/** Set a test session entry in the store (avoids needing real OMP createAgentSession) */
+export function _setTestSession(sessionId, entry) {
+    sessionStore.set(sessionId, entry);
+}
+
+/** Clear the session store for test isolation */
+export function _clearTestSession() {
+    sessionStore.clear();
+}
+
+/** Expose buildWorkerSessionOptions for unit testing its filter logic */
+export function _getWorkerSessionOptions(pi) {
+    return buildWorkerSessionOptions(pi);
 }

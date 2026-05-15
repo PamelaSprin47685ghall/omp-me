@@ -50,10 +50,17 @@ describe('OMP RPC E2E', () => {
         'M mode squad via plugin mock',
         async () => {
             // 1. Plugin registration
+            let activeToolNames = [];
             const registeredTools = [];
             const mockPi = {
                 registerTool: (def) => registeredTools.push(def),
+                registerCommand: () => {},
                 sendMessage: () => {},
+                getActiveTools: () => activeToolNames,
+                setActiveTools: (names) => {
+                    activeToolNames = names;
+                },
+                getThinkingLevel: () => undefined,
                 on: () => {},
             };
             // Factory returns void (ExtensionFactory contract), server starts

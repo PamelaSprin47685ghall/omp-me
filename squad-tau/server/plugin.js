@@ -22,7 +22,8 @@
  * where ctx provides sessionManager.getSessionId().
  */
 import { processDelegate } from './submit-plan.js';
-import { startServer } from './server-lifecycle.js';
+import { startServer, getGlobalEventLog } from './server-lifecycle.js';
+import { project } from '../shared/projections.js';
 
 const PLAN_WRITING_GUIDE = [
     '## Plan Writing Guide',
@@ -55,7 +56,43 @@ const CLASSIFICATION_PROMPT = [
     'You MUST write the plan JSON to a temp file using the two-phase approach above, then call `squad_delegate` with the absolute path before ending your turn.',
 ].join('\n');
 
+let _squadActive = false;
+
+function activateSquad(pi) {
+    _squadActive = true;
+    const currentTools = pi.getActiveTools();
+    if (!currentTools.includes('squad_delegate')) {
+        pi.setActiveTools([...currentTools, 'squad_delegate']);
+    }
+}
+
+function deactivateSquad(pi) {
+    _squadActive = false;
+    pi.setActiveTools(pi.getActiveTools().filter((t) => t !== 'squad_delegate'));
+}
+
 export default function squadPlugin(pi) {
+    // ── Register /squad command (matching ../squad/index.js pattern) ──
+    pi.registerCommand('squad', {
+        description: 'Execute a task via squad with concurrent workers',
+        handler: async (args, ctx) => {
+            const task = (args ?? '').trim();
+            if (!task) {
+                ctx.ui.notify('Usage: /squad <task description>', 'info');
+                return;
+            }
+            activateSquad(pi);
+            pi.sendMessage(
+                {
+                    customType: 'squad-activate',
+                    content: `${CLASSIFICATION_PROMPT}\n\n${task}`,
+                    display: true,
+                },
+                { triggerTurn: true },
+            );
+        },
+    });
+
     // ── Intercept /squad from terminal input (matching ../squad/index.js pattern) ──
     pi.on('input', async (event, ctx) => {
         const text = event.text.trim();
@@ -71,6 +108,8 @@ export default function squadPlugin(pi) {
             return { handled: true };
         }
 
+        activateSquad(pi);
+
         // Send classification prompt to the agent (mirrors ../squad handleSquad)
         pi.sendMessage(
             {
@@ -82,6 +121,40 @@ export default function squadPlugin(pi) {
         );
 
         return { handled: true };
+    });
+
+    // ── Cleanup on session shutdown (matching ../squad/index.js pattern) ──
+    pi.on('session_shutdown', async (_event, ctx) => {
+        _squadActive = false;
+        if (typeof ctx?.ui?.setWidget === 'function') {
+            ctx.ui.setWidget('squad_status', undefined);
+        }
+    });
+
+    // ── Agent end safety net: force revision prompt if squad is in revising phase ──
+    // Matches ../squad/index.js where agent_end sends a force message when fsm.isRevising().
+    // This handles edge cases where the squad:phase_changed side-effect didn't trigger
+    // (e.g., agent ends turn before effect handler completes).
+    pi.on('agent_end', async () => {
+        if (!_squadActive) return;
+        const eventLog = _testEventLog || getGlobalEventLog();
+        if (!eventLog) return;
+        const state = project(eventLog.log);
+        if (state.squad.phase !== 'revising') return;
+        pi.sendMessage(
+            {
+                customType: 'squad-revision-force',
+                content: [
+                    '[Squad-Tau Architect Awakening — Re-prompt]',
+                    '',
+                    'You were given feedback to revise your plan but did not call `squad_delegate`.',
+                    'Write a revised plan JSON as .toml files in a temp directory, then call `squad_delegate`',
+                    'with the absolute path before ending your turn.',
+                ].join('\n'),
+                display: false,
+            },
+            { triggerTurn: true },
+        );
     });
 
     // ── Register squad_delegate tool via pi.registerTool (standard OMP ExtensionAPI) ──
@@ -105,8 +178,14 @@ export default function squadPlugin(pi) {
             },
             required: ['plan_dir'],
         },
-        defaultInactive: false,
+        defaultInactive: true,
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+            if (!_squadActive) {
+                return {
+                    content: [{ type: 'text', text: 'Squad is not active. Use /squad to start.' }],
+                    isError: true,
+                };
+            }
             const mainSessionId = ctx?.sessionManager?.getSessionId?.() || null;
             try {
                 const result = await processDelegate(params, { mainSessionId });
@@ -115,6 +194,7 @@ export default function squadPlugin(pi) {
                     details: { success: result.success },
                 };
             } catch (err) {
+                deactivateSquad(pi);
                 return {
                     content: [{ type: 'text', text: err.message }],
                     isError: true,
@@ -127,5 +207,23 @@ export default function squadPlugin(pi) {
     // ignores the factory return value, so return void (matching ExtensionFactory).
     // Fire-and-forget: server initializes asynchronously and is referenced
     // by the global module-level _server in server-lifecycle.js.
-    startServer({ pi }).catch(() => {});
+    startServer({ pi }).catch((err) => {
+        // OMP ExtensionAPI provides pi.logger for error reporting
+        pi?.logger?.error?.('Squad-Tau server failed to start', err);
+    });
+}
+
+// Test helpers: reset squad state between test runs
+export function _resetSquadState() {
+    _squadActive = false;
+}
+
+// Override getGlobalEventLog for testing the agent_end safety net.
+// Restore by calling _restoreGlobalEventLog().
+let _testEventLog = null;
+export function _setTestEventLog(eventLog) {
+    _testEventLog = eventLog;
+}
+export function _restoreGlobalEventLog() {
+    _testEventLog = null;
 }
