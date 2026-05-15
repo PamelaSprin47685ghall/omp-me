@@ -1,6 +1,6 @@
 import React from 'react';
-import { usePathState } from '../hooks/useAtomicState.js';
-import { eventStore } from '../event-store.js';
+import { usePathState, useUiState, useEnv } from '../hooks/useAtomicState.js';
+import { uiStore } from '../ui-store.js';
 import {
   Drawer,
   Stack,
@@ -8,13 +8,14 @@ import {
 } from '@chakra-ui/react';
 
 export default function RuntimeDrawer() {
-  const isOpen = usePathState('ui', s => s.ui?.drawerOpen || false);
-  const maxWorkers = usePathState('modelPool', s => s.modelPool?.maxWorkers || 3);
-  const sessions = usePathState('sessions', s => Object.values(s.sessions || {}));
+  const isOpen = useUiState(s => s.drawerOpen || false);
+  const maxWorkers = useEnv(s => s.maxWorkers || 3);
+  const sessionMap = usePathState('sessions', s => s.sessions || {});
+  const sessions = Object.values(sessionMap);
   const activeSessions = sessions.filter(s => s.status === 'active' || s.status === 'creating');
 
   return (
-    <Drawer.Root open={isOpen} onOpenChange={({ open }) => { if (!open) eventStore.dispatch('ui:toggle_drawer', { open: false }); }} placement="end" size="sm">
+    <Drawer.Root open={isOpen} onOpenChange={({ open }) => { if (!open) uiStore.dispatch('ui:toggle_drawer', { open: false }); }} placement="end" size="sm">
       <Drawer.Backdrop />
       <Drawer.Positioner>
         <Drawer.Content>

@@ -39,6 +39,14 @@ function inject(page, events) {
                 continue;
             }
 
+            // env metadata → envStore (not EventStore)
+            if (e.type === 'squad:env') {
+                const envStore = window.__envStore;
+                if (envStore) envStore.update(e.payload);
+                await yieldToReact();
+                continue;
+            }
+
             // Auto-create session entity before session:start
             if (e.type === 'session:start') {
                 es.dispatch('session:creating', {
@@ -98,7 +106,7 @@ describe('UI Full Flow', () => {
         await page.waitForFunction(() => document.body.innerText.includes('Runtime Metrics'), { timeout: T });
         await capture(page, '02a-drawer');
 
-        await inject(page, [{ type: 'model_pool:snapshot', payload: { maxWorkers: 5 } }]);
+        await inject(page, [{ type: 'squad:env', payload: { maxWorkers: 5 } }]);
         await page.waitForFunction(() => document.body.innerText.includes('5'), { timeout: T });
         await capture(page, '02b-drawer-updated');
         await page.keyboard.press('Escape');
@@ -393,7 +401,7 @@ describe('UI Full Flow', () => {
         await page.waitForFunction(() => document.body.innerText.includes('Runtime Metrics'), { timeout: T });
         await page.waitForFunction(() => document.body.innerText.includes('3'), { timeout: T });
 
-        await inject(page, [{ type: 'model_pool:snapshot', payload: { maxWorkers: 10 } }]);
+        await inject(page, [{ type: 'squad:env', payload: { maxWorkers: 10 } }]);
         await page.waitForFunction(() => document.body.innerText.includes('10'), { timeout: T });
         await capture(page, '13-drawer-maxWorkers');
         await page.keyboard.press('Escape');

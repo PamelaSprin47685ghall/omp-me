@@ -2,10 +2,10 @@ import { applyEvent, getInitialState } from '../../shared/projections.js';
 import { sessionIdFor } from '../../shared/events.js';
 
 export function buildState(overrides = {}) {
-    const state = getInitialState();
+    let state = getInitialState();
 
     const nodeDefs = overrides.nodes || [];
-    applyEvent(state, 'squad:init', {
+    state = applyEvent(state, 'squad:init', {
         mode: overrides.mode || 'M',
         nodes: nodeDefs.map((n) => ({
             id: n.id,
@@ -16,10 +16,9 @@ export function buildState(overrides = {}) {
         originalTask: overrides.originalTask || 'test task',
     });
 
-    // Legacy outerReview compatibility: translate to __or__ node status
     if (overrides.outerReview) {
         const or = overrides.outerReview;
-        const nodeStatus =
+        const ns =
             or.status === 'approved'
                 ? 'approved'
                 : or.status === 'rejected'
@@ -27,10 +26,10 @@ export function buildState(overrides = {}) {
                   : or.status === 'pending' || or.status === 'active'
                     ? 'reviewing'
                     : undefined;
-        if (nodeStatus && state.squad.nodes.__or__) {
-            applyEvent(state, 'squad:node_state', {
+        if (ns && state.squad.nodes.__or__) {
+            state = applyEvent(state, 'squad:node_state', {
                 nodeId: '__or__',
-                status: nodeStatus,
+                status: ns,
                 round: or.round,
                 feedback: or.feedback,
             });
@@ -38,7 +37,7 @@ export function buildState(overrides = {}) {
     }
 
     if (overrides.squad) {
-        Object.assign(state.squad, overrides.squad);
+        state = { ...state, squad: { ...state.squad, ...overrides.squad } };
     }
 
     if (overrides.sessions) {
@@ -47,23 +46,23 @@ export function buildState(overrides = {}) {
             const phase = s.phase || 'authoring';
             const nodeId = s.nodeId || '__or__';
 
-            applyEvent(state, 'session:creating', { sessionId: sid, nodeId, phase, retryCount });
-            applyEvent(state, 'session:start', { sessionId: sid, nodeId, phase, retryCount, model: s.model });
+            state = applyEvent(state, 'session:creating', { sessionId: sid, nodeId, phase, retryCount });
+            state = applyEvent(state, 'session:start', { sessionId: sid, nodeId, phase, retryCount, model: s.model });
 
             if (s.status && s.status !== 'active') {
-                applyEvent(state, 'session:state', { sessionId: sid, phase: s.status });
+                state = applyEvent(state, 'session:state', { sessionId: sid, phase: s.status });
             }
 
             if (s.messages) {
                 for (const msg of s.messages) {
-                    applyEvent(state, 'message:created', {
+                    state = applyEvent(state, 'message:created', {
                         messageId: msg.messageId,
                         sessionId: sid,
                         role: msg.role,
                         parentId: msg.parentId,
                         staticContent: extractText(msg.content),
                     });
-                    applyEvent(state, 'message:finalized', {
+                    state = applyEvent(state, 'message:finalized', {
                         messageId: msg.messageId,
                         staticContent: extractText(msg.content),
                     });
@@ -71,7 +70,7 @@ export function buildState(overrides = {}) {
             }
 
             if (s.latestReturn) {
-                applyEvent(state, 'tool_call:started', {
+                state = applyEvent(state, 'tool_call:started', {
                     sessionId: sid,
                     toolName: 'return',
                     toolId: `call-${sid}`,
@@ -79,13 +78,6 @@ export function buildState(overrides = {}) {
                 });
             }
         }
-    }
-
-    if (overrides.modelPool || overrides.maxWorkers) {
-        const mp = overrides.modelPool || {};
-        applyEvent(state, 'model_pool:snapshot', {
-            maxWorkers: overrides.maxWorkers || mp.maxWorkers || 3,
-        });
     }
 
     return state;
@@ -107,24 +99,27 @@ export function createBaseState(...nodeDefs) {
 }
 
 export function setStatus(state, nodeId, status, extra = {}) {
-    applyEvent(state, 'squad:node_state', { nodeId, status, ...extra });
+    const newState = applyEvent(state, 'squad:node_state', { nodeId, status, ...extra });
+    Object.assign(state, newState);
 }
 
 export function createSession(state, nodeId, phase) {
     const resolvedId = nodeId || '__or__';
     const node = state.squad.nodes[resolvedId];
-    const retryCount = node?.retryCount || 0;
-    const sessionId = sessionIdFor(resolvedId, phase, retryCount);
-    applyEvent(state, 'session:creating', { sessionId, nodeId: resolvedId, phase, retryCount });
-    applyEvent(state, 'session:start', { sessionId, nodeId: resolvedId, phase, retryCount });
+    const epoch = node?.epoch ?? node?.retryCount ?? 0;
+    const sessionId = sessionIdFor(resolvedId, phase, epoch);
+    let s = applyEvent(state, 'session:creating', { sessionId, nodeId: resolvedId, phase, epoch });
+    s = applyEvent(s, 'session:start', { sessionId, nodeId: resolvedId, phase, epoch });
+    Object.assign(state, s);
     return sessionId;
 }
 
 export function giveReturn(state, sessionId, status, reason) {
-    applyEvent(state, 'tool_call:started', {
+    const newState = applyEvent(state, 'tool_call:started', {
         sessionId,
         toolName: 'return',
         toolId: `call-${Date.now()}`,
         params: { status, reason, affected_files: [] },
     });
+    Object.assign(state, newState);
 }

@@ -1,41 +1,26 @@
 /**
- * Client-side Event Store — pure business state with projection-reported tracking.
+ * Client-side Event Store — pure domain state with structural sharing.
  *
- * Projections declare what they touch via TOUCHES; applyEvent returns the touched keys.
- * EventStore classifies keys as path or entity by presence of ':'.
- * Zero hardcoded PATH_DOMAIN, zero ENTITY_EVENTS mapping.
+ * applyEvent returns a NEW state reference with structural sharing:
+ * unchanged sub-trees keep their identity (===).
+ * React components use useSyncExternalStore + React.memo for O(1) render filtering.
+ *
+ * Zero manual change tracking — no TOUCHES, no path versions, no entity versions.
  */
 
-import { applyEvent, getTouchedKeys, project } from '../shared/projections.js';
+import { applyEvent, getInitialState } from '../shared/projections.js';
 
 class EventStore {
     constructor() {
         this.cursor = 0;
         this.listeners = new Set();
-        this.state = project([]);
-        this._pathVersions = {};
-        this._entityVersions = {};
-        this._changedPaths = new Set();
-        this._changedEntities = new Set();
+        this.state = getInitialState();
     }
 
     dispatch(type, payload, seq) {
-        this._changedPaths.clear();
-        this._changedEntities.clear();
         if (seq != null) this.cursor = Math.max(this.cursor, seq + 1);
-
-        applyEvent(this.state, type, payload);
-        const touched = getTouchedKeys(type, payload);
-        for (const key of touched) {
-            if (key.includes(':')) {
-                this._entityVersions[key] = (this._entityVersions[key] || 0) + 1;
-                this._changedEntities.add(key);
-            } else {
-                this._pathVersions[key] = (this._pathVersions[key] || 0) + 1;
-                this._changedPaths.add(key);
-            }
-        }
-        this._notify();
+        this.state = applyEvent(this.state, type, payload);
+        for (const l of this.listeners) l();
     }
 
     subscribe(listener) {
@@ -43,22 +28,9 @@ class EventStore {
         return () => this.listeners.delete(listener);
     }
 
-    _notify() {
-        const paths = this._changedPaths;
-        const entities = this._changedEntities;
-        for (const l of this.listeners) {
-            if (l.length >= 2) l(paths, entities);
-            else l(paths);
-        }
-    }
-
     reset() {
         this.cursor = 0;
-        this.state = project([]);
-        this._pathVersions = {};
-        this._entityVersions = {};
-        this._changedPaths.clear();
-        this._changedEntities.clear();
+        this.state = getInitialState();
         for (const l of this.listeners) l();
     }
 
@@ -67,12 +39,6 @@ class EventStore {
     }
     getState() {
         return this.state;
-    }
-    getPathVersion(path) {
-        return this._pathVersions[path] || 0;
-    }
-    getEntityVersion(type, id) {
-        return this._entityVersions[`${type}:${id}`] || 0;
     }
 }
 

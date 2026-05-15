@@ -1,14 +1,17 @@
 /**
  * WebSocket hook — edge gateway for Squad-Tau.
  *
- * Responsibilities:
- * 1. Business events → EventStore (single truth path)
- * 2. Delta events → direct DOM method calls on CustomElements
- * 3. Never touches streaming content
+ * Dual-track protocol:
+ *   c:'f' (fact channel) → EventStore (domain truth)
+ *   c:'e' (ephemeral channel) → direct DOM CustomElement routing
+ *
+ * Ephemeral events have no seq and never touch EventStore.
+ * Fact events carry seq and are foldable into the domain state tree.
  */
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { eventStore } from '../event-store.js';
+import { envStore } from '../env-store.js';
 
 const BACKOFF_STEPS = [1000, 2000, 4000, 8000, 16000, 30000];
 const MAX_RECONNECT_ATTEMPTS = 50;
@@ -84,27 +87,43 @@ export function useWebSocket({ port } = {}) {
         ws.onmessage = (event) => {
             try {
                 const msg = JSON.parse(event.data);
-                if (msg.type === 'pong') {
+
+                // Pong response (no channel — legacy)
+                if (msg.event === 'pong') {
                     lastPongRef.current = true;
                     return;
                 }
 
-                const { type, payload, seq } = msg;
+                // ── Dual-track routing ──
+                const c = msg.c || 'f'; // default 'f' for backward compat
 
-                // Streaming deltas → direct DOM routing (zero EventStore)
-                if (type === 'message:delta') {
-                    routeDelta(payload);
+                if (c === 'e') {
+                    // Ephemeral channel: direct DOM routing, zero EventStore
+                    const { event, payload } = msg;
+                    if (event === 'message:delta') {
+                        routeDelta(payload);
+                    }
                     return;
                 }
 
-                // Finalized message → EventStore + DOM finalize
+                // Fact channel: biz logic
+                const { event: type, payload, seq } = msg;
+
                 if (type === 'message:finalized') {
                     eventStore.dispatch(type, payload, seq);
                     routeStreamEnd(payload);
                     return;
                 }
 
-                // All other domain events → EventStore
+                if (type === 'squad:env') {
+                    // Environment metadata — not a domain event, just update envStore
+                    if (payload.maxWorkers !== undefined) {
+                        envStore.update({ maxWorkers: payload.maxWorkers });
+                    }
+                    return;
+                }
+
+                // Everything else → EventStore
                 eventStore.dispatch(type, payload, seq);
             } catch (err) {
                 console.error('Failed to parse WebSocket message:', err);

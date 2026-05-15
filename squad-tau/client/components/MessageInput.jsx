@@ -1,14 +1,14 @@
 import React, { useState, useCallback } from 'react';
 import { Button, HStack, Textarea, Icon } from '@chakra-ui/react';
 import { SendHorizonal } from 'lucide-react';
-import { usePathState } from '../hooks/useAtomicState.js';
+import { useUiState } from '../hooks/useAtomicState.js';
 import { eventStore } from '../event-store.js';
 import { useWebSocketContext } from '../websocket-context.js';
 
 export function MessageInput() {
   const [text, setText] = useState('');
   const { send } = useWebSocketContext();
-  const activeSessionId = usePathState('ui', s => s.ui?.activeSessionId);
+  const activeSessionId = useUiState(s => s.activeSessionId);
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();

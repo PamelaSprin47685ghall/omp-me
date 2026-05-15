@@ -1,9 +1,9 @@
 /**
  * Homomorphic event projections — shared between client and server.
- * v6: Domain events only, invariant-driven, no defensive code.
+ * v8: Structural sharing, no config in State, no idle, epoch instead of retryCount.
  *
- * Messages have NO text/content — only topology metadata.
- * Agent messages stream via CustomElements; state tree never holds their text.
+ * State only contains dynamic runtime fields. Topology metadata (phases, deps, limits)
+ * lives in planConfig — populated once at init, consumed by Reactor.
  *
  * No .find() / .findIndex() — O(1) hash lookups only.
  * No fallbacks — fail fast on contract violation.
@@ -13,14 +13,16 @@ function invariant(cond, msg) {
     if (!cond) throw new Error(`[Projection] ${msg}`);
 }
 
-// ── Touch declarations: each reducer declares what keys it mutates.
-// EventStore consumes these for granular subscriptions without hardcoding.
-
-const TOUCHES = {};
-
-function touches(type, fn) {
-    TOUCHES[type] = fn;
+function setIn(state, keys, value) {
+    if (keys.length === 0) return value;
+    const [key, ...rest] = keys;
+    const prev = state[key];
+    const next = Array.isArray(prev) && keys.length === 1 ? value : setIn(prev, rest, value);
+    if (prev === next) return state;
+    return { ...state, [key]: next };
 }
+
+const Reducers = {};
 
 function register(type) {
     return (fn) => {
@@ -28,54 +30,45 @@ function register(type) {
     };
 }
 
-const Reducers = {};
-
 export function getInitialState() {
     return {
-        squad: { status: 'idle', nodes: {}, results: [], originalTask: '', mode: 'M' },
+        squad: { status: 'idle', nodes: {}, results: [], originalTask: '', mode: 'M', planConfig: null },
         sessions: {},
         messages: {},
         toolCalls: {},
-        modelPool: { maxWorkers: 3 },
-        ui: { viewMode: 'dag', activeSessionId: null, drawerOpen: false, bannerDismissed: false },
     };
 }
 
 // ── Message Lifecycle ──
 
-touches('message:created', (p) => ['messages', `messages:${p.messageId}`, `sessions:${p.sessionId}`]);
-
 register('message:created')((state, payload) => {
     const { messageId, sessionId, role, parentId, staticContent } = payload;
     invariant(sessionId, 'message:created requires sessionId');
     invariant(messageId, 'message:created requires messageId');
+    const session = state.sessions[sessionId];
+    invariant(session, `message:created references nonexistent session ${sessionId}`);
 
-    state.messages[messageId] = { messageId, sessionId, role, status: 'created', parentId, staticContent, toolIds: [] };
-    invariant(state.sessions[sessionId], `message:created references nonexistent session ${sessionId}`);
-    state.sessions[sessionId].messageIds.push(messageId);
+    const msg = { messageId, sessionId, role, status: 'created', parentId, staticContent, toolIds: [] };
+    const newMessages = { ...state.messages, [messageId]: msg };
+    const newSession = { ...session, messageIds: [...session.messageIds, messageId] };
+    const newSessions = { ...state.sessions, [sessionId]: newSession };
+    return { ...state, messages: newMessages, sessions: newSessions };
 });
-
-touches('message:finalized', (p) => ['messages', `messages:${p.messageId}`]);
 
 register('message:finalized')((state, payload) => {
     const msg = state.messages[payload.messageId];
     invariant(msg, `message:finalized references nonexistent message ${payload.messageId}`);
-    msg.status = 'finalized';
-    if (payload.staticContent !== undefined) msg.staticContent = payload.staticContent;
+    if (msg.status === 'finalized' && msg.staticContent === payload.staticContent) return state;
+    const newMsg = { ...msg, status: 'finalized' };
+    if (payload.staticContent !== undefined) newMsg.staticContent = payload.staticContent;
+    return setIn(state, ['messages', payload.messageId], newMsg);
 });
 
 // ── Tool Call Lifecycle ──
 
-touches('tool_call:started', (p) => [
-    'toolCalls',
-    `toolCalls:${p.toolId}`,
-    ...(p.messageId ? [`messages:${p.messageId}`] : []),
-    `sessions:${p.sessionId}`,
-]);
-
 register('tool_call:started')((state, payload) => {
     const { sessionId, toolId, toolName, params, messageId } = payload;
-    state.toolCalls[toolId] = {
+    const tc = {
         toolId,
         sessionId,
         messageId: messageId || '',
@@ -84,203 +77,200 @@ register('tool_call:started')((state, payload) => {
         result: undefined,
         isError: undefined,
     };
-    if (messageId && state.messages[messageId]) {
-        const msg = state.messages[messageId];
-        msg.toolIds.push(toolId);
-    }
-    if (toolName === 'return') {
-        state.sessions[sessionId].latestReturn = params;
-    }
-});
+    let st = setIn(state, ['toolCalls', toolId], tc);
 
-touches('tool_call:finished', (p) => ['toolCalls', `toolCalls:${p.toolId}`]);
+    if (messageId && st.messages[messageId]) {
+        const msg = st.messages[messageId];
+        st = setIn(st, ['messages', messageId], { ...msg, toolIds: [...msg.toolIds, toolId] });
+    }
+
+    if (toolName === 'return' && st.sessions[sessionId]) {
+        st = setIn(st, ['sessions', sessionId], { ...st.sessions[sessionId], latestReturn: params });
+    }
+
+    return st;
+});
 
 register('tool_call:finished')((state, payload) => {
     const tc = state.toolCalls[payload.toolId];
     invariant(tc, `tool_call:finished references nonexistent tool call ${payload.toolId}`);
-    tc.result = payload.result;
-    tc.isError = payload.isError === true;
+    if (tc.result === payload.result && tc.isError === (payload.isError === true)) return state;
+    return setIn(state, ['toolCalls', payload.toolId], {
+        ...tc,
+        result: payload.result,
+        isError: payload.isError === true,
+    });
 });
 
 // ── Squad Lifecycle ──
 
-touches('squad:init', () => ['squad']); // node-level keys tracked individually
-
 register('squad:init')((state, payload) => {
     const nodes = {};
     const workerIds = [];
+    const planConfig = {};
+
     for (const n of payload.nodes || []) {
-        nodes[n.id] = {
-            id: n.id,
-            task: n.task || '',
-            review_criteria: n.review_criteria || [],
+        const nodeId = n.id;
+        nodes[nodeId] = {
+            id: nodeId,
             depends_on: n.depends_on || [],
             status: undefined,
-            retryCount: 0,
+            epoch: 0,
             summary: undefined,
             feedback: undefined,
             affectedFiles: undefined,
             lastPromptedPhase: null,
+        };
+        workerIds.push(nodeId);
+        // Static topology metadata stored in planConfig, not in nodes
+        planConfig[nodeId] = {
+            task: n.task || '',
+            review_criteria: n.review_criteria || [],
             phases: ['authoring', 'confirming', 'reviewing'],
             maxRetries: 5,
-            resetDependentsOnRejection: false,
+            resetOnRej: false,
         };
-        workerIds.push(n.id);
     }
-    // L mode: inject __or__ outer review node as a regular task node
+
+    // L mode: inject __or__ outer review node
     if (payload.mode === 'L') {
-        nodes.__or__ = {
-            id: '__or__',
-            task: payload.originalTask || '',
-            review_criteria: [],
+        const orId = '__or__';
+        nodes[orId] = {
+            id: orId,
             depends_on: [...workerIds],
             status: undefined,
-            retryCount: 0,
+            epoch: 0,
             summary: undefined,
             feedback: undefined,
             affectedFiles: undefined,
             lastPromptedPhase: null,
+        };
+        planConfig[orId] = {
+            task: payload.originalTask || '',
+            review_criteria: [],
             phases: ['reviewing'],
             maxRetries: Infinity,
-            resetDependentsOnRejection: true,
+            resetOnRej: true,
         };
     }
-    state.squad.status = 'active';
-    state.squad.mode = payload.mode;
-    state.squad.nodes = nodes;
-    state.squad.originalTask = payload.originalTask || '';
-    state.squad.results = [];
-});
 
-touches('squad:node_state', (p) => ['squad', `squad:nodes:${p.nodeId}`]);
+    return {
+        ...state,
+        squad: {
+            ...state.squad,
+            status: 'active',
+            mode: payload.mode,
+            nodes,
+            planConfig,
+            originalTask: payload.originalTask || '',
+            results: [],
+        },
+    };
+});
 
 register('squad:node_state')((state, payload) => {
     const node = state.squad.nodes[payload.nodeId];
     invariant(node, `squad:node_state references nonexistent node ${payload.nodeId}`);
-    Object.assign(node, payload);
+    // Normalize retryCount → epoch for backward compat
+    const normalized = { ...payload };
+    if ('retryCount' in normalized && !('epoch' in normalized)) {
+        normalized.epoch = normalized.retryCount;
+        delete normalized.retryCount;
+    }
+    const newNode = { ...node, ...normalized };
+    return setIn(state, ['squad', 'nodes', payload.nodeId], newNode);
 });
-
-touches('squad:complete', () => ['squad']);
 
 register('squad:complete')((state, payload) => {
-    state.squad.status = 'complete';
-    state.squad.results = payload.results;
+    return { ...state, squad: { ...state.squad, status: 'complete', results: payload.results } };
 });
 
-touches('squad:abort', () => ['squad']);
-
 register('squad:abort')((state) => {
-    state.squad.status = 'aborted';
+    return { ...state, squad: { ...state.squad, status: 'aborted' } };
 });
 
 // ── Session Lifecycle ──
 
-touches('session:creating', (p) => ['sessions', `sessions:${p.sessionId}`]);
-
 register('session:creating')((state, payload) => {
-    state.sessions[payload.sessionId] = {
+    const epoch = payload.epoch ?? payload.retryCount ?? 0;
+    const sess = {
         sessionId: payload.sessionId,
         nodeId: payload.nodeId,
         phase: payload.phase,
         role: payload.phase,
         status: 'creating',
         messageIds: [],
-        retryCount: payload.retryCount,
+        epoch,
     };
+    return setIn(state, ['sessions', payload.sessionId], sess);
 });
-
-touches('session:start', (p) => ['sessions', `sessions:${p.sessionId}`]);
 
 register('session:start')((state, payload) => {
     const sess = state.sessions[payload.sessionId];
     invariant(sess, `session:start references nonexistent session ${payload.sessionId}`);
-    sess.status = 'active';
-    sess.model = payload.model;
-    sess.retryCount = payload.retryCount;
+    const epoch = payload.epoch ?? payload.retryCount ?? sess.epoch;
+    return setIn(state, ['sessions', payload.sessionId], {
+        ...sess,
+        status: 'active',
+        model: payload.model,
+        epoch,
+    });
 });
-
-touches('session:prompting', (p) => ['sessions', `sessions:${p.sessionId}`]);
 
 register('session:prompting')((state, payload) => {
     const sess = state.sessions[payload.sessionId];
     invariant(sess, `session:prompting references nonexistent session ${payload.sessionId}`);
-    sess.lastPromptedPhase = payload.phase;
+    if (sess.lastPromptedPhase === payload.phase) return state;
+    return setIn(state, ['sessions', payload.sessionId], { ...sess, lastPromptedPhase: payload.phase });
 });
-
-touches('session:state', (p) => ['sessions', `sessions:${p.sessionId}`]);
 
 register('session:state')((state, payload) => {
     const sess = state.sessions[payload.sessionId];
     invariant(sess, `session:state references nonexistent session ${payload.sessionId}`);
-    sess.phase = payload.phase;
-    sess.status = ['completed', 'aborted', 'error'].includes(payload.phase) ? payload.phase : 'active';
+    const terminalStatus = ['completed', 'aborted', 'error'];
+    const newStatus = terminalStatus.includes(payload.phase) ? payload.phase : 'active';
+    if (sess.phase === payload.phase && sess.status === newStatus) return state;
+    return setIn(state, ['sessions', payload.sessionId], { ...sess, phase: payload.phase, status: newStatus });
 });
-
-touches('session:end', (p) => ['sessions', `sessions:${p.sessionId}`]);
 
 register('session:end')((state, payload) => {
     const sess = state.sessions[payload.sessionId];
     invariant(sess, `session:end references nonexistent session ${payload.sessionId}`);
-    sess.status = payload.reason || 'completed';
-    if (payload.errorMessage) sess.errorMessage = payload.errorMessage;
+    const upd = { ...sess, status: payload.reason || 'completed' };
+    if (payload.errorMessage) upd.errorMessage = payload.errorMessage;
+    if (sess.status === upd.status && !payload.errorMessage) return state;
+    return setIn(state, ['sessions', payload.sessionId], upd);
 });
 
-// ── Model Pool ──
+// ── First-Class Faults ──
 
-touches('model_pool:snapshot', () => ['modelPool']);
-
-register('model_pool:snapshot')((state, payload) => {
-    if (payload.maxWorkers) state.modelPool.maxWorkers = payload.maxWorkers;
-});
-
-// ── UI State ──
-
-touches('ui:select_session', () => ['ui']);
-
-register('ui:select_session')((state, payload) => {
-    state.ui.activeSessionId = payload.sessionId;
-    state.ui.viewMode = 'session';
-});
-
-touches('ui:set_view_mode', () => ['ui']);
-
-register('ui:set_view_mode')((state, payload) => {
-    state.ui.viewMode = payload.viewMode;
-});
-
-touches('ui:toggle_drawer', () => ['ui']);
-
-register('ui:toggle_drawer')((state, payload) => {
-    state.ui.drawerOpen = payload.open;
-});
-
-touches('ui:dismiss_banner', () => ['ui']);
-
-register('ui:dismiss_banner')((state) => {
-    state.ui.bannerDismissed = true;
+register('session:faulted')((state, payload) => {
+    const sess = state.sessions[payload.sessionId];
+    invariant(sess, `session:faulted references nonexistent session ${payload.sessionId}`);
+    return setIn(state, ['sessions', payload.sessionId], {
+        ...sess,
+        status: 'faulted',
+        faultReason: payload.reason,
+        faultMessage: payload.message,
+    });
 });
 
 // ── Dispatch ──
 
 export function applyEvent(state, type, payload) {
-    Reducers[type]?.(state, payload);
-    return state;
-}
-
-export function getTouchedKeys(type, payload) {
-    return TOUCHES[type]?.(payload) || [];
+    const reducer = Reducers[type];
+    if (!reducer) return state;
+    return reducer(state, payload) ?? state;
 }
 
 export function fold(state, entry) {
-    const s = structuredClone(state);
-    applyEvent(s, entry.event || entry.type, entry.payload);
-    return s;
+    return applyEvent(structuredClone(state), entry.event || entry.type, entry.payload);
 }
 
 export function project(log) {
-    const state = getInitialState();
+    let state = getInitialState();
     for (const entry of log) {
-        applyEvent(state, entry.event || entry.type, entry.payload);
+        state = applyEvent(state, entry.event || entry.type, entry.payload);
     }
     return state;
 }

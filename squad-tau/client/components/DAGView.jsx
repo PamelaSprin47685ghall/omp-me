@@ -2,8 +2,8 @@ import React, { useMemo, useCallback, useRef } from 'react';
 import { Center, VStack, Text, Icon } from '@chakra-ui/react';
 import { GitBranch, AlertTriangle } from 'lucide-react';
 import { renderMermaidSVG, THEMES } from 'beautiful-mermaid';
-import { usePathState } from '../hooks/useAtomicState.js';
-import { eventStore } from '../event-store.js';
+import { usePathState, useUiState } from '../hooks/useAtomicState.js';
+import { uiStore } from '../ui-store.js';
 
 const STATUS_COLOR = Object.freeze({
   waiting_deps: '#6c7a89',
@@ -22,7 +22,7 @@ const MERMAID_THEME = THEMES['github-light'];
 export default function DAGView() {
   const nodeMap = usePathState('squad', s => s.squad.nodes || {});
   const nodes = useMemo(() => Object.values(nodeMap), [nodeMap]);
-  const activeNodeId = usePathState('ui', s => s.ui?.activeSessionId);
+  const activeNodeId = useUiState(s => s.activeSessionId);
 
   const svg = useMemo(() => {
     if (!nodes?.length) return null;
@@ -53,7 +53,7 @@ export default function DAGView() {
       const state = eventStore.getState();
       const nodeId = node.dataset.id;
       const session = Object.values(state.sessions).find((s) => s.nodeId === nodeId);
-      if (session) eventStore.dispatch('ui:select_session', { sessionId: session.sessionId });
+      if (session) uiStore.dispatch('ui:select_session', { sessionId: session.sessionId });
     }
   }, []);
 

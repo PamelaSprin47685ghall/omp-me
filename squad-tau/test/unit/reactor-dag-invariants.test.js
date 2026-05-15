@@ -12,8 +12,6 @@ describe('chain dependency: n1 -> n2', () => {
             { id: 'n1', task: 'a', depends_on: [] },
             { id: 'n2', task: 'b', depends_on: ['n1'] },
         );
-        setStatus(st, 'n1', 'idle');
-        setStatus(st, 'n2', 'idle');
         let e = reactState(st);
         expect(e.length).toBe(1);
         expect(e[0].payload.nodeId).toBe('n1');
@@ -28,8 +26,6 @@ describe('chain dependency: n1 -> n2', () => {
             { id: 'n1', task: 'a', depends_on: [] },
             { id: 'n2', task: 'b', depends_on: ['n1'] },
         );
-        setStatus(st, 'n1', 'idle');
-        setStatus(st, 'n2', 'idle');
         setStatus(st, 'n1', 'authoring');
         setStatus(st, 'n1', 'failed');
         const block = reactState(st).find((e) => e.payload.nodeId === 'n2' && e.payload.status === 'blocked');
@@ -41,8 +37,6 @@ describe('chain dependency: n1 -> n2', () => {
             { id: 'n1', task: 'a', depends_on: [] },
             { id: 'n2', task: 'b', depends_on: ['n1'] },
         );
-        setStatus(st, 'n1', 'idle');
-        setStatus(st, 'n2', 'idle');
         setStatus(st, 'n1', 'authoring');
         setStatus(st, 'n1', 'failed');
         setStatus(st, 'n2', 'blocked');
@@ -62,7 +56,6 @@ describe('diamond: A -> B,C -> D', () => {
             { id: 'C', task: 'c', depends_on: ['A'] },
             { id: 'D', task: 'd', depends_on: ['B', 'C'] },
         );
-        for (const id of ['A', 'B', 'C', 'D']) setStatus(st, id, 'idle');
         expect(reactState(st)[0].payload.nodeId).toBe('A');
         approveNode(st, 'A');
         const e = reactState(st);
@@ -75,8 +68,6 @@ describe('diamond: A -> B,C -> D', () => {
 describe('partial failure completion', () => {
     test('mixed approved + failed emits SQUAD_COMPLETE', () => {
         const st = createBaseState('n1', 'n2');
-        setStatus(st, 'n1', 'idle');
-        setStatus(st, 'n2', 'idle');
         setStatus(st, 'n1', 'authoring');
         setStatus(st, 'n1', 'approved', { summary: 'ok' });
         setStatus(st, 'n2', 'authoring');

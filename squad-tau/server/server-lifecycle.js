@@ -2,6 +2,7 @@
  * Squad-Tau HTTP/WS server lifecycle.
  * Manages server start/stop and global references.
  * EventLog-driven — no FSM, no SessionRegistry, no ModelPool class.
+ * Dual-track protocol: fact channel (c:'f') + ephemeral channel (c:'e').
  */
 import { createServer } from 'http';
 import { createHttpServer } from './http-server.js';
@@ -22,7 +23,8 @@ function createCloseHandler(wss, rawServer, heartbeatCleanup, unsub) {
         if (closing) return;
         closing = true;
         const closeMsg = JSON.stringify({
-            type: 'connection:close',
+            c: 'f',
+            event: 'connection:close',
             payload: { reason: 'server_stop' },
             timestamp: Date.now(),
         });
@@ -46,32 +48,69 @@ export async function startServer({ pi, skipVite = false } = {}) {
     const eventLog = new EventLog();
     const config = loadModelsConfig();
 
-    // Initialize maxWorkers from model config
-    eventLog.append('model_pool:snapshot', {
-        maxWorkers: config.maxWorkers || 3,
-    });
-
-    const engine = setupEngine(eventLog, pi);
-
     const rawServer = createServer();
     const viteMiddlewares = await createViteDevServer({ skipVite });
     const { wss } = await createWsServer(rawServer, null, {
-        onConnection: () => {},
+        onConnection: () => {
+            // Send env snapshot on new connection
+            broadcastEnv();
+        },
         onMessage: async (msg, ws) => {
-            await routeMessage(msg, eventLog, ws, engine.getState);
+            const result = await routeMessage(msg, eventLog, ws, engine.getState, engine.setEnv);
+            // Broadcast env changes to all clients
+            if (result?.__envChanged) {
+                broadcastEnv();
+            }
         },
     });
 
-    // Pipe eventLog to WebSocket clients
-    const unsubLog = eventLog.subscribe((entry) => {
+    // ── Broadcast helpers ──
+
+    function broadcastEphemeral(event, payload, target) {
+        const msg = JSON.stringify({ c: 'e', event, payload, ...(target ? { target } : {}) });
+        for (const client of wss.clients) {
+            if (client.readyState === 1) client.send(msg);
+        }
+    }
+
+    // Env is separate from EventLog — no model_pool:snapshot pollution
+    // Wire effect handlers (PA: return facts, no EventLog access)
+    const { EffectHandlers } = await import('./side-effects.js');
+    const engine = setupEngine(
+        eventLog,
+        pi,
+        { maxWorkers: config.maxWorkers || 3 },
+        EffectHandlers,
+        broadcastEphemeral,
+    );
+
+    function broadcastEnv() {
+        const env = engine.getEnv();
         const msg = JSON.stringify({
-            type: entry.event,
-            payload: entry.payload,
-            timestamp: entry.timestamp,
-            seq: entry.id,
+            c: 'f',
+            event: 'squad:env',
+            payload: { maxWorkers: env.maxWorkers },
         });
         for (const client of wss.clients) {
             if (client.readyState === 1) client.send(msg);
+        }
+    }
+
+    // Pipe EventLog to WebSocket clients (fact channel, c:'f')
+    // Handles both single entries and batch arrays
+    const unsubLog = eventLog.subscribe((data) => {
+        const list = Array.isArray(data) ? data : [data];
+        for (const entry of list) {
+            const msg = JSON.stringify({
+                c: 'f',
+                event: entry.event,
+                payload: entry.payload,
+                timestamp: entry.timestamp,
+                seq: entry.id,
+            });
+            for (const client of wss.clients) {
+                if (client.readyState === 1) client.send(msg);
+            }
         }
     });
 
@@ -81,6 +120,9 @@ export async function startServer({ pi, skipVite = false } = {}) {
         unsubLog();
         engine.cleanup();
     });
+
+    // Broadcast env after setup
+    broadcastEnv();
 
     _server = { port: http.port, eventLog };
     _close = close;

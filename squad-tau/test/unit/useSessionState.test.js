@@ -7,12 +7,14 @@ function freshState() {
 }
 
 function dispatch(state, type, payload) {
-    return applyEvent(state, type, payload);
+    const newState = applyEvent(state, type, payload);
+    Object.assign(state, newState);
+    return state;
 }
 
 function createSession(state, sessionId, phase = 'worker', retryCount = 0) {
-    dispatch(state, 'session:creating', { sessionId, phase, retryCount });
-    dispatch(state, 'session:start', { sessionId, phase, retryCount });
+    let s = dispatch(state, 'session:creating', { sessionId, phase, retryCount });
+    s = dispatch(s, 'session:start', { sessionId, phase, retryCount });
 }
 
 test('returns initial state', () => {

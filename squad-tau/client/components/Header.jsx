@@ -2,7 +2,7 @@ import React from 'react';
 import { Heading, Button, Badge, Portal, Tooltip, Icon, HStack } from '@chakra-ui/react';
 import { Settings, Wifi, WifiOff, Square } from 'lucide-react';
 import { usePathState } from '../hooks/useAtomicState.js';
-import { eventStore } from '../event-store.js';
+import { uiStore } from '../ui-store.js';
 import { useWebSocketContext } from '../websocket-context.js';
 
 export default function Header() {
@@ -37,7 +37,7 @@ export default function Header() {
       <HStack>
         <Tooltip.Root>
           <Tooltip.Trigger asChild>
-            <Button variant="ghost" size="sm" onClick={() => eventStore.dispatch('ui:toggle_drawer', { open: true })} aria-label="Runtime Metrics">
+            <Button variant="ghost" size="sm" onClick={() => uiStore.dispatch('ui:toggle_drawer', { open: true })} aria-label="Runtime Metrics">
               <Icon as={Settings} boxSize={4} />
             </Button>
           </Tooltip.Trigger>

@@ -9,18 +9,16 @@ import { buildState, setStatus } from '../helpers/state-builder.js';
 import { sessionIdFor } from '../../shared/events.js';
 
 describe('outer review as regular node', () => {
-    test('idle __or__ transitions to reviewing when deps met', () => {
+    test('__or__ transitions to reviewing when deps met', () => {
         const st = buildState({
             mode: 'L',
             nodes: [{ id: 'n1', task: 't', review_criteria: [] }],
         });
         setStatus(st, 'n1', 'approved');
-        // __or__ starts undefined → R1 sets idle → R3 sets reviewing
+        // __or__ starts undefined → R2 fires (undefined + depsMet → reviewing)
         const e = reactState(st);
-        const idle = e.find((a) => a.payload.nodeId === '__or__' && a.payload.status === 'idle');
-        expect(idle).toBeDefined();
-        // R3 fires when idle + depsMet → reviewing
-        // But R1 and R3 fire in the same pulse, so we should see idle action
+        const rev = e.find((a) => a.payload.nodeId === '__or__' && a.payload.status === 'reviewing');
+        expect(rev).toBeDefined();
     });
 
     test('__or__ approved emits squad:complete', () => {
@@ -59,8 +57,8 @@ describe('rejection cycle', () => {
         // R5 should reset n1 to authoring and __or__ to idle
         const n1Reset = e.find((a) => a.payload.nodeId === 'n1' && a.payload.status === 'authoring');
         expect(n1Reset).toBeDefined();
-        expect(n1Reset.payload.retryCount).toBe(1);
-        const orIdle = e.find((a) => a.payload.nodeId === '__or__' && a.payload.status === 'idle');
-        expect(orIdle).toBeDefined();
+        expect(n1Reset.payload.epoch).toBe(1);
+        const orUndef = e.find((a) => a.payload.nodeId === '__or__' && a.payload.status === undefined);
+        expect(orUndef).toBeDefined();
     });
 });

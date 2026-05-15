@@ -8,12 +8,15 @@ function freshState() {
 }
 
 function dispatch(state, type, payload) {
-    return applyEvent(state, type, payload);
+    const newState = applyEvent(state, type, payload);
+    Object.assign(state, newState);
+    return state;
 }
 
 function createSession(state, sessionId, phase = 'worker', retryCount = 0) {
-    dispatch(state, 'session:creating', { sessionId, phase, retryCount });
-    dispatch(state, 'session:start', { sessionId, phase, retryCount });
+    let s = dispatch(state, 'session:creating', { sessionId, phase, retryCount });
+    s = dispatch(s, 'session:start', { sessionId, phase, retryCount });
+    Object.assign(state, s);
 }
 
 function createStore() {
@@ -227,32 +230,20 @@ test('unknown action type returns state unchanged', () => {
     assert.equal(state.squad.status, 'idle');
 });
 
-// ── EventStore tracking tests ──
+// ── EventStore tracking (structural sharing) ──
 
-test('EventStore dispatch tracks path versions', () => {
+test('EventStore structural sharing: unchanged branches keep identity', () => {
     const store = createStore();
-    const v0 = store.getPathVersion('sessions');
+    const msgRef = store.getState().messages;
     store.dispatch('session:state', { sessionId: 's1', phase: 'completed' });
-    assert.equal(store.getPathVersion('sessions'), v0 + 1);
+    // messages sub-tree was not touched — same reference
+    assert.equal(store.getState().messages, msgRef);
 });
 
-test('EventStore dispatch tracks entity versions', () => {
+test('EventStore structural sharing: changed branches get new reference', () => {
     const store = createStore();
-    const v0 = store.getEntityVersion('sessions', 's1');
-    store.dispatch('session:state', { sessionId: 's1', phase: 'error' });
-    assert.equal(store.getEntityVersion('sessions', 's1'), v0 + 1);
-});
-
-test('EventStore subscribe receives paths and entities', () => {
-    const store = createStore();
-    let recPaths, recEntities;
-    store.subscribe((paths, entities) => {
-        recPaths = paths;
-        recEntities = entities;
-    });
+    const sessionsRef = store.getState().sessions;
     store.dispatch('session:state', { sessionId: 's1', phase: 'completed' });
-    assert.ok(recPaths);
-    assert.ok(recPaths.size > 0);
-    assert.ok(recEntities);
-    assert.ok(recEntities.size > 0);
+    // sessions sub-tree was modified — new reference
+    assert.notEqual(store.getState().sessions, sessionsRef);
 });

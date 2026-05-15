@@ -1,13 +1,13 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { Center, Text, VStack, IconButton, Icon } from '@chakra-ui/react';
 import { ArrowDown, MessageCircle } from 'lucide-react';
-import { usePathState, useSessionMessageIds } from '../hooks/useAtomicState.js';
+import { usePathState, useSessionMessageIds, useUiState } from '../hooks/useAtomicState.js';
 import MessageItem from './MessageItem.jsx';
 
 const SCROLL_BOTTOM_THRESHOLD = 40;
 
 export default function MessageList() {
-  const activeSessionId = usePathState('ui', s => s.ui?.activeSessionId);
+  const activeSessionId = useUiState(s => s.activeSessionId);
   const messageIds = useSessionMessageIds(activeSessionId);
   const sessionRole = usePathState('messages', s => {
     if (!activeSessionId) return 'user';

@@ -32,7 +32,6 @@ const ALL_EVENT_TYPES = [
     'message:finalized',
     'tool_call:started',
     'tool_call:finished',
-    'model_pool:snapshot',
 ];
 const NODE_STATUSES = ['idle', 'authoring', 'confirming', 'reviewing', 'approved', 'rejected', 'blocked', 'failed'];
 
@@ -99,8 +98,6 @@ describe('Structural Fuzzing (crash resistance)', () => {
                         };
                     case 'tool_call:finished':
                         return { toolId: `c-${i}`, result: {}, isError: false };
-                    case 'model_pool:snapshot':
-                        return { maxWorkers: 3 };
                     default:
                         return {};
                 }
@@ -261,7 +258,7 @@ describe('Behavioral Fuzzing (causal invariants via TimeTraveler)', () => {
         expect(state.squad.status).toBe('complete');
         const n1 = state.squad.nodes['n1'];
         expect(n1.status).toBe('failed');
-        expect(n1.retryCount).toBeGreaterThanOrEqual(5 - 1);
+        expect(n1.epoch).toBeGreaterThanOrEqual(5 - 1);
         assertConvergedInvariants(state);
     });
 });

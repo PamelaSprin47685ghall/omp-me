@@ -30,7 +30,7 @@ describe('outer review rejection', () => {
         const a = reactState(st).find((e) => e.type === 'squad:node_state' && e.payload.status === 'authoring');
         expect(a).toBeDefined();
         expect(a.payload.nodeId).toBe('n1');
-        expect(a.payload.retryCount).toBe(1);
+        expect(a.payload.epoch).toBe(1);
     });
 });
 

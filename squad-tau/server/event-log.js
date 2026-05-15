@@ -1,38 +1,55 @@
 /**
  * Global Event Log (Append-Only) for Event Sourcing.
- * The absolute source of truth.
+ * The absolute source of truth — pure business facts only.
+ * No transient events, no infrastructure metadata.
+ * Every entry has a monotonic id and is persisted.
  */
 export class EventLog {
     constructor() {
         this.log = [];
         this.listeners = new Set();
-        this.transientEvents = new Set(['message:delta']);
     }
 
-    /**
-     * Append a new event to the log.
-     * @param {string} event - Event type
-     * @param {object} payload - Event data
-     */
-    append(event, payload) {
-        const entry = {
+    _makeEntry(event, payload) {
+        return {
             id: this.log.length,
             event,
             payload,
             timestamp: Date.now(),
         };
+    }
 
-        if (!this.transientEvents.has(event)) {
-            this.log.push(entry);
-        }
-
+    /**
+     * Append a single event to the log.
+     * Notifies all listeners immediately.
+     */
+    append(event, payload) {
+        const entry = this._makeEntry(event, payload);
+        this.log.push(entry);
         for (const listener of this.listeners) {
             listener(entry);
+        }
+        return entry;
+    }
+
+    /**
+     * Append multiple entries in one atomic batch.
+     * All entries are pushed together, then listeners notified once.
+     * @param {Array} entries — pre-built entry objects (with id, event, payload, timestamp)
+     */
+    appendBatch(entries) {
+        if (entries.length === 0) return;
+        for (const e of entries) {
+            this.log.push(e);
+        }
+        for (const listener of this.listeners) {
+            listener(entries); // passes array when batch
         }
     }
 
     /**
      * Subscribe to new entries.
+     * Listener receives either a single entry or an Array (from appendBatch).
      * @param {Function} listener
      * @returns {Function} unsubscribe function
      */

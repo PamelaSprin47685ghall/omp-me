@@ -7,7 +7,9 @@ function freshState() {
 }
 
 function dispatch(state, type, payload) {
-    return applyEvent(state, type, payload);
+    const newState = applyEvent(state, type, payload);
+    Object.assign(state, newState);
+    return state;
 }
 
 test('Regression: assistant message with parentId should append, not overwrite parent', () => {

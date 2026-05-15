@@ -16,31 +16,31 @@ function reviewReady() {
 }
 
 describe('reviewer rejection', () => {
-    test('error sends back to AUTHORING with retryCount', () => {
+    test('error sends back to AUTHORING with epoch', () => {
         const st = reviewReady();
         giveReturn(st, sessionIdFor('n1', 'reviewing', 0), 'error', 'needs work');
         const a = reactState(st).find((e) => e.type === 'squad:node_state' && e.payload.status === 'authoring');
         expect(a).toBeDefined();
-        expect(a.payload.retryCount).toBe(1);
+        expect(a.payload.epoch).toBe(1);
         expect(a.payload.feedback).toBe('needs work');
     });
 
-    test('retryCount increments on repeat rejections', () => {
+    test('epoch increments on repeat rejections', () => {
         const st = reviewReady();
         giveReturn(st, sessionIdFor('n1', 'reviewing', 0), 'error', 'fix 1');
         let a = reactState(st).find((e) => e.type === 'squad:node_state' && e.payload.status === 'authoring');
-        expect(a.payload.retryCount).toBe(1);
+        expect(a.payload.epoch).toBe(1);
 
-        setStatus(st, 'n1', 'authoring', { retryCount: 1, feedback: 'fix 1' });
+        setStatus(st, 'n1', 'authoring', { epoch: 1, feedback: 'fix 1' });
         createSession(st, 'n1', 'authoring');
         setStatus(st, 'n1', 'confirming');
         createSession(st, 'n1', 'confirming');
         setStatus(st, 'n1', 'reviewing');
         createSession(st, 'n1', 'reviewing');
-        giveReturn(st, sessionIdFor('n1', 'reviewing', 1), 'error', 'fix 2');
+        giveReturn(st, sessionIdFor('n1', 'reviewing', 1), 'error', 'still needs work');
 
         a = reactState(st).find((e) => e.type === 'squad:node_state' && e.payload.status === 'authoring');
-        expect(a.payload.retryCount).toBe(2);
+        expect(a.payload.epoch).toBe(2);
     });
 
     test('approval transitions to APPROVED', () => {

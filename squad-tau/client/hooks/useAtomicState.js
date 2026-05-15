@@ -1,87 +1,103 @@
-import { useSyncExternalStore } from 'react';
+import { useSyncExternalStore, useCallback } from 'react';
 import { eventStore } from '../event-store.js';
+import { uiStore } from '../ui-store.js';
+import { envStore } from '../env-store.js';
 
 const EMPTY_ARRAY = [];
 const EMPTY_OBJECT = {};
 
+// Bound subscribe functions — avoid `this` loss when passed as callbacks
+const sub = (cb) => eventStore.subscribe(cb);
+const subUi = (cb) => uiStore.subscribe(cb);
+const subEnv = (cb) => envStore.subscribe(cb);
+
+/**
+ * Subscribe to domain state with structural sharing.
+ */
+export function useStore(selector) {
+    return useSyncExternalStore(sub, () => selector(eventStore.getState()));
+}
+
 /**
  * Subscribe to a single top-level state path.
- * Uses integer path version for stable snapshots.
  */
 export function usePathState(path, selector) {
-    useSyncExternalStore(
-        (callback) =>
-            eventStore.subscribe((paths) => {
-                if (!paths || paths.has(path)) callback();
-            }),
-        () => eventStore.getPathVersion(path),
-    );
+    return useSyncExternalStore(sub, () => selector(eventStore.getState()));
+}
 
-    return selector(eventStore.getState());
+function identity(v) {
+    return v;
+}
+
+/**
+ * Subscribe to the squad nodes map (stable reference via structural sharing).
+ */
+export function useNodes() {
+    return usePathState('squad', (s) => s.squad.nodes || EMPTY_OBJECT);
+}
+
+export function useSessions() {
+    return usePathState('sessions', (s) => s.sessions || EMPTY_OBJECT);
+}
+
+export function useResults() {
+    return usePathState('squad', (s) => s.squad.results || EMPTY_ARRAY);
 }
 
 /**
  * Subscribe to a single node in the squad nodes map.
  */
 export function useNodeState(nodeId) {
-    return usePathState('squad', (s) => s.squad.nodes[nodeId]);
+    return useSyncExternalStore(sub, () => eventStore.getState().squad.nodes[nodeId]);
 }
 
 /**
  * Subscribe to a single message entity by messageId.
- * Only re-renders when that specific message changes.
  */
 export function useMessageState(messageId) {
-    useSyncExternalStore(
-        (callback) =>
-            eventStore.subscribe((_paths, entities) => {
-                if (!entities) callback();
-                else if (entities.has(`messages:${messageId}`)) callback();
-            }),
-        () => eventStore.getEntityVersion('messages', messageId),
-    );
-
-    return eventStore.getState().messages[messageId] || EMPTY_OBJECT;
+    return useSyncExternalStore(sub, () => eventStore.getState().messages[messageId] || EMPTY_OBJECT);
 }
 
 /**
  * Subscribe to a single toolCall entity by toolId.
- * Only re-renders when that specific tool call changes.
  */
 export function useToolCallState(toolId) {
-    useSyncExternalStore(
-        (callback) =>
-            eventStore.subscribe((_paths, entities) => {
-                if (!entities) callback();
-                else if (entities.has(`toolCalls:${toolId}`)) callback();
-            }),
-        () => eventStore.getEntityVersion('toolCalls', toolId),
-    );
-
-    return eventStore.getState().toolCalls[toolId] || EMPTY_OBJECT;
+    return useSyncExternalStore(sub, () => eventStore.getState().toolCalls[toolId] || EMPTY_OBJECT);
 }
 
 /**
  * Subscribe to a single session entity by sessionId.
  */
 export function useSessionState(sessionId) {
-    useSyncExternalStore(
-        (callback) =>
-            eventStore.subscribe((_paths, entities) => {
-                if (!entities) callback();
-                else if (entities.has(`sessions:${sessionId}`)) callback();
-            }),
-        () => eventStore.getEntityVersion('sessions', sessionId),
-    );
-
-    return eventStore.getState().sessions[sessionId] || EMPTY_OBJECT;
+    return useSyncExternalStore(sub, () => eventStore.getState().sessions[sessionId] || EMPTY_OBJECT);
 }
 
 /**
  * Subscribe to a session's message IDs array.
- * Re-renders only when messageIds changes (new message added).
  */
 export function useSessionMessageIds(sessionId) {
     const session = useSessionState(sessionId);
     return session.messageIds || EMPTY_ARRAY;
+}
+
+/**
+ * Subscribe to UI store (viewport state, not domain).
+ */
+export function useUiState(selector) {
+    return useSyncExternalStore(
+        subUi,
+        () => selector(uiStore.getState()),
+        () => selector({ viewMode: 'dag', activeSessionId: null, drawerOpen: false, bannerDismissed: false }),
+    );
+}
+
+/**
+ * Subscribe to environment configuration (server-infrastructure metadata).
+ */
+export function useEnv(selector) {
+    return useSyncExternalStore(
+        subEnv,
+        () => selector(envStore.getState()),
+        () => selector({ maxWorkers: 3 }),
+    );
 }

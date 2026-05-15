@@ -8,7 +8,7 @@ describe('max retries boundary', () => {
     test('after MAX_RETRIES consecutive reviewer rejections, node goes to FAILED', () => {
         const st = createBaseState('n1');
         const rc = 5 - 1;
-        setStatus(st, 'n1', 'reviewing', { retryCount: rc });
+        setStatus(st, 'n1', 'reviewing', { epoch: rc });
         const sid = createSession(st, 'n1', 'reviewing');
         expect(sid).toBe(sessionIdFor('n1', 'reviewing', rc));
         giveReturn(st, sid, 'error', 'fix final');
@@ -23,13 +23,13 @@ describe('max retries boundary', () => {
     test('at MAX_RETRIES-1 retries, rejection sends back to AUTHORING', () => {
         const st = createBaseState('n1');
         const rc = 5 - 2;
-        setStatus(st, 'n1', 'reviewing', { retryCount: rc });
+        setStatus(st, 'n1', 'reviewing', { epoch: rc });
         const sid = createSession(st, 'n1', 'reviewing');
         giveReturn(st, sid, 'error', 'still needs work');
         const actions = reactState(st);
         const auth = actions.find((a) => a.type === 'squad:node_state' && a.payload.status === 'authoring');
         expect(auth).toBeDefined();
-        expect(auth.payload.retryCount).toBe(5 - 1);
+        expect(auth.payload.epoch).toBe(5 - 1);
         expect(auth.payload.feedback).toBe('still needs work');
     });
 });
@@ -48,15 +48,15 @@ describe('concurrency gating', () => {
 
     test('does NOT emit SESSION_CREATING at limit', () => {
         const st = createBaseState('n1', 'n2', 'n3', 'n4');
-        applyEvent(st, 'model_pool:snapshot', { maxWorkers: 3 });
+        const env = { maxWorkers: 3 };
         setStatus(st, 'n1', 'authoring');
         setStatus(st, 'n2', 'authoring');
         setStatus(st, 'n3', 'authoring');
-        setStatus(st, 'n4', 'authoring');
         createSession(st, 'n1', 'authoring');
         createSession(st, 'n2', 'authoring');
         createSession(st, 'n3', 'authoring');
-        const events = reactState(st);
+        createSession(st, 'n3', 'authoring');
+        const events = reactState(st, env);
         expect(events.filter((e) => e.type === 'session:creating' && e.payload.nodeId === 'n4').length).toBe(0);
     });
 });

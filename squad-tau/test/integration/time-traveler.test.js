@@ -174,7 +174,7 @@ describe('concurrency invariants', () => {
             }),
         );
         for (const c of log.filter((e) => e.event === 'session:creating')) {
-            expect(c.payload.sessionId).toMatch(/^.+::.+::\d+$/);
+            expect(c.payload.sessionId).toMatch(/^.+::.+::v\d+$/);
         }
     });
 });

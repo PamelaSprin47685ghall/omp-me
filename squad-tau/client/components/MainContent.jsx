@@ -7,19 +7,20 @@ import {
   HStack,
   VStack,
 } from '@chakra-ui/react';
-import { usePathState } from '../hooks/useAtomicState.js';
-import { eventStore } from '../event-store.js';
+import { usePathState, useUiState } from '../hooks/useAtomicState.js';
+import { uiStore } from '../ui-store.js';
 import DAGView from './DAGView.jsx';
 import MessageList from './MessageList.jsx';
 import { MessageInput } from './MessageInput.jsx';
 import WelcomeView from './WelcomeView.jsx';
 
 export default function MainContent() {
-  const viewMode = usePathState('ui', s => s.ui?.viewMode || 'dag');
-  const activeSessionId = usePathState('ui', s => s.ui?.activeSessionId);
-  const bannerDismissed = usePathState('ui', s => s.ui?.bannerDismissed || false);
+  const viewMode = useUiState(s => s.viewMode || 'dag');
+  const activeSessionId = useUiState(s => s.activeSessionId);
+  const bannerDismissed = useUiState(s => s.bannerDismissed || false);
   const squadActive = usePathState('squad', s => s.squad.status === 'active' || s.squad.status === 'complete');
-  const nodes = usePathState('squad', s => Object.values(s.squad.nodes || {}));
+  const nodeMap = usePathState('squad', s => s.squad.nodes || {});
+  const nodes = Object.values(nodeMap);
   const sessions = usePathState('sessions', s => s.sessions || {});
   const results = usePathState('squad', s => s.squad.results || []);
 
@@ -45,7 +46,7 @@ export default function MainContent() {
               <Alert.Title>Squad Failed — {failSummary.fc} failed, {failSummary.bc} blocked</Alert.Title>
               <Alert.Description>{failSummary.summary || 'Unknown error'}</Alert.Description>
             </Alert.Content>
-            <Button size="xs" variant="outline" ml="auto" onClick={() => eventStore.dispatch('ui:dismiss_banner', {})}>Dismiss</Button>
+            <Button size="xs" variant="outline" ml="auto" onClick={() => uiStore.dispatch('ui:dismiss_banner', {})}>Dismiss</Button>
           </Alert.Root>
         )}
         {allSuccess && (
@@ -67,7 +68,7 @@ export default function MainContent() {
         {activeSession && (
           <HStack wrap="wrap">
             {activeSession.nodeId && <Badge>{`Node: ${activeSession.nodeId}`}</Badge>}
-            {activeSession.retryCount > 0 && <Badge colorPalette="orange">{`Retry #${activeSession.retryCount}`}</Badge>}
+            {activeSession.epoch > 0 && <Badge colorPalette="orange">{`Retry #${activeSession.epoch}`}</Badge>}
             <Badge>{activeSession.phase}</Badge>
             <Badge>{activeSession.status}</Badge>
           </HStack>

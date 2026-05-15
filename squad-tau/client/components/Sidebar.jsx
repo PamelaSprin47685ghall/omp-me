@@ -1,8 +1,8 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { VStack, HStack, Text, Icon, Box, Collapsible } from '@chakra-ui/react';
 import { CheckCircle, XCircle, Clock, RefreshCw, Ban, Circle, Network } from 'lucide-react';
-import { usePathState } from '../hooks/useAtomicState.js';
-import { eventStore } from '../event-store.js';
+import { usePathState, useUiState } from '../hooks/useAtomicState.js';
+import { uiStore } from '../ui-store.js';
 
 const STATUS_ICONS = { approved: CheckCircle, rejected: XCircle, pending: Clock, active: RefreshCw, authoring: RefreshCw, confirming: RefreshCw, reviewing: RefreshCw, failed: Ban, blocked: Ban };
 const STATUS_COLOR_MAP = { 
@@ -41,10 +41,10 @@ function TreeIcon({ status, ...rest }) {
 }
 
 function SessionRow({ sessionData }) {
-  const { sessionId, status, retryCount, phase, nodeId } = sessionData;
-  const round = retryCount + 1;
+  const { sessionId, status, epoch = 0, phase, nodeId } = sessionData;
+  const round = epoch + 1;
   const label = `R${round} ${(phase || 'worker').replace(/_/g, ' ')}`;
-  const handleClick = () => eventStore.dispatch('ui:select_session', { sessionId });
+  const handleClick = () => uiStore.dispatch('ui:select_session', { sessionId });
 
   return (
     <HStack
@@ -69,7 +69,7 @@ function NodeGroup({ nodeId, sessions }) {
     [sessions, nodeId]
   );
   const [expanded, setExpanded] = useState(true);
-  const activeSessionId = usePathState('ui', s => s.ui?.activeSessionId);
+  const activeSessionId = useUiState(s => s.activeSessionId);
   const node = usePathState('squad', s => s.squad.nodes[nodeId]);
   const label = node?.label || node?.id || nodeId;
 
@@ -104,7 +104,7 @@ export default function Sidebar() {
   const sessionMap = usePathState('sessions', s => s.sessions || {});
   const nodes = Object.values(nodeMap);
   const sessions = Object.values(sessionMap);
-  const viewMode = usePathState('ui', s => s.ui?.viewMode || 'dag');
+  const viewMode = useUiState(s => s.viewMode || 'dag');
 
   const nodeIds = useMemo(() => {
     const ids = new Set(nodes.map(n => n.id));
@@ -127,7 +127,7 @@ export default function Sidebar() {
         bg={viewMode === 'dag' ? 'blue.subtle' : undefined}
         color={viewMode === 'dag' ? 'blue.fg' : 'inherit'}
         fontWeight={viewMode === 'dag' ? 600 : 400}
-        onClick={() => eventStore.dispatch('ui:set_view_mode', { viewMode: 'dag' })}
+        onClick={() => uiStore.dispatch('ui:set_view_mode', { viewMode: 'dag' })}
         gap={1}
         role="treeitem"
       >

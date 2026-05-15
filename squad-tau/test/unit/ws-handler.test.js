@@ -30,7 +30,8 @@ describe('routeMessage', () => {
         expect(result).toBe(true);
         expect(ws.sent.length).toBe(1);
         const pong = JSON.parse(ws.sent[0]);
-        expect(pong.type).toBe('pong');
+        expect(pong.event).toBe('pong');
+        expect(pong.c).toBe('f');
     });
 
     test('sync strategy calls eventLog.getSince', async () => {
@@ -46,7 +47,8 @@ describe('routeMessage', () => {
         expect(cursorPassed).toBe(10);
         expect(ws.sent.length).toBe(1);
         const msg = JSON.parse(ws.sent[0]);
-        expect(msg.type).toBe('test:event');
+        expect(msg.event).toBe('test:event');
+        expect(msg.c).toBe('f');
         expect(msg.seq).toBe(42);
     });
 
