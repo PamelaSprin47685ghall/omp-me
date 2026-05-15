@@ -1,6 +1,13 @@
 /**
  * Homomorphic event projections — shared between client and server.
- * v4: Flat state (nodes as map), deterministic URN sessions, no model pool.
+ * v5: Zero-content, flat normalized state, entity-level tracking.
+ *
+ * Messages have NO text/content — only topology metadata.
+ * User messages carry staticContent (immutable once written).
+ * Agent messages stream via CustomElements; state tree never holds their text.
+ *
+ * No .find() / .findIndex() — O(1) hash lookups only.
+ * No != null fallbacks — fail fast on contract violation.
  */
 
 const Reducers = {};
@@ -15,9 +22,38 @@ export function getInitialState() {
     return {
         squad: { status: 'idle', nodes: {}, results: [], originalTask: '' },
         sessions: {},
+        messages: {},
+        toolCalls: {},
         modelPool: { maxWorkers: 3 },
     };
 }
+
+// ── Entity Lifecycle (unified message lifecycle) ──
+
+register('entity:created')((state, payload) => {
+    if (payload.entityType === 'message') {
+        state.messages[payload.entityId] = {
+            messageId: payload.entityId,
+            sessionId: payload.sessionId,
+            role: payload.role,
+            status: 'created',
+            parentId: payload.parentId,
+            staticContent: payload.staticContent,
+            toolIds: [],
+        };
+        const sess = state.sessions[payload.sessionId];
+        if (sess) sess.messageIds = [...sess.messageIds, payload.entityId];
+    }
+});
+
+register('entity:finalized')((state, payload) => {
+    if (payload.entityType === 'message') {
+        const msg = state.messages[payload.entityId];
+        if (!msg) return;
+        msg.status = 'finalized';
+        if (payload.staticContent) msg.staticContent = payload.staticContent;
+    }
+});
 
 // ── Squad Lifecycle ──
 
@@ -57,8 +93,6 @@ register('squad:abort')((state) => {
     state.squad.status = 'aborted';
 });
 
-// ── Outer Review ──
-
 register('squad:outer_review_start')((state, payload) => {
     state.squad.outerReview = { status: 'pending', round: payload.round || 1 };
 });
@@ -84,8 +118,8 @@ register('session:creating')((state, payload) => {
         phase: payload.phase,
         role: payload.phase,
         status: 'creating',
-        messages: [],
-        retryCount: payload.retryCount != null ? payload.retryCount : 0,
+        messageIds: [],
+        retryCount: payload.retryCount,
     };
 });
 
@@ -94,8 +128,7 @@ register('session:start')((state, payload) => {
     if (state.sessions[sid]) {
         state.sessions[sid].status = 'active';
         state.sessions[sid].model = payload.model;
-        state.sessions[sid].retryCount =
-            payload.retryCount != null ? payload.retryCount : state.sessions[sid].retryCount || 0;
+        state.sessions[sid].retryCount = payload.retryCount;
     } else {
         state.sessions[sid] = {
             sessionId: sid,
@@ -103,9 +136,9 @@ register('session:start')((state, payload) => {
             phase: payload.phase,
             role: payload.phase,
             status: 'active',
-            messages: [],
+            messageIds: [],
             model: payload.model,
-            retryCount: payload.retryCount != null ? payload.retryCount : 0,
+            retryCount: payload.retryCount,
         };
     }
 });
@@ -133,119 +166,96 @@ register('session:end')((state, payload) => {
     if (payload.errorMessage) sess.errorMessage = payload.errorMessage;
 });
 
+// ── Legacy message events (server emits these; WS hook maps to entity:*) ──
+// These are kept for server-side projection where WS hook isn't involved.
+// Client-side only processes via EventStore which receives mapped events.
+// But for engine simulation (timeTravel), the server-side projections
+// must handle these directly.
+
+register('session:message_start')((state, payload) => {
+    state.messages[payload.messageId] = {
+        messageId: payload.messageId,
+        sessionId: payload.sessionId,
+        role: payload.role || 'assistant',
+        status: 'created',
+        parentId: payload.parentId,
+        staticContent: undefined,
+        toolIds: [],
+    };
+    const sess = state.sessions[payload.sessionId];
+    if (sess) sess.messageIds = [...sess.messageIds, payload.messageId];
+});
+
 register('session:message')((state, payload) => {
     const sess = state.sessions[payload.sessionId];
     if (!sess) return;
-    const list = sess.messages;
-    const idx = list.findIndex((m) => m.messageId === payload.messageId);
-    if (idx !== -1) list[idx] = { ...list[idx], ...payload };
-    else list.push(payload);
-    // Initialize flat string caches from complete content
-    const msg = idx !== -1 ? list[idx] : list[list.length - 1];
-    if (Array.isArray(msg.content)) {
-        msg.joinedText = msg.content
-            .filter((b) => b.type === 'text')
-            .map((b) => b.text)
-            .join('');
-        msg.joinedThinking = msg.content
-            .filter((b) => b.type === 'thinking')
-            .map((b) => b.text)
-            .join('');
-    }
-});
-
-// ── Streaming Delta (transient, never stored in EventLog) ──
-
-register('session:message_delta')((state, payload) => {
-    const sess = state.sessions[payload.sessionId];
-    if (!sess) return;
-    const list = sess.messages;
-    const msgIdx = list.findIndex((m) => m.messageId === payload.messageId);
-
-    if (msgIdx === -1) {
-        const blockType = payload.delta.type === 'thinking_delta' ? 'thinking' : 'text';
-        const text = payload.delta.text || '';
-        list.push({
-            role: 'assistant',
-            messageId: payload.messageId,
-            content: [{ type: blockType, text }],
-            streaming: true,
-            joinedText: payload.delta.type !== 'thinking_delta' ? text : '',
-            joinedThinking: payload.delta.type === 'thinking_delta' ? text : '',
-        });
-    } else {
-        const msg = list[msgIdx];
-        if (!msg.streaming) msg.streaming = true;
-        if (payload.delta.type === 'thinking_delta') {
-            const t = payload.delta.text || '';
-            msg.joinedThinking = (msg.joinedThinking || '') + t;
-            const hasThinking = msg.content.some((c) => c.type === 'thinking');
-            if (!hasThinking) msg.content.push({ type: 'thinking', text: '' });
-        } else {
-            const t = payload.delta.text || '';
-            msg.joinedText = (msg.joinedText || '') + t;
+    if (state.messages[payload.messageId]) {
+        state.messages[payload.messageId].status = 'finalized';
+        if (payload.role === 'user') {
+            const text = extractText(payload.content);
+            if (text) state.messages[payload.messageId].staticContent = text;
         }
-    }
-});
-
-register('session:thinking_delta')((state, payload) => {
-    const sess = state.sessions[payload.sessionId];
-    if (!sess) return;
-    const list = sess.messages;
-    const msgIdx = list.findIndex((m) => m.messageId === payload.messageId);
-
-    if (msgIdx === -1) {
-        const text = payload.delta.text || '';
-        list.push({
-            role: 'assistant',
-            messageId: payload.messageId,
-            content: [{ type: 'thinking', text }],
-            streaming: true,
-            joinedText: '',
-            joinedThinking: text,
-        });
     } else {
-        const msg = list[msgIdx];
-        if (!msg.streaming) msg.streaming = true;
-        const t = payload.delta.text || '';
-        msg.joinedThinking = (msg.joinedThinking || '') + t;
-        const hasThinking = msg.content.some((c) => c.type === 'thinking');
-        if (!hasThinking) msg.content.push({ type: 'thinking', text: '' });
+        const text = payload.role === 'user' ? extractText(payload.content) : undefined;
+        state.messages[payload.messageId] = {
+            messageId: payload.messageId,
+            sessionId: payload.sessionId,
+            role: payload.role,
+            status: 'finalized',
+            parentId: payload.parentId,
+            staticContent: text,
+            toolIds: [],
+        };
+        sess.messageIds = [...sess.messageIds, payload.messageId];
     }
 });
+
+function extractText(content) {
+    if (!content) return '';
+    const blocks = Array.isArray(content) ? content : [content];
+    const tb = blocks.find((b) => b.type === 'text');
+    return tb ? tb.text : '';
+}
+
+// ── Tool Calls ──
 
 register('session:tool_call')((state, payload) => {
-    const sess = state.sessions[payload.sessionId];
-    if (!sess) return;
-    const { sessionId, ...toolFields } = payload;
-    sess.messages.push({
-        role: 'assistant',
-        messageId: payload.toolId,
-        content: [{ type: 'tool_call', ...toolFields }],
-    });
-    if (payload.toolName === 'return') {
-        sess.latestReturn = payload.params;
+    const { sessionId, toolId, toolName, params, messageId } = payload;
+    state.toolCalls[toolId] = {
+        toolId,
+        sessionId,
+        messageId: messageId || '',
+        toolName,
+        params,
+        result: undefined,
+        isError: undefined,
+    };
+    // Link to message if messageId provided
+    if (messageId && state.messages[messageId]) {
+        const msg = state.messages[messageId];
+        if (!msg.toolIds.includes(toolId)) msg.toolIds = [...msg.toolIds, toolId];
+    }
+    // Track latestReturn for reactor
+    if (toolName === 'return') {
+        const sess = state.sessions[sessionId];
+        if (sess) sess.latestReturn = params;
     }
 });
 
 register('session:tool_result')((state, payload) => {
-    const sess = state.sessions[payload.sessionId];
-    if (!sess) return;
-    const msg = sess.messages.find((m) => m.messageId === payload.toolId);
-    if (!msg) return;
-    const block = msg.content.find((b) => b.type === 'tool_call');
-    if (!block) return;
-    block.result = payload.result;
-    block.isError = payload.isError;
+    const tc = state.toolCalls[payload.toolId];
+    if (!tc) return;
+    tc.result = payload.result;
+    tc.isError = payload.isError === true;
 });
 
-// ── Model Pool Config (static, no runtime usage tracking) ──
+// ── Model Pool ──
 
 register('model_pool:snapshot')((state, payload) => {
     if (payload.maxWorkers) state.modelPool.maxWorkers = payload.maxWorkers;
 });
 
-// ── UI State (client-side only) — each event has its own reducer, no switch
+// ── UI State (client-side only) ──
 
 register('ui:select_session')((state, payload) => {
     state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, drawerOpen: false, bannerDismissed: false };

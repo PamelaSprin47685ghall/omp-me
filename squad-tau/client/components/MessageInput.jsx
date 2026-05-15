@@ -13,13 +13,20 @@ export function MessageInput() {
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
     if (!trimmed || !activeSessionId) return;
-    const tempId = `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    eventStore.dispatch('session:message', {
+    const tempId = `usr_${Date.now()}`;
+
+    // Create message entity + dispatch delta+stream:end locally for instant display
+    eventStore.dispatch('entity:created', {
+      entityType: 'message',
+      entityId: tempId,
       sessionId: activeSessionId,
       role: 'user',
-      content: [{ type: 'text', text: trimmed }],
-      messageId: tempId,
+      staticContent: trimmed,
     });
+    document.dispatchEvent(new CustomEvent('stream:end', {
+      detail: { messageId: tempId, sessionId: activeSessionId, text: trimmed },
+    }));
+
     send({ type: 'session:user_message', payload: { sessionId: activeSessionId, text: trimmed, messageId: tempId } });
     setText('');
   }, [text, activeSessionId, send]);

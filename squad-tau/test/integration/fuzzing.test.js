@@ -1,10 +1,10 @@
 /**
- * Algebraic Fuzzing — Statistical Invariant Verification (v4).
+ * Algebraic Fuzzing — Statistical Invariant Verification (v5).
  *
  * A) Structural Fuzzing: generate garbage events, ONLY assert no crash.
  * B) Behavioral Fuzzing (TimeTraveler-driven): assert business causality.
  *
- * Adapted for v4: flat node map, no modelPool.usage, deterministic URNs.
+ * v5: Zero-content state, flat maps, entity-level tracking.
  */
 import { describe, test, expect } from 'bun:test';
 import { project, applyEvent, getInitialState } from '../../shared/projections.js';
@@ -26,6 +26,8 @@ const ALL_EVENT_TYPES = [
     'squad:outer_review_start',
     'squad:outer_review_done',
     'squad:outer_review_failed',
+    'entity:created',
+    'entity:finalized',
     'session:start',
     'session:state',
     'session:end',
@@ -49,7 +51,6 @@ const NODE_STATUSES = [
 ];
 
 function assertConvergedInvariants(state) {
-    // DAG barrier
     for (const node of Object.values(state.squad.nodes || {})) {
         if (node.status !== 'approved') continue;
         for (const depId of node.depends_on || []) {
@@ -82,13 +83,24 @@ describe('Structural Fuzzing (crash resistance)', () => {
                             sessionId: `s-${randInt(0, 999)}`,
                             nodeId: `n${randInt(0, 20)}`,
                             phase: pick(['authoring', 'reviewing']),
+                            retryCount: 0,
                         };
                     case 'session:creating':
                         return {
                             sessionId: `s-${randInt(0, 999)}`,
                             nodeId: `n${randInt(0, 20)}`,
                             phase: pick(['authoring', 'reviewing']),
+                            retryCount: 0,
                         };
+                    case 'entity:created':
+                        return {
+                            entityType: 'message',
+                            entityId: `m-${i}`,
+                            sessionId: `s-${randInt(0, 999)}`,
+                            role: pick(['user', 'assistant']),
+                        };
+                    case 'entity:finalized':
+                        return { entityType: 'message', entityId: `m-${i}`, sessionId: `s-${randInt(0, 999)}` };
                     case 'session:state':
                         return { sessionId: `s-${randInt(0, 999)}`, phase: pick(['completed', 'aborted', 'error']) };
                     case 'session:end':
@@ -110,12 +122,7 @@ describe('Structural Fuzzing (crash resistance)', () => {
                     case 'session:tool_result':
                         return { sessionId: `s-${randInt(0, 999)}`, toolId: `c-${i}`, result: {}, isError: false };
                     case 'model_pool:snapshot':
-                        return { slots: [] };
-                    case 'model_pool:config_update':
-                        return {
-                            action: 'add',
-                            slot: { provider: 'test', modelId: 'm', role: 'worker', slotId: `s-${i}` },
-                        };
+                        return { maxWorkers: 3 };
                     default:
                         return {};
                 }

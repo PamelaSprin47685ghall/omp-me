@@ -34,6 +34,7 @@ mindmap
 | **模型池** | 静态配置读取 + `maxWorkers` 整数字段 | `model-pool-config.js` |
 | **网络** | HTTP 服务器、WebSocket、心跳、事件桥接 | `http-*`, `ws-*`, `server-lifecycle.js` |
 | **验证** | Plan 验证 + DAG 环检测 | `validate-plan.js`, `dag-validate.js` |
+| **流渲染** | 物理隔离的流式文本管线；零 JS 缓冲区 + 直接 `TextNode.appendData()` + Custom Element `<stream-sink>` 宿主 | `client/stream-router.js`, `client/stream-sink.js` |
 | **前端** | React 纯展示层、hooks、event-store | `*.jsx`, `use*.js`, `event-store.js` |
 | **测试** | 代数断言、时空折叠、PTY 真实混沌 | `*.test.js` |
 
@@ -69,6 +70,7 @@ sequenceDiagram
 - **插件加载时即启动**，不依赖 `/squad` 命令
 - **端口 OS 随机分配**（`server.listen(0, '127.0.0.1')`）
 - Vite `createServer` Node API 处理 JSX/HMR/静态资源（通过 `@oh-my-pi/resolve-pi` 的 `importNodeModule` 动态加载）
+- `@vitejs/plugin-react` 处理 JSX 自动运行时转换；`resolve.dedupe: ['react', 'react-dom']` 防止嵌套 node_modules 导致双实例
 - WS `ws://127.0.0.1:<port>/ws`：双向 JSON，心跳 30s ping / 60s 超时
 - `session:user_message` → EventLog 追加 → Engine Pulse 路由
 - 服务端使用**引用计数**管理生命周期（`_refCount`），允许多次启动调用不冲突
@@ -145,8 +147,8 @@ sequenceDiagram
 
 ```
 Runtime deps:
-  ws                        -- WebSocket server (bundled dependency)
-  vite                      -- Dev server (bundled dependency)
+  vite                      -- Dev server
+  @vitejs/plugin-react      -- JSX automatic runtime
   @chakra-ui/react          -- UI components
   lucide-react              -- Icons
   react / react-dom         -- UI framework
@@ -157,8 +159,6 @@ Dev deps:
   puppeteer                 -- E2E tests
   bun:test                  -- Bun test runner (built-in)
 ```
-
-所有依赖通过 `@oh-my-pi/resolve-pi` 的 `importNodeModule` 动态解析，而非直接 `import`。
 
 所有 tau-mirror 功能全部内联实现。
 

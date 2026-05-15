@@ -11,121 +11,178 @@ function dispatch(state, type, payload) {
     return applyEvent(state, type, payload);
 }
 
-// Delta handling is implemented in EventStore.applyDelta, not in projections.
-// These tests validate the delta accumulation behavior.
-
 function createStore() {
     const store = new EventStore();
-    // Seed a session via dispatch
-    store.dispatch('session:start', { sessionId: 's1', phase: 'worker' });
+    store.dispatch('session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
     return store;
 }
 
-test('SESSION_MESSAGE_DELTA appends text to existing message', () => {
-    const store = createStore();
-    store.dispatch('session:message', {
+// ── Entity Lifecycle ──
+
+test('entity:created creates message entity and appends to session', () => {
+    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
+    dispatch(state, 'entity:created', {
+        entityType: 'message',
+        entityId: 'm1',
+        sessionId: 's1',
+        role: 'assistant',
+    });
+    const msg = state.messages['m1'];
+    assert.ok(msg);
+    assert.equal(msg.messageId, 'm1');
+    assert.equal(msg.role, 'assistant');
+    assert.equal(msg.status, 'created');
+    assert.equal(msg.staticContent, undefined);
+    assert.deepEqual(msg.toolIds, []);
+    assert.equal(state.sessions.s1.messageIds.includes('m1'), true);
+});
+
+test('entity:created with staticContent creates user message', () => {
+    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
+    dispatch(state, 'entity:created', {
+        entityType: 'message',
+        entityId: 'm1',
+        sessionId: 's1',
+        role: 'user',
+        staticContent: 'Hello world',
+    });
+    assert.equal(state.messages['m1'].staticContent, 'Hello world');
+    assert.equal(state.messages['m1'].role, 'user');
+});
+
+test('entity:finalized sets status to finalized', () => {
+    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
+    dispatch(state, 'entity:created', {
+        entityType: 'message',
+        entityId: 'm1',
+        sessionId: 's1',
+        role: 'assistant',
+    });
+    assert.equal(state.messages['m1'].status, 'created');
+    dispatch(state, 'entity:finalized', {
+        entityType: 'message',
+        entityId: 'm1',
+        sessionId: 's1',
+    });
+    assert.equal(state.messages['m1'].status, 'finalized');
+});
+
+test('entity:finalized with staticContent sets it only when provided', () => {
+    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
+    dispatch(state, 'entity:created', {
+        entityType: 'message',
+        entityId: 'm1',
+        sessionId: 's1',
+        role: 'assistant',
+    });
+    dispatch(state, 'entity:finalized', {
+        entityType: 'message',
+        entityId: 'm1',
+        sessionId: 's1',
+        staticContent: 'Final text',
+    });
+    assert.equal(state.messages['m1'].staticContent, 'Final text');
+});
+
+// ── Legacy session:message_start (mapped by WS hook) ──
+
+test('session:message_start creates message entity skeleton', () => {
+    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
+    dispatch(state, 'session:message_start', {
+        sessionId: 's1',
+        messageId: 'm1',
+        role: 'assistant',
+    });
+    const msg = state.messages['m1'];
+    assert.equal(msg.messageId, 'm1');
+    assert.equal(msg.role, 'assistant');
+    assert.equal(msg.status, 'created');
+    assert.equal(msg.staticContent, undefined);
+    assert.equal(state.sessions.s1.messageIds.includes('m1'), true);
+});
+
+// ── session:message (legacy, final fact from server) ──
+
+test('session:message for assistant finalizes existing entity', () => {
+    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
+    dispatch(state, 'session:message_start', { sessionId: 's1', messageId: 'm1', role: 'assistant' });
+    dispatch(state, 'session:message', {
         sessionId: 's1',
         role: 'assistant',
         content: [{ type: 'text', text: 'Hello' }],
         messageId: 'm1',
     });
-    store.dispatch('session:message_delta', {
+    const msg = state.messages['m1'];
+    assert.equal(msg.status, 'finalized');
+    // Content is NOT stored in state tree — only staticContent for user msgs
+    assert.equal(msg.staticContent, undefined);
+});
+
+test('session:message for user creates entity with staticContent', () => {
+    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
+    dispatch(state, 'session:message', {
         sessionId: 's1',
+        role: 'user',
+        content: [{ type: 'text', text: 'Hello' }],
         messageId: 'm1',
-        delta: { type: 'text_delta', text: ' world' },
     });
-    const state = store.getState();
-    const msg = state.sessions.s1.messages[0];
-    assert.equal(msg.role, 'assistant');
+    const msg = state.messages['m1'];
     assert.equal(msg.messageId, 'm1');
-    assert.equal(msg.streaming, true);
+    assert.equal(msg.role, 'user');
+    assert.equal(msg.staticContent, 'Hello');
+    assert.equal(state.sessions.s1.messageIds.includes('m1'), true);
 });
 
-test('SESSION_MESSAGE_DELTA creates placeholder for orphaned delta', () => {
-    const store = createStore();
-    store.dispatch('session:message_delta', {
+test('session:message with parentId stores it', () => {
+    let state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
+    state = dispatch(state, 'session:message', {
         sessionId: 's1',
+        role: 'user',
+        content: [{ type: 'text', text: 'hello' }],
         messageId: 'm1',
-        delta: { type: 'text_delta', text: 'orphaned' },
     });
-    const state = store.getState();
-    const list = state.sessions.s1.messages;
-    assert.equal(list.length, 1);
-    assert.equal(list[0].role, 'assistant');
-    assert.equal(list[0].messageId, 'm1');
-    assert.equal(list[0].streaming, true);
-});
-
-test('SESSION_MESSAGE_DELTA appends consecutive deltas', () => {
-    const store = createStore();
-    store.dispatch('session:message_delta', {
-        sessionId: 's1',
-        messageId: 'm1',
-        delta: { type: 'text_delta', text: 'first ' },
-    });
-    store.dispatch('session:message_delta', {
-        sessionId: 's1',
-        messageId: 'm1',
-        delta: { type: 'text_delta', text: 'second' },
-    });
-    const state = store.getState();
-    assert.equal(state.sessions.s1.messages[0].streaming, true);
-});
-
-test('SESSION_MESSAGE_DELTA adds thinking_delta as separate block', () => {
-    const store = createStore();
-    store.dispatch('session:message', {
+    state = dispatch(state, 'session:message', {
         sessionId: 's1',
         role: 'assistant',
-        content: [{ type: 'text', text: 'answer' }],
-        messageId: 'm1',
+        content: [{ type: 'text', text: 'reply' }],
+        messageId: 'm2',
+        parentId: 'm1',
     });
-    store.dispatch('session:message_delta', {
-        sessionId: 's1',
-        messageId: 'm1',
-        delta: { type: 'thinking_delta', text: 'reasoning' },
-    });
-    const state = store.getState();
-    const msg = state.sessions.s1.messages[0];
-    assert.equal(msg.content.length, 2);
-    assert.equal(msg.content[0].type, 'text');
-    assert.equal(msg.content[1].type, 'thinking');
+    assert.equal(state.messages['m2'].parentId, 'm1');
 });
 
-test('SESSION_MESSAGE_DELTA appends to existing thinking block', () => {
-    const store = createStore();
-    store.dispatch('session:message_delta', {
-        sessionId: 's1',
-        messageId: 'm1',
-        delta: { type: 'thinking_delta', text: 'think' },
-    });
-    store.dispatch('session:message_delta', {
-        sessionId: 's1',
-        messageId: 'm1',
-        delta: { type: 'thinking_delta', text: ' more' },
-    });
-    const state = store.getState();
-    const block = state.sessions.s1.messages[0].content[0];
-    assert.equal(block.type, 'thinking');
-    assert.equal(state.sessions.s1.messages[0].streaming, true);
-});
+// ── Tool Calls ──
 
-test('SESSION_TOOL_CALL adds tool call entry', () => {
-    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker' });
+test('session:tool_call creates toolCall entity', () => {
+    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
     dispatch(state, 'session:tool_call', {
         sessionId: 's1',
         toolName: 'read',
         toolId: 't1',
         params: { path: 'file.js' },
     });
-    const msg = state.sessions.s1.messages[0];
-    assert.equal(msg.role, 'assistant');
-    assert.equal(msg.messageId, 't1');
-    assert.deepEqual(msg.content, [{ type: 'tool_call', toolName: 'read', toolId: 't1', params: { path: 'file.js' } }]);
+    const tc = state.toolCalls['t1'];
+    assert.ok(tc);
+    assert.equal(tc.toolName, 'read');
+    assert.equal(tc.toolId, 't1');
+    assert.deepEqual(tc.params, { path: 'file.js' });
 });
 
-test('SESSION_TOOL_RESULT updates tool call result', () => {
-    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker' });
+test('session:tool_call with messageId links to message', () => {
+    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
+    dispatch(state, 'session:message_start', { sessionId: 's1', messageId: 'm1', role: 'assistant' });
+    dispatch(state, 'session:tool_call', {
+        sessionId: 's1',
+        toolName: 'read',
+        toolId: 't1',
+        params: { path: 'file.js' },
+        messageId: 'm1',
+    });
+    assert.equal(state.messages['m1'].toolIds.includes('t1'), true);
+});
+
+test('session:tool_result updates toolCall', () => {
+    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
     dispatch(state, 'session:tool_call', {
         sessionId: 's1',
         toolName: 'read',
@@ -138,13 +195,13 @@ test('SESSION_TOOL_RESULT updates tool call result', () => {
         result: 'file content',
         isError: false,
     });
-    const block = state.sessions.s1.messages[0].content[0];
-    assert.equal(block.result, 'file content');
-    assert.equal(block.isError, false);
+    const tc = state.toolCalls['t1'];
+    assert.equal(tc.result, 'file content');
+    assert.equal(tc.isError, false);
 });
 
-test('SESSION_TOOL_RESULT with error', () => {
-    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker' });
+test('session:tool_result with error', () => {
+    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
     dispatch(state, 'session:tool_call', {
         sessionId: 's1',
         toolName: 'bash',
@@ -157,16 +214,52 @@ test('SESSION_TOOL_RESULT with error', () => {
         result: 'permission denied',
         isError: true,
     });
-    const block = state.sessions.s1.messages[0].content[0];
-    assert.equal(block.isError, true);
+    assert.equal(state.toolCalls['t1'].isError, true);
 });
 
-test('SESSION_TOOL_RESULT ignores missing session or tool call', () => {
+test('session:tool_result ignores missing tool call', () => {
     const state = dispatch(freshState(), 'session:tool_result', {
         sessionId: 'nonexistent',
         toolId: 't1',
         result: 'x',
         isError: false,
     });
-    assert.equal(state.sessions.nonexistent, undefined);
+    assert.equal(state.toolCalls['t1'], undefined);
+});
+
+test('session:tool_call with return tracks latestReturn', () => {
+    const state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
+    dispatch(state, 'session:tool_call', {
+        sessionId: 's1',
+        toolName: 'return',
+        toolId: 'ret-1',
+        params: { status: 'ok', reason: 'done' },
+    });
+    assert.equal(state.sessions.s1.latestReturn.status, 'ok');
+});
+
+// ── Multiple sessions are isolated ──
+
+test('multiple sessions are isolated', () => {
+    let state = dispatch(freshState(), 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
+    state = dispatch(state, 'session:start', { sessionId: 's2', phase: 'reviewer', retryCount: 0 });
+    state = dispatch(state, 'session:message', {
+        sessionId: 's1',
+        role: 'user',
+        content: [{ type: 'text', text: 'msg1' }],
+        messageId: 'm1',
+    });
+    state = dispatch(state, 'session:message', {
+        sessionId: 's2',
+        role: 'user',
+        content: [{ type: 'text', text: 'msg2' }],
+        messageId: 'm2',
+    });
+    assert.equal(state.sessions.s1.messageIds.length, 1);
+    assert.equal(state.sessions.s2.messageIds.length, 1);
+});
+
+test('unknown action type returns state unchanged', () => {
+    const state = dispatch(freshState(), 'UNKNOWN', {});
+    assert.equal(state.squad.status, 'idle');
 });

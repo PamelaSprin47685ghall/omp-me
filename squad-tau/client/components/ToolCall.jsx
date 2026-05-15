@@ -1,11 +1,23 @@
 import React, { useState, useCallback } from 'react';
 import { HStack, Text, Badge, Collapsible, Icon, Box } from '@chakra-ui/react';
 import { ChevronDown, ChevronRight, Code } from 'lucide-react';
+import { useToolCallState } from '../hooks/useAtomicState.js';
 
-export default function ToolCall({ toolCall }) {
-  const { toolName, params, result, isError } = toolCall;
+/**
+ * ToolCall — entity-subscribed React component.
+ *
+ * Subscribes to a single toolCall entity by toolId.
+ * Only re-renders when that specific tool call changes.
+ * ZERO content in parent — pure entity-level subscription.
+ */
+export default function ToolCall({ toolId }) {
+  const toolCall = useToolCallState(toolId);
   const [open, setOpen] = useState(false);
   const toggle = useCallback(() => setOpen((value) => !value), []);
+
+  if (!toolCall || !toolCall.toolId) return null;
+
+  const { toolName, params, result, isError } = toolCall;
   const hasResult = result !== undefined;
   const preview = !params ? ''
     : params.path || (typeof params.command === 'string' ? params.command.slice(0, 80)
@@ -28,11 +40,7 @@ export default function ToolCall({ toolCall }) {
         <Icon as={Code} boxSize={3} />
         <Box as="span" fontFamily="mono">{toolName}</Box>
         {preview && (
-          <Text
-            flex={1}
-            truncate
-            color="fg.subtle"
-          >
+          <Text flex={1} truncate color="fg.subtle">
             {preview}
           </Text>
         )}
@@ -45,29 +53,12 @@ export default function ToolCall({ toolCall }) {
       <Collapsible.Root open={open}>
         <Collapsible.Content>
           {params && Object.keys(params).length > 0 && (
-            <Box
-              as="pre"
-              fontFamily="mono"
-              p={3}
-              bg="bg.muted"
-              borderRadius="sm"
-              overflowX="auto"
-              fontSize="sm"
-            >
+            <Box as="pre" fontFamily="mono" p={3} bg="bg.muted" borderRadius="sm" overflowX="auto" fontSize="sm">
               {JSON.stringify(params, null, 2)}
             </Box>
           )}
           {hasResult && (
-            <Box
-              as="pre"
-              fontFamily="mono"
-              p={3}
-              bg={isError ? 'bg.error' : 'bg.muted'}
-              borderRadius="sm"
-              overflowX="auto"
-              color={isError ? 'fg.error' : 'inherit'}
-              fontSize="sm"
-            >
+            <Box as="pre" fontFamily="mono" p={3} bg={isError ? 'bg.error' : 'bg.muted'} borderRadius="sm" overflowX="auto" color={isError ? 'fg.error' : 'inherit'} fontSize="sm">
               {!result ? '' : (Array.isArray(result) ? result.map(b => b.type === 'text' ? b.text : JSON.stringify(b)).join('\n') : (result.content && Array.isArray(result.content) ? result.content.map(b => b.type === 'text' ? b.text : JSON.stringify(b)).join('\n') : JSON.stringify(result, null, 2)))}
             </Box>
           )}

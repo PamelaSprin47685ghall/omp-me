@@ -1,81 +1,55 @@
-import React, { useRef, useEffect } from 'react';
-import { Box, Badge, VStack, Text } from '@chakra-ui/react';
-import ThinkingBlock from './ThinkingBlock.jsx';
+import React from 'react';
+import { Box } from '@chakra-ui/react';
 import ToolCall from './ToolCall.jsx';
-import { eventStore } from '../event-store.js';
-import { streamingManager } from '../streaming-manager.js';
-
-function getThinkingForMessage(sessionId, messageId) {
-  const state = eventStore.getState();
-  const sess = state.sessions[sessionId];
-  if (!sess) return '';
-  const msg = sess.messages.find(m => m.messageId === messageId);
-  return msg?.joinedThinking || '';
-}
+import { useMessageState } from '../hooks/useAtomicState.js';
 
 const ROLE_BG = { user: 'blue.subtle', authoring: 'green.subtle', confirming: 'green.subtle', reviewing: 'orange.subtle', outer_review: 'bg.subtle' };
 const ROLE_FG = { user: 'blue.fg', authoring: 'green.fg', confirming: 'green.fg', reviewing: 'orange.fg', outer_review: 'fg' };
 
-function getTextForMessage(sessionId, messageId) {
-  const state = eventStore.getState();
-  const sess = state.sessions[sessionId];
-  if (!sess) return '';
-  const msg = sess.messages.find(m => m.messageId === messageId);
-  return msg?.joinedText || '';
-}
+/**
+ * MessageItem — pure topology shell.
+ *
+ * Renders either:
+ *   1. Static user message (from state.messages[id].staticContent)
+ *   2. Immortal <agent-message> custom element (for streaming or finalized assistant messages)
+ *
+ * ZERO content in state tree. ZERO streaming awareness in React.
+ * The <agent-message> element manages its own lifecycle.
+ */
+export default function MessageItem({ messageId, sessionRole = 'user' }) {
+  const meta = useMessageState(messageId);
+  if (!meta || !meta.messageId) return null;
 
-export default function MessageItem({ message, sessionRole = 'user' }) {
-  const isUser = message.role === 'user';
-  const textRef = useRef(null);
-
-  useEffect(() => {
-    if (!message.streaming || !message.messageId || isUser) return;
-
-    // Initial sync from EventStore state
-    if (textRef.current) {
-      textRef.current.textContent = getTextForMessage(message.sessionId, message.messageId);
-    }
-
-    // Subscribe to RAF-painted repaint notifications
-    return streamingManager.subscribe(message.messageId, () => {
-      if (textRef.current) {
-        textRef.current.textContent = getTextForMessage(message.sessionId, message.messageId);
-      }
-    });
-  }, [message.streaming, message.messageId, isUser, message.sessionId]);
-
-  if (isUser) {
-    return (
-      <Box alignSelf="flex-end" bg="blue.subtle" borderRadius="lg" p={3} maxW="80%" overflowWrap="anywhere" data-user-msg>
-        {getTextForMessage(message.sessionId, message.messageId)}
-      </Box>
-    );
-  }
-
-  const content = message.content || [];
-  const toolCalls = content.filter((block) => block.type === 'tool_call');
-  const text = getTextForMessage(message.sessionId, message.messageId);
-  const thinking = getThinkingForMessage(message.sessionId, message.messageId);
-  const roleBg = ROLE_BG[sessionRole] || ROLE_BG.outer_review;
-  const roleFg = ROLE_FG[sessionRole] || ROLE_FG.outer_review;
+  const isUser = meta.role === 'user';
+  const bg = isUser ? 'blue.subtle' : (ROLE_BG[sessionRole] || ROLE_BG.outer_review);
+  const fg = isUser ? 'blue.fg' : (ROLE_FG[sessionRole] || ROLE_FG.outer_review);
 
   return (
-    <Box bg={roleBg} color={roleFg} p={4} borderRadius="l2" overflowWrap="anywhere">
-      {thinking !== '' && <ThinkingBlock content={thinking} isStreaming={message.streaming} messageId={message.messageId} sessionId={message.sessionId} />}
-      {text !== '' && (
-        <Box display="flex" alignItems="flex-start">
-          {message.streaming && <Badge colorPalette="blue" mr={2} mt={1}>streaming</Badge>}
-          <Text as="span" ref={textRef} whiteSpace="pre-wrap">
-            {text}
-          </Text>
-        </Box>
-      )}
-      {toolCalls.length > 0 && (
-        <VStack>
-          {toolCalls.map((toolCall) => (
-            <ToolCall key={toolCall.toolId} toolCall={toolCall} />
-          ))}
-        </VStack>
+    <Box
+      bg={bg}
+      color={fg}
+      borderRadius={isUser ? 'lg' : 'l2'}
+      p={isUser ? 3 : 4}
+      maxW={isUser ? '80%' : undefined}
+      overflowWrap="anywhere"
+      alignSelf={isUser ? 'flex-end' : undefined}
+      data-user-msg={isUser ? '' : undefined}
+    >
+      {isUser ? (
+        // Static user message — rendered directly from state
+        meta.staticContent || ''
+      ) : (
+        // Immortal native box — handles streaming + finalized internally
+        <>
+          <agent-message message-id={meta.messageId} role={meta.role} />
+          {meta.toolIds?.length > 0 && (
+            <Box mt={2}>
+              {meta.toolIds.map((tid) => (
+                <ToolCall key={tid} toolId={tid} />
+              ))}
+            </Box>
+          )}
+        </>
       )}
     </Box>
   );

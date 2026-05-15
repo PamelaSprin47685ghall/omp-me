@@ -18,7 +18,9 @@ function inject(page, events) {
 }
 
 function reset(page) {
-    return page.evaluate(() => window.__es.reset());
+    return page.evaluate(() => {
+        window.__es.reset();
+    });
 }
 
 describe('Chaos: UI visual correctness', () => {
@@ -27,9 +29,6 @@ describe('Chaos: UI visual correctness', () => {
     beforeAll(async () => {
         const srv = await startViteOnly();
         baseUrl = `http://127.0.0.1:${srv.port}`;
-        // Pre-warm Vite: first request triggers dependency optimization (2-5s).
-        // Fetch from Node first so Vite caches compiled modules before puppeteer
-        // hits the page (which must complete within T=1000ms).
         await fetch(baseUrl)
             .then((r) => r.text())
             .catch(() => {});

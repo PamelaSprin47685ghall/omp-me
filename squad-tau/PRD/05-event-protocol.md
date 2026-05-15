@@ -5,7 +5,7 @@
 1. **EventLog 是不可变事实日志**。只能追加，不能删除或修改已有条目。每次 `append()` 产生一个单调递增的 `id`。
 2. **系统中不存在 "意图 (Command)"**。Reactor 推导的 Action 全部是事实——要么是持久事实（如 `squad:node_state`），要么是过渡态事实（如 `session:creating`）。SideEffects 仅通过订阅 EventLog 被动响应过渡态事实。
 3. **过渡态事实（Transitional Fact）天然阻断递归**。当 Reactor 推导出 `session:creating` 写入 EventLog 后，下一次 pulse 时 Projections 中的 `session[ sessionId ].status === 'creating'` 条件成立，Reactor 不再重新推导同一个 session 的创建。不需要额外的"保护机制"——过渡态事实本身就是防重入锁。
-4. **流式事件不入日志**。`session:message_delta` 和 `session:thinking_delta` 仅广播到 WebSocket 客户端，不入 EventLog 永久存储。
+4. **流式事件不入日志，亦不入 EventStore 状态树**。`session:message_delta` 和 `session:thinking_delta`**在 WebSocket 接收边缘即被物理隔离**——`useWebSocket.js` 的 `ws.onmessage` 检测到 delta 类型时直接调用 `streamRouter.dispatch()`，永不调用 `eventStore.dispatch()`。EventStore 对 delta 完全失明。首个 delta 通过 Edge Gatekeeper 机制向 EventStore 发射 `session:message_start` 创建骨架消息后，后续所有 delta 全走 `StreamRouter` → RAF → 直接 DOM `TextNode.appendData()` 的零 React 路径。
 5. **WebSocket 事件格式与 EventLog 条目一致**。所有持久化事件通过 WebSocket 广播时包含 `seq` 字段（对应 EventLog `id`），客户端可通过 `sync` 请求按水位线补齐。
 
 ## 5.1 事实分类
@@ -14,7 +14,7 @@
 |------|------|------|------|
 | **持久事实 (Fact)** | 不可变，永远追加 | `squad:node_state`、`session:start` | EventLog（永存） |
 | **过渡态事实 (Transitional Fact)** | 防止 Reactor 重复推导；SideEffects 的触发信号 | `session:creating`、`session:prompting` | EventLog（Reactor 检查状态树中的对应字段） |
-| **流式广播 (Stream)** | 高频瞬态数据 | `session:message_delta`、`session:thinking_delta` | 仅 WebSocket 广播 |
+| **流式广播 (Stream)** | 高频瞬态数据 | `session:message_delta`、`session:thinking_delta` | 仅 WebSocket 广播，客户端 Edge Gatekeeper 直接路由到 StreamRouter |
 
 **不再存在 "意图 (Command)" 分类**。旧架构中的 `cmd:create_session` 和 `cmd:prompt` 已被直接改写为过渡态事实 `session:creating` 和 `session:prompting`。Reactor 不再"向 SideEffects 发指令"——它只需陈述"这个 session 正在被创建"这一事实，SideEffects 自然会响应。
 
@@ -189,7 +189,23 @@
   }
 }
 
-// session:message_delta — 消息增量（流式广播，不入 EventLog）
+// session:message_start — 首个 delta 触发（客户端 only，不入 EventLog）
+// 由 Edge Gatekeeper（useWebSocket.js）在收到首个 session:message_delta 时
+// 向 EventStore 发射。EventStore 像处理普通业务事件一样折叠它，
+// 创建 { streaming: true, content: [], joinedText: '' } 骨架消息。
+// 后续 delta 不再进入 EventStore，全走 StreamRouter 快路径。
+{ type: 'session:message_start',
+  payload: {
+    sessionId: string,
+    messageId: string,
+    role: string
+  }
+}
+
+// session:message_delta — 消息增量（流式广播，不入 EventLog，不入客户端状态树）
+// 客户端 Edge Gatekeeper 在 WebSocket onmessage 处将其物理隔离到 StreamRouter，
+// 永不调用 eventStore.dispatch()。首个 delta 经由 isFirst 标志触发 Edge Gatekeeper
+// 发射 session:message_start 创建骨架，后续 delta 全走 StreamRouter → RAF → 直接 DOM
 { type: 'session:message_delta',
   payload: {
     sessionId: string,
@@ -266,11 +282,14 @@
 }
 ```
 
-## 5.12 增量渲染策略
+### 增量渲染策略（Edge Gatekeeper 物理隔离）
 
 - `session:message` 只发送完整消息（如 tool_result、system 消息）
-- `session:message_delta` 用于流式文本，浏览器端逐 token 追加到对应 message
-- 浏览器端按 `messageId` 归并 delta
-- 同一 `messageId` 的 delta 按接收顺序追加（WebSocket 天然有序）
-- Thinking delta 和 text delta 可能交错，通过 `type` 区分渲染位置
-- Delta 和 Thinking delta 通过 RAF 双缓冲直接写入 DOM，不经过 React State 更新链
+- `session:message_delta` 用于流式文本，在客户端 **WebSocket onmessage 边缘即被 `useWebSocket.js` 中的 Edge Gatekeeper 拦截**——直送 `streamRouter.dispatch()`，永不进入 `eventStore.dispatch()`。EventStore 不包含一行 `if (delta)` 代码。
+- 首个 delta 使 `streamRouter.dispatch()` 返回 `isFirst=true`，Edge Gatekeeper 借此发射 `session:message_start` 到 EventStore，创建骨架消息（`streaming: true`、`content: []`）。
+- 后续 delta 全走 **StreamRouter 快路径**：单字符串累加器（per key，无数组）→ requestAnimationFrame → 直接 `TextNode.appendData()`。
+- 浏览器端按 `messageId` 归并 delta。
+- 同一 `messageId` 的 delta 按接收顺序追加（WebSocket 天然有序）。
+- Thinking delta 和 text delta 可能交错，通过 `type` 区分写入 `thinkingNode` 还是 `textNode`。
+- React 通过 `useStreams` hook 订阅 StreamRouter 的 `streamsink-start`/`streamsink-end` DOM 自定义事件，维护 `Set<messageId>`。这是 React 中与流相关的唯一状态——永远不包含文本内容。
+- 滚动通过 CSS `overflow-anchor: auto` 实现——零主线程开销，浏览器合成器原生锚定。

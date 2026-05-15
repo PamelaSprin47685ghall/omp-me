@@ -1,16 +1,11 @@
 /**
- * Engine Simulator (v4 — No Model Pool) — synchronous time-travel.
+ * Engine Simulator (v5 — Zero Content, Flat State) — synchronous time-travel.
  *
  * Drives the pure reactor loop to convergence, simulating side effects
  * (session creation, prompt responses) inline with a promptBehavior hook.
  *
- * SESSION_CREATING now carries a deterministic sessionId (Cut 2).
- * No MODEL_POOL_ACQUIRE/RELEASE events (Cut 1).
- *
- * Usage:
- *   const log = timeTravel(seedEvents);
- *   const state = project(log);
- *   expect(state.squad.status).toBe('complete');
+ * No content in state tree. Tool calls stored in flat toolCalls map.
+ * Message lifecycle via session:message_start + session:message (legacy).
  */
 import { reactState } from '../../server/reactor.js';
 import { project } from '../../shared/projections.js';
@@ -46,11 +41,11 @@ export function timeTravel(initialEvents, promptBehavior = () => ({ status: 'ok'
 
             // Simulate side effects for facts that need async processing
             if (action.type === 'session:creating') {
-                // sessionId is deterministic — use it directly
                 append('session:start', {
                     sessionId: action.payload.sessionId,
                     nodeId: action.payload.nodeId,
                     phase: action.payload.phase,
+                    retryCount: action.payload.retryCount || 0,
                 });
             } else if (action.type === 'session:prompting') {
                 append('session:tool_call', {

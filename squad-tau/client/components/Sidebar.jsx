@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useCallback } from 'react';
 import { VStack, HStack, Text, Icon, Box, Collapsible } from '@chakra-ui/react';
 import { CheckCircle, XCircle, Clock, RefreshCw, Ban, Circle, Network } from 'lucide-react';
 import { usePathState } from '../hooks/useAtomicState.js';
@@ -41,10 +41,9 @@ function TreeIcon({ status, ...rest }) {
 }
 
 function SessionRow({ sessionData }) {
-  const { sessionId, status } = sessionData;
-  const round = (sessionData.retryCount != null ? sessionData.retryCount : 0) + 1;
-  const phase = sessionData.phase || 'worker';
-  const label = `R${round} ${phase.replace(/_/g, ' ')}`;
+  const { sessionId, status, retryCount, phase, nodeId } = sessionData;
+  const round = retryCount + 1;
+  const label = `R${round} ${(phase || 'worker').replace(/_/g, ' ')}`;
   const handleClick = () => eventStore.dispatch('ui:select_session', { sessionId });
 
   return (
@@ -64,7 +63,7 @@ function SessionRow({ sessionData }) {
   );
 }
 
-function NodeGroup({ nodeId, nodeIds, sessions }) {
+function NodeGroup({ nodeId, sessions }) {
   const nodeSessions = useMemo(() => 
     sessions.filter(s => s.nodeId === nodeId),
     [sessions, nodeId]
@@ -103,8 +102,8 @@ function NodeGroup({ nodeId, nodeIds, sessions }) {
 export default function Sidebar() {
   const nodeMap = usePathState('squad', s => s.squad.nodes || {});
   const sessionMap = usePathState('sessions', s => s.sessions || {});
-  const nodes = useMemo(() => Object.values(nodeMap), [nodeMap]);
-  const sessions = useMemo(() => Object.values(sessionMap), [sessionMap]);
+  const nodes = Object.values(nodeMap);
+  const sessions = Object.values(sessionMap);
   const viewMode = usePathState('ui', s => s.ui?.viewMode || 'dag');
 
   const nodeIds = useMemo(() => {
@@ -140,7 +139,6 @@ export default function Sidebar() {
         <NodeGroup
           key={id}
           nodeId={id}
-          nodeIds={nodeIds}
           sessions={sessions}
         />
       ))}

@@ -40,10 +40,6 @@ async function startVite() {
                 console.error(msg);
             },
         },
-        esbuild: {
-            jsxFactory: 'React.createElement',
-            jsxFragment: 'React.Fragment',
-        },
     });
 
     return viteServer.middlewares;

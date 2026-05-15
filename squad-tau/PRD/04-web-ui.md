@@ -30,7 +30,9 @@
 
 ```mermaid
 graph LR
-    WS[WebSocket] --> ES[event-store<br/>Map&lt;string, any&gt;]
+    WS[WebSocket] -->|onmessage| GK{Edge Gatekeeper<br/>useWebSocket.js}
+    GK -->|business events| ES[event-store<br/>Map&lt;string, any&gt;]
+    GK -->|delta events| SR[stream-router.js<br/>Direct TextNode.appendData]
     ES --> AE[applyEvent
     prevState + event → newState]
     AE --> SN[useSyncExternalStore
@@ -76,33 +78,43 @@ graph LR
 - **Thinking 块**：可折叠（Chakra `Collapse` 组件）
 - **Tool 调用**：使用 Chakra 风格卡片，默认全部折叠
 
-### RAF 双缓冲（流式渲染的终极形态）
+### Edge Gatekeeper & Custom Element 流式渲染（纯净物理隔离）
 
-高频 Thinking delta 通过 RAF 双缓冲机制直接写入 DOM，绕过 React State 更新链：
+高频 Thinking/Text delta **在 WebSocket 接收边缘即被物理分流**，Never 进入 EventStore。
+EventStore 对 delta 事件完全失明——它的字典里没有"流"的概念。
 
 ```mermaid
 graph LR
-    WS[WebSocket<br/>session:message_delta] --> ES[event-store.applyEvent]
-    ES --> PROJ[projections.js
-    更新 joinedText / joinedThinking
-    纯字符串拼接]
-    PROJ --> RAF[RAF 回调
-    读取当前帧 joinedText]
-    RAF --> DOM[直接写入
-    DOM textContent
-    O(1)]
+    WS[WebSocket] -->|onmessage| GK{Edge Gatekeeper
+useWebSocket.js}
+    GK -->|delta 事件| SR[StreamRouter
+零 JS 缓冲区]
+    GK -->|首个 delta| ES[event-store.dispatch
+session:message_start]
+    SR --> RAF[requestAnimationFrame
+批处理]
+    RAF -->|appendData| TX[TextNode
+零 JS 拼接]
+    ES -->|骨架| React[React 渲染
+<stream-sink>]
+    React -->|connectedCallback| SR
 ```
 
-**关键优化**：
-- **`joinedText` 和 `joinedThinking` 预计算缓存**：`session:message_delta` 到达时，projections.js 直接将增量追加到 `msg.joinedText` 或 `msg.joinedThinking` 字符串。渲染帧内不需要 `.filter().map().join()` 遍历数组——缓存已在投影阶段维护好。
-- **RAF 合并**：delta 可能在一次微任务中多次到达，RAF 仅每帧触发一次写入，合并所有中间 delta。
-- **仅对流式消息生效**：非流式消息（`session:message`）正常走 React 更新路径。
+**关键原则**：
+- **物理级物理分流**：`useWebSocket.js` 的 `ws.onmessage` 根据事件类型执行分裂——`session:message_delta` 和 `session:thinking_delta` 直接调用 `streamRouter.dispatch()`，永不触碰 `eventStore.dispatch()`。EventStore 的内部没有一行 `if (delta)` 代码。
+- **零 JS 缓冲区**：`StreamRouter` 不再维护 `text: []`/`thinking: []` 数组。每个 Token 作为单字符串累加器（per-key string），RAF 时直接 `TextNode.appendData()`。无 array push、无 `.join('')`、无 GC 微卡顿。
+- **Custom Element `<stream-sink>`**：React 渲染时只输出空标签 `<stream-sink session-id="x" message-id="y">`。该元素在 `connectedCallback` 中创建自己的 `TextNode` 并注册到 `StreamRouter`。StreamRouter 直写 TextNode——React 对流数据完全不可见。当流结束，React 用完整内容替换掉 `<stream-sink>`。
+- **首 Token 仲裁（Edge Gatekeeper）**：`streamRouter.dispatch()` 返回 `isFirst`（是否首个 delta）。若真，WebSocket handler 发射 `session:message_start` 到 EventStore。EventStore 像处理任何普通业务事件一样折叠它，创建 `streaming: true` 的骨架消息。后续所有 delta 对 EventStore 不可见。
+- **`useStreams` hook**：订阅 StreamRouter 发射的 `streamsink-start`/`streamsink-end` DOM 自定义事件，维护 `Set<messageId>`。这是 React 中与流相关的唯一状态——永远不包含文本内容。
+- **`session:message_start`（非 delta）**——由 Edge Gatekeeper 在首 Token 时发射。EventStore 像处理普通事实一样处理它，创建 `{ streaming: true, content: [], joinedText: '' }` 骨架。
+
+**对比旧 Hollow DOM 模式**：旧架构中 `MessageItem` 依靠 `useRef` + `useEffect` 手动注册/注销容器到 StreamRouter，React 生命周期与流引擎指针强耦合；`StreamRouter` 内部维护 JS 字符串分片数组，每帧 `join('')` 引发 GC；`ResizeObserver` 在主线程强制 Layout Thrashing。新架构用 Custom Element 原生生命周期彻底切断耦合，零 JS 缓冲区消除 GC，CSS Scroll Anchoring 消灭重排。
 
 ### Auto-scroll 行为
-- 默认自动跟随最新消息
-- 当用户手动向上滚动查看历史时，自动滚动暂停
-- 用户向上滚动后，底部显示浮动按钮（lucide `ArrowDown` 图标），点击恢复自动跟随
-- 使用 `requestAnimationFrame` 合并滚动操作
+- 默认浏览器原生锁定底部：`overflow-anchor: auto` + 不可见底部锚点元素
+- **零 JS 介入**：CSS Scroll Anchoring 由浏览器合成器负责，不占用主线程。当原生文本节点因 `appendData()` 膨胀时，浏览器自动锁定视口到底部。无 ResizeObserver、无 `scrollTop` 读取、无 Layout Thrashing。
+- 当用户手动向上滚动查看历史时，自动滚动暂停（浏览器原生行为）
+- 用户向上滚动后，底部显示浮动按钮（lucide `ArrowDown` 图标），点击调用 `scrollTo({ top: scrollHeight, behavior: 'smooth' })` 恢复底部。按钮显隐通过被动 scroll 事件监听（`passive: true`）
 
 ### 空状态
 无 squad 运行时显示欢迎引导：

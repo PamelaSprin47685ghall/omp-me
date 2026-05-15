@@ -33,7 +33,10 @@
 | 命令 / 意图 (Command) | 系统中不存在指令，只有"已经发生的事实" | 过渡态事实 (Transitional Fact) |
 | UUID / 随机 ID | 随机 ID 意味着不可追踪、不可重放、不可断言 | 确定性 URN (`NodeId::Phase::Retry`) |
 | acquire / release (申请/释放) | 将并发管理拟人化，掩盖代数本质 | 不等式比较 (`countLive < maxWorkers`) |
-| `useState` / `Context` (前端) | React 禁止维护任何局部业务状态 | `EventStore` 折叠 + `useSyncExternalStore` |
+| `useState` / `Context` (前端) | React 禁止维护任何局部业务状态或 UI 状态 | `EventStore` 折叠 + `useSyncExternalStore` + `ui:xxx` 事件 |
+| Hollow DOM / registerContainer | 仍然是 React ref + useEffect 管理流渲染生命周期 | `<stream-sink>` Custom Element 原生生命周期 |
+| JS 文本缓冲区 (`text[]` + `.join('')`) | 高频字符串拼接引发 GC 微卡顿 | 零缓冲区：直接 `TextNode.appendData()` |
+| ResizeObserver 自动滚动 | 强制主线程同步重排（Layout Thrashing） | CSS `overflow-anchor: auto` 合成器原生锚定 |
 
 ## 核心架构
 
@@ -53,6 +56,9 @@ graph TD
     subgraph Muscle
         SE[Side Effects\nEventLog Subscriber]
     end
+    subgraph Stream
+        SR[StreamRouter\nDirect DOM via RAF]
+    end
     subgraph UI
         DOM[React View\nf(State)]
     end
@@ -64,6 +70,11 @@ graph TD
     SE -.->|4. Silently reads| EL
     SE -->|5. Call APIs| OMP[LLM / FS]
     OMP -->|6. Async Callbacks| EL
+
+    subgraph Edge Gatekeeper
+        WS[WebSocket onmessage] -->|delta events| SR
+        WS -->|business events| DOM
+    end
 ```
 
 **这是系统的宇宙公理**。所有组件围绕 EventLog（不可变事实日志）组成纯函数推导闭环。系统中不存在"指令"——只有已经发生的事实（Fact）、正在发生的事实（Transitional Fact）、和尚未推导的未来事实。没有流程控制，只有数据、规则、和副作用。
@@ -74,6 +85,9 @@ graph TD
 | **物化视图** | `shared/projections.js` | 纯函数增量折叠：`f(prevState, Event) → nextState` | 不允许有 side effect、不查日志 |
 | **推导大脑** | `server/reactor.js` | 纯函数：`f(State) → Action[]` | 不允许调用 `getSince()`、`find()` |
 | **失忆的肌肉** | `server/side-effects.js` | 订阅 EventLog，对过渡态事实做出反应 | 不允许持有业务状态、不做推导决策 |
+| **流渲染引擎** | `client/stream-router.js` | 物理隔离的流式文本管线；零 JS 缓冲区、直接 `TextNode.appendData()` + RAF 批处理 | 不允许触碰 EventStore 状态树 |
+| **Custom Element 宿主** | `client/stream-sink.js` | 原生 Web Component `<stream-sink>`，`connectedCallback` 注册 TextNode，StreamRouter 直接写入 | 不允许触碰 React 状态树 |
+| **流状态追踪** | `client/hooks/useStreams.js` | 通过 DOM 自定义事件订阅流生命周期，返回 `Set<messageId>` | 不允许包含文本内容，仅标识 |
 
 ### 事实分类
 

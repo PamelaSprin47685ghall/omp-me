@@ -201,8 +201,8 @@ const url = await attachAndWatch(tmuxSess, (ptyText) => {
 | 文件 | 覆盖 |
 |------|------|
 | `simulation.js` | 基础物理链路：页面加载、WS ping/pong、squad:init→complete 全流程 |
-| `test/e2e/chaos-ui-e2e.test.js` | 浏览器端混沌：多 Tab 同步、面板操作 |
-| `test/e2e/ui-full-flow.test.js` | UI 全流程：交互时序、消息渲染 |
+| `test/integration/chaos-ui-e2e.test.js` | 浏览器端混沌：多 Tab 同步、面板操作 |
+| `test/integration/ui-full-flow.test.js` | UI 全流程：交互时序、消息渲染 |
 
 ## 8.5 测试执行策略
 

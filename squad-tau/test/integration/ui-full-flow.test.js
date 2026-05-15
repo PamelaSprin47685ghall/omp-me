@@ -1,9 +1,5 @@
 /**
- * Dehydrated UI Full Flow — visual regression gallery.
- *
- * No backend engine. No WS. No db. Pure Vite + direct event injection via window.__es.
- * Session navigation via real DOM clicks on sidebar tree items.
- * Screenshots capture every visual state for review.
+ * Dehydrated UI Full Flow — visual regression gallery (v5).
  */
 import fs from 'fs';
 import path from 'path';
@@ -21,14 +17,98 @@ async function capture(page, name) {
 }
 
 function inject(page, events) {
-    return page.evaluate((evts) => {
+    return page.evaluate(async (evts) => {
         const es = window.__es;
-        for (const e of evts) es.dispatch(e.type, e.payload, e.seq);
+        const started = new Set();
+        const yieldToReact = () => new Promise((resolve) => setTimeout(resolve, 15));
+
+        for (const e of evts) {
+            if (e.type === 'session:message_delta' || e.type === 'session:thinking_delta') {
+                const { sessionId, messageId } = e.payload;
+                const key = `${sessionId}:${messageId}`;
+
+                if (!started.has(key)) {
+                    started.add(key);
+                    es.dispatch('entity:created', {
+                        entityType: 'message',
+                        entityId: messageId,
+                        sessionId,
+                        role: 'assistant',
+                    });
+
+                    // [修复] 取消恶心的 while 轮询，直接连让 3 帧给 React 调度器
+                    await yieldToReact();
+                    await yieldToReact();
+                    await yieldToReact();
+                }
+
+                document.dispatchEvent(
+                    new CustomEvent('delta', {
+                        detail: {
+                            messageId,
+                            sessionId,
+                            type: e.type === 'session:thinking_delta' ? 'thinking' : 'text',
+                            text: e.payload.delta?.text || '',
+                        },
+                    }),
+                );
+                await new Promise((r) => setTimeout(r, 0));
+                continue;
+            }
+
+            if (e.type === 'session:message') {
+                const { sessionId, messageId, role, content } = e.payload;
+                if (!es.getState().messages[messageId]) {
+                    const blocks = content || [];
+                    const text = Array.isArray(blocks) && blocks[0]?.type === 'text' ? blocks[0].text : undefined;
+                    es.dispatch('entity:created', {
+                        entityType: 'message',
+                        entityId: messageId,
+                        sessionId,
+                        role,
+                        staticContent: role === 'user' ? text : undefined,
+                    });
+                    await yieldToReact();
+                }
+                if (role !== 'user') {
+                    es.dispatch('entity:finalized', {
+                        entityType: 'message',
+                        entityId: messageId,
+                        sessionId,
+                    });
+                    const blocks = content || [];
+                    const text = Array.isArray(blocks) && blocks[0]?.type === 'text' ? blocks[0].text : undefined;
+                    document.dispatchEvent(
+                        new CustomEvent('stream:end', {
+                            detail: { messageId, sessionId, text },
+                        }),
+                    );
+                }
+                await yieldToReact();
+                continue;
+            }
+
+            if (e.type === 'session:message_start') {
+                es.dispatch('entity:created', {
+                    entityType: 'message',
+                    entityId: e.payload.messageId,
+                    sessionId: e.payload.sessionId,
+                    role: e.payload.role || 'assistant',
+                });
+                await yieldToReact();
+                continue;
+            }
+
+            es.dispatch(e.type, e.payload, e.seq);
+            await yieldToReact();
+        }
     }, events);
 }
 
 function reset(page) {
-    return page.evaluate(() => window.__es.reset());
+    return page.evaluate(() => {
+        window.__es.reset();
+    });
 }
 
 describe('UI Full Flow', () => {
@@ -37,7 +117,6 @@ describe('UI Full Flow', () => {
     beforeAll(async () => {
         const srv = await startViteOnly();
         baseUrl = `http://127.0.0.1:${srv.port}`;
-        // Pre-warm Vite: first request triggers dependency optimization (2-5s).
         await fetch(baseUrl)
             .then((r) => r.text())
             .catch(() => {});
@@ -61,15 +140,12 @@ describe('UI Full Flow', () => {
 
     test('02 model pool drawer', async () => {
         await page.evaluate(() => {
-            const btn = document.querySelector('button[aria-label="Model Pool"]');
+            const btn = document.querySelector('button[aria-label="Runtime Metrics"]');
             if (btn) btn.click();
         });
-        await page.waitForFunction(() => document.body.innerText.includes('Model Pool'), {
-            timeout: T,
-        });
+        await page.waitForFunction(() => document.body.innerText.includes('Runtime Metrics'), { timeout: T });
         await capture(page, '02a-drawer');
 
-        // Update maxWorkers via snapshot
         await inject(page, [{ type: 'model_pool:snapshot', payload: { maxWorkers: 5 } }]);
         await page.waitForFunction(() => document.body.innerText.includes('5'), { timeout: T });
         await capture(page, '02b-drawer-updated');
@@ -96,7 +172,6 @@ describe('UI Full Flow', () => {
     }, 10000);
 
     test('04 session input and user message', async () => {
-        // Navigate to the session via DOM click
         await clickSidebarNode(page, 'R1 authoring');
         await page.waitForFunction(() => document.querySelector('textarea') !== null, { timeout: T });
         await capture(page, '04a-session-input');
@@ -109,8 +184,7 @@ describe('UI Full Flow', () => {
         await capture(page, '04b-user-message');
     }, 15000);
 
-    test('05 thinking block collapsed and expanded', async () => {
-        // Navigate to flow-s1 via DOM click
+    test('05 thinking block open and collapsible', async () => {
         await clickSidebarNode(page, 'flow-node');
         await clickSidebarNode(page, 'R1 authoring');
 
@@ -132,22 +206,48 @@ describe('UI Full Flow', () => {
                 },
             },
         ]);
-        await page.waitForFunction(() => document.body.innerText.includes('Thinking'), { timeout: T });
-        await capture(page, '05a-thinking-collapsed');
+
+        await page.waitForFunction(
+            () => {
+                const el = document.querySelector('agent-message');
+                if (!el) return false;
+                const root = el.shadowRoot;
+                if (!root) return false;
+                const details = root.querySelector('.thinking-section details');
+                return details && details.open && el.textContent.includes('Planning');
+            },
+            { timeout: T },
+        );
+        await capture(page, '05a-thinking-open');
 
         await page.evaluate(() => {
-            const buttons = [...document.querySelectorAll('[role="button"]')];
-            const thinkHeader = buttons.find((b) => b.textContent.includes('Thinking'));
-            if (thinkHeader) thinkHeader.click();
+            const el = document.querySelector('agent-message');
+            if (!el) return;
+            const root = el.shadowRoot;
+            if (!root) return;
+            const summary = root.querySelector('.thinking-summary');
+            if (summary) summary.click();
         });
-        await page.waitForFunction(() => document.body.innerText.includes('Planning the implementation...'), {
-            timeout: T,
-        });
-        await capture(page, '05b-thinking-expanded');
+        await page.waitForFunction(
+            () => {
+                const el = document.querySelector('agent-message');
+                if (!el) return false;
+                const root = el.shadowRoot;
+                if (!root) return false;
+                const details = root.querySelector('.thinking-section details');
+                return details && !details.open;
+            },
+            { timeout: T },
+        );
+        await capture(page, '05b-thinking-collapsed');
     }, 15000);
 
     test('06 tool call collapsed expanded and done', async () => {
         await inject(page, [
+            {
+                type: 'session:message_start',
+                payload: { sessionId: 'flow-s1', messageId: 'assistant-2', role: 'assistant' },
+            },
             {
                 type: 'session:tool_call',
                 payload: {
@@ -155,6 +255,7 @@ describe('UI Full Flow', () => {
                     toolName: 'read',
                     toolId: 'tool-1',
                     params: { path: 'client/App.jsx' },
+                    messageId: 'assistant-2',
                 },
             },
         ]);
@@ -279,8 +380,18 @@ describe('UI Full Flow', () => {
 
         await inject(page, [
             {
+                type: 'session:message_start',
+                payload: { sessionId: 's-err', messageId: 'assistant-3', role: 'assistant' },
+            },
+            {
                 type: 'session:tool_call',
-                payload: { sessionId: 's-err', toolName: 'bash', toolId: 'tc-err', params: { command: 'rm -rf /' } },
+                payload: {
+                    sessionId: 's-err',
+                    toolName: 'bash',
+                    toolId: 'tc-err',
+                    params: { command: 'rm -rf /' },
+                    messageId: 'assistant-3',
+                },
             },
             {
                 type: 'session:tool_result',
@@ -292,12 +403,12 @@ describe('UI Full Flow', () => {
                 },
             },
         ]);
+
         await page.waitForFunction(() => document.body.innerText.includes('error'), { timeout: T });
         await capture(page, '11-tool-error');
-    }, 10000);
+    }, 15000);
 
     test('12 long message does not overflow', async () => {
-        // Open session with long message
         await clickSidebarNode(page, 'R3 authoring');
 
         const longText = 'A'.repeat(800);
@@ -319,20 +430,14 @@ describe('UI Full Flow', () => {
     }, 10000);
 
     test('13 model pool drawer maxWorkers', async () => {
-        // Open drawer
         await page.evaluate(() => {
             const btns = [...document.querySelectorAll('button')];
-            const btn = btns.find((b) => b.getAttribute('aria-label') === 'Model Pool');
+            const btn = btns.find((b) => b.getAttribute('aria-label') === 'Runtime Metrics');
             if (btn) btn.click();
         });
-        await page.waitForFunction(() => document.body.innerText.includes('Model Pool'), {
-            timeout: T,
-        });
-
-        // Verify default maxWorkers
+        await page.waitForFunction(() => document.body.innerText.includes('Runtime Metrics'), { timeout: T });
         await page.waitForFunction(() => document.body.innerText.includes('3'), { timeout: T });
 
-        // Update via snapshot with slots array (backward compat: counts slots)
         await inject(page, [{ type: 'model_pool:snapshot', payload: { maxWorkers: 10 } }]);
         await page.waitForFunction(() => document.body.innerText.includes('10'), { timeout: T });
         await capture(page, '13-drawer-maxWorkers');

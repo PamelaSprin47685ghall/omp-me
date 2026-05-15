@@ -30,7 +30,7 @@ export function buildState(overrides = {}) {
     // Apply pre-existing sessions via events
     if (overrides.sessions) {
         for (const [sid, s] of Object.entries(overrides.sessions)) {
-            const retryCount = s.retryCount != null ? s.retryCount : 0;
+            const retryCount = s.retryCount || 0;
             const phase = s.phase || 'authoring';
             applyEvent(state, 'session:creating', {
                 sessionId: sid,

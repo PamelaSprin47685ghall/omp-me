@@ -58,8 +58,8 @@ function parseTomlNode(plan_dir, file) {
  * and returns immediately. Does NOT wait for SQUAD_COMPLETE —
  * the Engine pulse loop handles all subsequent state transitions.
  */
-export async function processDelegate(params) {
-    const eventLog = getGlobalEventLog();
+export async function processDelegate(params, options = {}) {
+    const eventLog = options.eventLog || getGlobalEventLog();
     if (!eventLog) throw new Error('EventLog not initialized');
 
     const { nodes, mode } = readNodesFromDir(params.plan_dir);
