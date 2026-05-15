@@ -2,6 +2,7 @@ import { validatePlan } from './validate-plan.js';
 import fs from 'fs';
 import path from 'path';
 import { Events } from '../shared/events.js';
+import { getGlobalEventLog } from './server-lifecycle.js';
 
 function readNodesFromDir(plan_dir) {
     const tomlFiles = listTomlFiles(plan_dir);
@@ -58,8 +59,10 @@ function parseTomlNode(plan_dir, file) {
  * and returns immediately. Does NOT wait for SQUAD_COMPLETE —
  * the Engine pulse loop handles all subsequent state transitions.
  */
-export async function processDelegate(params, runState) {
-    const { eventLog, originalTask, signal } = runState;
+export async function processDelegate(params) {
+    const eventLog = getGlobalEventLog();
+    if (!eventLog) throw new Error('EventLog not initialized');
+
     const { nodes, mode } = readNodesFromDir(params.plan_dir);
     const validation = validatePlan({ mode, nodes });
 
@@ -67,20 +70,6 @@ export async function processDelegate(params, runState) {
         throw new Error(`Invalid plan: ${validation.errors.join('; ')}`);
     }
 
-    if (signal) {
-        if (signal.aborted) {
-            eventLog.append(Events.SQUAD_ABORT, { reason: 'Aborted before init' });
-            return { success: false, message: 'Squad aborted before init' };
-        }
-        signal.addEventListener(
-            'abort',
-            () => {
-                eventLog.append(Events.SQUAD_ABORT, { reason: 'Aborted by signal' });
-            },
-            { once: true },
-        );
-    }
-
-    eventLog.append(Events.SQUAD_INIT, { mode, nodes, originalTask: originalTask || '' });
+    eventLog.append(Events.SQUAD_INIT, { mode, nodes, originalTask: '' });
     return { success: true, message: 'Squad started' };
 }

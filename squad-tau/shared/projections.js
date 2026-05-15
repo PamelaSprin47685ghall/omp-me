@@ -141,6 +141,78 @@ register(Events.SESSION_MESSAGE)((state, payload) => {
     const idx = list.findIndex((m) => m.messageId === payload.messageId);
     if (idx !== -1) list[idx] = { ...list[idx], ...payload };
     else list.push(payload);
+    // Initialize flat string caches from complete content
+    const msg = idx !== -1 ? list[idx] : list[list.length - 1];
+    if (Array.isArray(msg.content)) {
+        msg.joinedText = msg.content
+            .filter((b) => b.type === 'text')
+            .map((b) => b.text)
+            .join('');
+        msg.joinedThinking = msg.content
+            .filter((b) => b.type === 'thinking')
+            .map((b) => b.text)
+            .join('');
+    }
+});
+
+// ── Streaming Delta (transient, never stored in EventLog) ──
+
+register(Events.SESSION_MESSAGE_DELTA)((state, payload) => {
+    const sess = state.sessions[payload.sessionId];
+    if (!sess) return;
+    const list = sess.messages;
+    const msgIdx = list.findIndex((m) => m.messageId === payload.messageId);
+
+    if (msgIdx === -1) {
+        const blockType = payload.delta.type === 'thinking_delta' ? 'thinking' : 'text';
+        const text = payload.delta.text || '';
+        list.push({
+            role: 'assistant',
+            messageId: payload.messageId,
+            content: [{ type: blockType, text }],
+            streaming: true,
+            joinedText: payload.delta.type !== 'thinking_delta' ? text : '',
+            joinedThinking: payload.delta.type === 'thinking_delta' ? text : '',
+        });
+    } else {
+        const msg = list[msgIdx];
+        if (!msg.streaming) msg.streaming = true;
+        if (payload.delta.type === 'thinking_delta') {
+            const t = payload.delta.text || '';
+            msg.joinedThinking = (msg.joinedThinking || '') + t;
+            const hasThinking = msg.content.some((c) => c.type === 'thinking');
+            if (!hasThinking) msg.content.push({ type: 'thinking', text: '' });
+        } else {
+            const t = payload.delta.text || '';
+            msg.joinedText = (msg.joinedText || '') + t;
+        }
+    }
+});
+
+register(Events.SESSION_THINKING_DELTA)((state, payload) => {
+    const sess = state.sessions[payload.sessionId];
+    if (!sess) return;
+    const list = sess.messages;
+    const msgIdx = list.findIndex((m) => m.messageId === payload.messageId);
+
+    if (msgIdx === -1) {
+        const text = payload.delta.text || '';
+        list.push({
+            role: 'assistant',
+            messageId: payload.messageId,
+            content: [{ type: 'thinking', text }],
+            streaming: true,
+            joinedText: '',
+            joinedThinking: text,
+        });
+    } else {
+        const msg = list[msgIdx];
+        if (!msg.streaming) msg.streaming = true;
+        const t = payload.delta.text || '';
+        msg.joinedThinking = (msg.joinedThinking || '') + t;
+        const hasThinking = msg.content.some((c) => c.type === 'thinking');
+        if (!hasThinking) msg.content.push({ type: 'thinking', text: '' });
+    }
 });
 
 register(Events.SESSION_TOOL_CALL)((state, payload) => {
@@ -177,23 +249,23 @@ register(Events.MODEL_POOL_SNAPSHOT)((state, payload) => {
 // ── UI State (client-side only) — each event has its own reducer, no switch
 
 register('ui:select_session')((state, payload) => {
-    state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, modelPoolOpen: false, bannerDismissed: false };
+    state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, drawerOpen: false, bannerDismissed: false };
     state.ui.activeSessionId = payload.sessionId;
     state.ui.viewMode = 'session';
 });
 
 register('ui:set_view_mode')((state, payload) => {
-    state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, modelPoolOpen: false, bannerDismissed: false };
+    state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, drawerOpen: false, bannerDismissed: false };
     state.ui.viewMode = payload.viewMode;
 });
 
 register('ui:toggle_drawer')((state, payload) => {
-    state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, modelPoolOpen: false, bannerDismissed: false };
-    state.ui.modelPoolOpen = payload.open;
+    state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, drawerOpen: false, bannerDismissed: false };
+    state.ui.drawerOpen = payload.open;
 });
 
 register('ui:dismiss_banner')((state) => {
-    state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, modelPoolOpen: false, bannerDismissed: false };
+    state.ui = state.ui || { viewMode: 'dag', activeSessionId: null, drawerOpen: false, bannerDismissed: false };
     state.ui.bannerDismissed = true;
 });
 

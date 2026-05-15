@@ -16,26 +16,16 @@ export default function ThinkingBlock({ content, isStreaming = false, messageId,
     if (textRef.current) {
       const state = eventStore.getState();
       const sess = state.sessions[sessionId];
-      if (sess) {
-        const msg = sess.messages.find(m => m.messageId === messageId);
-        if (msg) {
-          const thinking = msg.content.filter(b => b.type === 'thinking').map(b => b.text).join('');
-          textRef.current.textContent = thinking;
-        }
-      }
+      const thinking = sess?.messages?.find(m => m.messageId === messageId)?.joinedThinking || '';
+      textRef.current.textContent = thinking;
     }
 
     return streamingManager.subscribe(messageId, () => {
       if (textRef.current) {
         const state = eventStore.getState();
         const sess = state.sessions[sessionId];
-        if (sess) {
-          const msg = sess.messages.find(m => m.messageId === messageId);
-          if (msg) {
-            const thinking = msg.content.filter(b => b.type === 'thinking').map(b => b.text).join('');
-            textRef.current.textContent = thinking;
-          }
-        }
+        const thinking = sess?.messages?.find(m => m.messageId === messageId)?.joinedThinking || '';
+        textRef.current.textContent = thinking;
       }
     });
   }, [isStreaming, messageId, sessionId]);

@@ -3,9 +3,6 @@
  * EventLog-driven — no EventBus. Messages are appended to EventLog directly.
  * Frontend only sends: sync (catch-up), session:user_message, model_pool:update, ping, abort.
  * Backend only does: append to EventLog, let the reactor+engine drive everything.
- *
- * User messages are NOT sent to LLM directly — they are appended as
- * session:user_message_received facts and processed by the Engine pulse.
  */
 import { Events } from '../shared/events.js';
 
@@ -29,18 +26,10 @@ const STRATEGIES = {
         const { sessionId, text, messageId } = payload || {};
         if (!sessionId || typeof text !== 'string') return true;
 
-        // Append user message to EventLog for state tracking
         eventLog.append('session:message', {
             sessionId,
             role: 'user',
             content: [{ type: 'text', text }],
-            messageId: messageId || `usr_${Date.now()}`,
-        });
-
-        // Append trigger fact for the Engine pulse to route to LLM
-        eventLog.append('session:user_message_received', {
-            sessionId,
-            text,
             messageId: messageId || `usr_${Date.now()}`,
         });
         return true;

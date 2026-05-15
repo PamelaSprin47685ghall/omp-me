@@ -39,7 +39,7 @@ function createCloseHandler(wss, rawServer, heartbeatCleanup, unsub) {
     };
 }
 
-export async function startServer({ skipVite = false } = {}) {
+export async function startServer({ pi, skipVite = false } = {}) {
     _refCount++;
     if (_server) return { port: _server.port, eventLog: _server.eventLog, close: _close };
 
@@ -51,7 +51,7 @@ export async function startServer({ skipVite = false } = {}) {
         maxWorkers: config.maxWorkers || 3,
     });
 
-    const engine = setupEngine(eventLog, { pi: globalThis.PI });
+    const engine = setupEngine(eventLog, pi);
 
     const rawServer = createServer();
     const viteMiddlewares = await createViteDevServer({ skipVite });

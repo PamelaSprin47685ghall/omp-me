@@ -9,10 +9,6 @@ import { Events } from '../shared/events.js';
 
 export const sessionStore = new Map();
 
-export function getSessionEntry(sessionId) {
-    return sessionStore.get(sessionId) || null;
-}
-
 export async function getCodingAgentModule() {
     return (await import('@oh-my-pi/resolve-pi')).getCodingAgentModule();
 }
@@ -41,13 +37,19 @@ register(Events.SESSION_PROMPTING)(async (payload, { eventLog, pi, getState }) =
     }
 });
 
-register('session:user_message_received')(async (payload, { eventLog, pi, getState }) => {
+register(Events.SESSION_MESSAGE)(async (payload, { eventLog, pi, getState }) => {
     try {
-        await handleUserMessage(payload);
+        // Only route user messages from the WebSocket to the LLM session
+        if (payload.role === 'user' && payload.messageId?.startsWith('opt_')) {
+            await handleUserMessage(payload);
+        }
     } catch (err) {
         console.error(`[SideEffects] userMessage failed:`, err);
     }
 });
+
+register(Events.SQUAD_COMPLETE)(() => sessionStore.clear());
+register(Events.SQUAD_ABORT)(() => sessionStore.clear());
 
 export function setupSideEffects(eventLog, pi, getState) {
     const unsub = eventLog.subscribe((entry) => {
@@ -57,11 +59,11 @@ export function setupSideEffects(eventLog, pi, getState) {
     return unsub;
 }
 
-export async function handleCreateSession({ nodeId, sessionId, phase }, eventLog, pi, getState) {
+export async function handleCreateSession({ nodeId, sessionId, phase, retryCount }, eventLog, pi, getState) {
     const { SessionManager } = await getCodingAgentModule();
     const state = getState();
     const node = state.squad.nodes[nodeId];
-    const options = buildWorkerSessionOptions({ originalTask: state.squad.originalTask }, pi, {
+    const options = buildWorkerSessionOptions(pi, {
         provider: 'test',
         modelId: 'default',
     });
@@ -71,7 +73,6 @@ export async function handleCreateSession({ nodeId, sessionId, phase }, eventLog
     const actualSessionId = session.sessionFile;
 
     sessionStore.set(actualSessionId, {
-        sendUserMessage: (text) => session.prompt(text),
         session,
         status: 'active',
     });
@@ -84,7 +85,7 @@ export async function handleCreateSession({ nodeId, sessionId, phase }, eventLog
         sessionId,
         nodeId,
         phase,
-        retryCount: parseInt(sessionId.split('::')[2] || '0', 10),
+        retryCount,
         model: options.model ? { provider: options.model.provider, id: options.model.id } : undefined,
     });
 
@@ -108,37 +109,24 @@ export async function handlePrompt({ sessionId, phase, nodeId }, eventLog, pi, g
 export async function handleUserMessage({ sessionId, text, messageId }) {
     const entry = sessionStore.get(sessionId);
     if (!entry || entry.status !== 'active') return;
-    await entry.sendUserMessage(text);
+    await entry.session.prompt(text);
 }
 
-function buildBaseSessionOptions(ctx, pi, modelSlot) {
-    const options = { cwd: ctx?.cwd ?? process.cwd(), hasUI: false };
-    if (ctx?.agentsMdSearch) options.agentsMdSearch = ctx.agentsMdSearch;
-    if (ctx?.workspaceTree) options.workspaceTree = ctx.workspaceTree;
-    if (ctx?.modelRegistry) options.modelRegistry = ctx.modelRegistry;
-    if (ctx?.model) options.model = ctx.model;
+function buildBaseSessionOptions(pi, modelSlot) {
+    const options = { cwd: process.cwd(), hasUI: false };
+    const tl = pi?.getThinkingLevel?.();
+    if (tl) options.thinkingLevel = tl;
     if (modelSlot) {
-        const available = ctx?.modelRegistry?.getAvailable?.() ?? [];
-        const matched = available.find((m) => m.provider === modelSlot.provider && m.id === modelSlot.modelId);
-        if (matched) {
-            options.model = matched;
-            if (modelSlot.thinkingLevel) options.thinkingLevel = modelSlot.thinkingLevel;
-        }
+        options.model = { provider: modelSlot.provider, id: modelSlot.modelId };
+        if (modelSlot.thinkingLevel) options.thinkingLevel = modelSlot.thinkingLevel;
     }
-    if (ctx?.getThinkingLevel) {
-        const l = ctx.getThinkingLevel();
-        if (l && !options.thinkingLevel) options.thinkingLevel = l;
-    }
-    if (ctx?.getSystemPrompt) options.systemPrompt = ctx.getSystemPrompt();
     return options;
 }
 
-function buildWorkerSessionOptions(ctx, pi, modelSlot) {
-    const options = buildBaseSessionOptions(ctx, pi, modelSlot);
-    const activeTools = (ctx?.session?.getActiveToolNames?.() ?? pi?.getActiveTools?.())?.filter(
-        (t) => t !== 'delegate',
-    );
-    if (activeTools?.length > 0)
+function buildWorkerSessionOptions(pi, modelSlot) {
+    const options = buildBaseSessionOptions(pi, modelSlot);
+    const activeTools = pi?.getActiveTools?.()?.filter((t) => t !== 'delegate') ?? [];
+    if (activeTools.length > 0)
         options.toolNames = activeTools.includes('return') ? activeTools : [...activeTools, 'return'];
     return options;
 }

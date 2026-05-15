@@ -8,8 +8,6 @@ import { processDelegate } from './submit-plan.js';
 import { startServer } from './server-lifecycle.js';
 
 export default function squadPlugin(pi) {
-    globalThis.PI = pi;
-
     return {
         name: 'squad-tau',
         tools: [
@@ -26,13 +24,13 @@ export default function squadPlugin(pi) {
                     },
                     required: ['plan_dir'],
                 },
-                handler: async (params, runState) => {
-                    return await processDelegate(params, runState);
+                handler: async (params) => {
+                    return await processDelegate(params);
                 },
             },
         ],
         onStart: async () => {
-            startServer();
+            startServer({ pi });
         },
     };
 }

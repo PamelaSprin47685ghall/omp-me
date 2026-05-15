@@ -3,27 +3,31 @@
 ## 核心公理
 
 1. **EventLog 是不可变事实日志**。只能追加，不能删除或修改已有条目。每次 `append()` 产生一个单调递增的 `id`。
-2. **CMD (Command) 是内存中的意图**。`CMD_*` 事件由 Reactor 推导产生，存在于 Engine Pulse 生命周期内，不入 EventLog。引擎执行 CMD 时同步插入 "过渡态事实" 防止无限推导。
-3. **流式事件不入日志**。`session:message_delta` 和 `session:thinking_delta` 仅广播到 WebSocket 客户端，不入 EventLog 永久存储。
-4. **WebSocket 事件格式与 EventLog 条目一致**。所有持久化事件通过 WebSocket 广播时包含 `seq` 字段（对应 EventLog `id`），客户端可通过 `sync` 请求按水位线补齐。
+2. **系统中不存在 "意图 (Command)"**。Reactor 推导的 Action 全部是事实——要么是持久事实（如 `squad:node_state`），要么是过渡态事实（如 `session:creating`）。SideEffects 仅通过订阅 EventLog 被动响应过渡态事实。
+3. **过渡态事实（Transitional Fact）天然阻断递归**。当 Reactor 推导出 `session:creating` 写入 EventLog 后，下一次 pulse 时 Projections 中的 `session[ sessionId ].status === 'creating'` 条件成立，Reactor 不再重新推导同一个 session 的创建。不需要额外的"保护机制"——过渡态事实本身就是防重入锁。
+4. **流式事件不入日志**。`session:message_delta` 和 `session:thinking_delta` 仅广播到 WebSocket 客户端，不入 EventLog 永久存储。
+5. **WebSocket 事件格式与 EventLog 条目一致**。所有持久化事件通过 WebSocket 广播时包含 `seq` 字段（对应 EventLog `id`），客户端可通过 `sync` 请求按水位线补齐。
 
 ## 5.1 事实分类
 
 | 类别 | 特征 | 示例 | 存储 |
 |------|------|------|------|
 | **持久事实 (Fact)** | 不可变，永远追加 | `squad:node_state`、`session:start` | EventLog（永存） |
-| **过渡态事实 (Transition)** | 防止 Reactor 重复推导 | `session:creating`、`session:prompting` | EventLog（可由 Reactor 检查） |
-| **意图 (Command)** | Reactor 推导出的下一步动作 | `cmd:create_session`、`cmd:prompt` | 仅内存，Engine Pulse 生命周期 |
+| **过渡态事实 (Transitional Fact)** | 防止 Reactor 重复推导；SideEffects 的触发信号 | `session:creating`、`session:prompting` | EventLog（Reactor 检查状态树中的对应字段） |
 | **流式广播 (Stream)** | 高频瞬态数据 | `session:message_delta`、`session:thinking_delta` | 仅 WebSocket 广播 |
 
-## 5.2 过渡态保护机制
+**不再存在 "意图 (Command)" 分类**。旧架构中的 `cmd:create_session` 和 `cmd:prompt` 已被直接改写为过渡态事实 `session:creating` 和 `session:prompting`。Reactor 不再"向 SideEffects 发指令"——它只需陈述"这个 session 正在被创建"这一事实，SideEffects 自然会响应。
 
-为了防止 Reactor 在 CMD 执行期间反复推导同一个动作（无限循环），引擎在接收 CMD 的同时向 EventLog 追加过渡态事实。Reactor 检测到过渡态后，不会重新推导该动作。
+## 5.2 过渡态事实的防重入机制
 
-| CMD | 过渡态事实 | 目的 |
-|-----|-----------|------|
-| `cmd:create_session` | `session:creating {nodeId, phase}` | 防止重复创建 session |
-| `cmd:prompt` | `session:prompting {sessionId, phase}` | 防止重复发送 prompt |
+过渡态事实本身承担了防重入职责，无需额外的"过渡态保护"层：
+
+| 过渡态事实 | Reactor 下次 pulse 时的检查条件 | 效果 |
+|-----------|-------------------------------|------|
+| `session:creating {nodeId, sessionId, phase}` | `state.sessions[sessionId]?.status === 'creating'` | 因 `status === 'creating'` 成立，不重新推导创建动作 |
+| `session:prompting {sessionId, phase}` | `state.sessions[sessionId]?.lastPromptedPhase === phase` | 因 phase 已被标记，不重复发送 prompt |
+
+同一过渡态事实同时履行两个职责：**触发 SideEffects 行动** + **防止 Reactor 重入**。不需要额外的保护表或去重逻辑。
 
 ## 5.3 WebSocket 连接
 
@@ -101,8 +105,8 @@
     retryCount: number,
     summary?: string,
     affectedFiles?: string[],
-    error?: string,         // 仅 failed 状态时携带错误信息
-    timestamp?: number      // 可选时间戳
+    error?: string,
+    timestamp?: number
   }
 }
 
@@ -137,32 +141,42 @@
 ## 5.8 会话事实
 
 ```javascript
-// session:start — 新会话启动
+// session:creating — 过渡态事实：session 正在创建中（SideEffects 订阅此事件）
+// 由 Reactor 在 countLiveSessions < maxWorkers 时推导
+{ type: 'session:creating',
+  payload: { nodeId: string, sessionId: string, phase: string, retryCount: number }
+}
+
+// session:start — 持久事实：session 已创建完毕（SideEffects 完成后追加）
 { type: 'session:start',
   payload: {
     sessionId: string,
-    nodeId?: string,      // 如果是 squad 子会话
+    nodeId?: string,
     phase: 'worker' | 'reviewer' | 'outer_review' | 'main',
     retryCount?: number,
     model?: { provider: string, id: string }
   }
 }
 
-// session:creating — 过渡态事实（session 正在创建中）
-{ type: 'session:creating',
-  payload: { nodeId: string, phase: string }
-}
-
-// session:prompting — 过渡态事实（prompt 已发送）
+// session:prompting — 过渡态事实：prompt 已发送（SideEffects 订阅此事件）
+// 由 Reactor 检测到 session 活跃但 lastPromptedPhase !== 当前阶段时推导
 { type: 'session:prompting',
-  payload: { sessionId: string, phase: string }
+  payload: { sessionId: string, phase: string, nodeId?: string }
 }
 
 // session:state — 会话阶段变更
 { type: 'session:state',
   payload: { sessionId: string, phase: string }
 }
-// 注：在会话结束时与 session:end 成对发送
+
+// session:end — 会话结束
+{ type: 'session:end',
+  payload: {
+    sessionId: string,
+    reason: 'completed' | 'aborted' | 'error',
+    errorMessage?: string
+  }
+}
 
 // session:message — 完整消息（非流式）
 { type: 'session:message',
@@ -206,73 +220,23 @@
     isError: boolean
   }
 }
-
-// session:end — 会话结束
-{ type: 'session:end',
-  payload: {
-    sessionId: string,
-    reason: 'completed' | 'aborted' | 'error',
-    errorMessage?: string
-  }
-}
 ```
+
+**关键变化（与旧协议）**：
+- `cmd:create_session` → 不存在。Reactor 直接写入 `session:creating` 过渡态事实。
+- `cmd:prompt` → 不存在。Reactor 直接写入 `session:prompting` 过渡态事实。
+- SideEffects 订阅 `session:creating` 和 `session:prompting`，读到此即行动。
 
 ## 5.9 模型池事实
 
 ```javascript
-// model_pool:snapshot — 初始快照（启动时写入）
+// model_pool:snapshot — 初始快照（插件启动时写入）
 { type: 'model_pool:snapshot',
-  payload: {
-    slots: Array<{
-      slotId: string,
-      provider: string,
-      modelId: string,
-      role: 'worker' | 'reviewer',
-      thinkingLevel?: string,
-      inUse: boolean
-    }>
-  }
-}
-
-// model_pool:acquire — 模型分配事实（Reactor 推导后追加）
-{ type: 'model_pool:acquire',
-  payload: {
-    slotId: string,
-    nodeId?: string,
-    sessionId?: string,
-    role: string
-  }
-}
-
-// model_pool:release — 模型释放事实（Reactor 推导后追加）
-{ type: 'model_pool:release',
-  payload: { slotId: string }
-}
-
-// model_pool:config_update — 配置变更事实
-{ type: 'model_pool:config_update',
-  payload: {
-    action: 'add' | 'remove' | 'edit',
-    slot?: object,
-    slotId?: string,
-    thinkingLevel?: string
-  }
-}
-
-// model_pool:changed — 变更后广播到所有浏览器
-{ type: 'model_pool:changed',
-  payload: {
-    slots: Array<{
-      slotId: string,
-      provider: string,
-      modelId: string,
-      role: 'worker' | 'reviewer',
-      thinkingLevel?: string,
-      inUse: boolean
-    }>
-  }
+  payload: { maxWorkers: number }
 }
 ```
+
+**模型池已被降维为单个整数 `maxWorkers`**。不存在槽位（Slot）、acquire、release 事实。`model_pool:snapshot` 在插件启动时写入一次，包含并发上限值。不再有其他模型池运行时事件。
 
 ## 5.10 用户消息
 
@@ -280,21 +244,19 @@
 // 浏览器 → 服务端：用户发送消息到指定 session
 { type: 'session:user_message',
   payload: {
-    sessionId: string,     // 目标 session ID
-    text: string,           // 消息内容
-    messageId?: string     // 可选乐观消息 ID（'opt_' 前缀）
+    sessionId: string,
+    text: string,
+    messageId?: string
   }
 }
 ```
 
 **处理流程**：
-
 1. 服务端收到 → 追加两条事实到 EventLog：
    - `session:message`（role=user，用于 UI 同步）
    - `session:user_message_received`（触发 Engine Pulse 推导）
-2. Engine Pulse 检测到新 `session:user_message_received` → 推导 `cmd:user_message`
-3. SideEffect 调用 `session.prompt(text)` → 后续事件流（message_delta、tool_call 等）正常广播
-4. 如果 session 已结束 → 服务端发送 `{ type: 'error', payload: { message: 'Session not active' } }`
+2. Engine Pulse 检测到新 `session:user_message_received` → Reactor 推导 `session:prompting`（聚焦到该 session） → SideEffects 调用 `session.prompt(text)`
+3. 如果 session 已结束 → 服务端发送 `{ type: 'error', payload: { message: 'Session not active' } }`
 
 ## 5.11 错误事件
 

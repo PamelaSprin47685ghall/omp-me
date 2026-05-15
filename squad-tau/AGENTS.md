@@ -11,8 +11,9 @@
 
 ### 数据流铁律
 
-- **绝对的数据流单向性**。副作用函数（SideEffects）禁止包含任何 `async/await` 业务挂起。副作用必须是 Fire-and-Forget，结果仅通过向全局 EventLog 追加事实来反馈。
+- **绝对的数据流单向性**。SideEffects 禁止包含任何 `async/await` 业务挂起。副作用必须是 Fire-and-Forget，结果仅通过向全局 EventLog 追加事实来反馈。
 - **禁止历史扫描（No History Scanning）**。Reactor 绝对禁止调用 `eventLog.getSince()` 或 `.find()` 扫描历史。一切推导只能基于 `shared/projections.js` 折叠后的扁平 `State` 对象。Reactor 的函数签名必须是 `f(state) → Action[]`，其中 state 是纯投影树，无日志引用。
+- **O(1) 数据铁律**。所有依赖查找、状态获取必须是 `state.nodes[id]` 这样的 O(1) 哈希映射。在 60FPS 渲染循环或 Reactor 推导循环中，绝对禁止使用数组 `.filter()`、`.map()` 或字符串 `.split()`。数据必须是`键 → 值`的平坦结构，任何 O(n) 遍历都不允许存在于热路径。
 - **禁止兜底**。出现兜底就是掩盖根因，必须追踪到消息 ID 为何缺失、状态为何丢失，在源头修复。
 - **不要防御性编程**。`if (x) x.startsWith(...)` 这种代码说明上游契约被破坏，去上游修。
 
@@ -25,14 +26,18 @@
 | 状态机实例 (FSM Instance) | 隐含了手动流转的图模型 | Engine Pulse + Reactor 推导 |
 | 事件总线 (EventBus) | 总线是连接组件的中介，层级扁平不推演 | EventLog 追加订阅 |
 | 挂起 (Suspend) | 暗示异步等待队列 | 上下文切换到 Engine 微任务 |
-| 等待队列 (Wait Queue) | 队列是命令式原语 | 静态槽位计数 | Model Pool 投影 |
+| 等待队列 (Wait Queue) | 队列是命令式原语 | 静态计数 | `countLiveSessions(state) < maxWorkers` |
 | 编排器 (Orchestrator) | 编排器主动"拉动"流程 | Reactor 纯函数推导 "推动" |
 | 拓扑排序 (Topological Sort) | 排序是批处理思维，不适用于增量事件流 | 声明式依赖规则 (Reactor 条件) |
 | 防抖节流定时器 (Debounce/Throttle Timers) | 定时器掩盖事件分发问题 | 微任务批处理 (queueMicrotask) |
+| 命令 / 意图 (Command) | 系统中不存在指令，只有"已经发生的事实" | 过渡态事实 (Transitional Fact) |
+| UUID / 随机 ID | 随机 ID 意味着不可追踪、不可重放、不可断言 | 确定性 URN (`NodeId::Phase::Retry`) |
+| acquire / release (申请/释放) | 将并发管理拟人化，掩盖代数本质 | 不等式比较 (`countLive < maxWorkers`) |
+| `useState` / `Context` (前端) | React 禁止维护任何局部业务状态 | `EventStore` 折叠 + `useSyncExternalStore` |
 
 ## 核心架构
 
-系统由四大模块构成，严格遵循单向数据流：
+系统由四大模块构成，严格遵循单向数据流。注意 **SideEffects 不受 Reactor 直接调用**——它是 EventLog 的无声订阅者，听到过渡态事实便自行行动。
 
 ```mermaid
 graph TD
@@ -46,35 +51,39 @@ graph TD
         REACT{Reactor\nPure f(State)}
     end
     subgraph Muscle
-        SE[Side Effects\nFire & Forget]
+        SE[Side Effects\nEventLog Subscriber]
     end
     subgraph UI
         DOM[React View\nf(State)]
     end
+
     EL -->|1. Trigger Pulse| PROJ
     PROJ -->|2. Emit State| REACT
     PROJ -->|Sync| DOM
-    REACT -->|3. Yield CMDs| SE
-    REACT -->|3. Yield Facts| EL
-    SE -->|4. Call APIs| OMP[LLM / FS]
-    OMP -->|5. Async Callbacks| EL
+    REACT -->|3. Yield Transitional Facts| EL
+    SE -.->|4. Silently reads| EL
+    SE -->|5. Call APIs| OMP[LLM / FS]
+    OMP -->|6. Async Callbacks| EL
 ```
+
+**这是系统的宇宙公理**。所有组件围绕 EventLog（不可变事实日志）组成纯函数推导闭环。系统中不存在"指令"——只有已经发生的事实（Fact）、正在发生的事实（Transitional Fact）、和尚未推导的未来事实。没有流程控制，只有数据、规则、和副作用。
 
 | 模块 | 文件 | 职责 | 禁止行为 |
 |------|------|------|----------|
 | **真理源** | `server/event-log.js` | 全局追加式不可变事实日志 | 不允许删除/修改/回滚已有条目 |
 | **物化视图** | `shared/projections.js` | 纯函数增量折叠：`f(prevState, Event) → nextState` | 不允许有 side effect、不查日志 |
 | **推导大脑** | `server/reactor.js` | 纯函数：`f(State) → Action[]` | 不允许调用 `getSince()`、`find()` |
-| **失忆的肌肉** | `server/side-effects.js` | 执行 CMD（创建 session、发 prompt）、结果追加到 EventLog | 不允许持有业务状态、不做推导决策 |
+| **失忆的肌肉** | `server/side-effects.js` | 订阅 EventLog，对过渡态事实做出反应 | 不允许持有业务状态、不做推导决策 |
 
-### 事件分类
+### 事实分类
 
 | 类别 | 示例 | 存储位置 |
 |------|------|----------|
-| **事实 (Fact)** | `squad:node_state`、`session:start`、`model_pool:acquire` | EventLog（永存） |
-| **意图 (Command)** | `cmd:create_session`、`cmd:prompt` | 内存中瞬态（Engine Pulse 生命周期内） |
-| **过渡态事实** | `session:creating`、`session:prompting` | EventLog（防止 Reactor 重复推导） |
+| **持久事实 (Fact)** | `squad:node_state`、`session:start` | EventLog（永存） |
+| **过渡态事实 (Transitional Fact)** | `session:creating`、`session:prompting` | EventLog（阻断 Reactor 重复推导） |
 | **流式事件** | `session:message_delta`、`session:thinking_delta` | 仅广播，不入 EventLog |
+
+**系统中不存在"意图/指令（Command）"类别**。Reactor 推导的所有 Action 要么是持久事实，要么是过渡态事实。SideEffects 作为 EventLog 订阅者，被动响应过渡态事实，而非被 Reactor 调用。
 
 ## 参考项目
 
@@ -92,7 +101,7 @@ graph TD
 | 资源 | URL | 用途 |
 |------|-----|------|
 | Chakra UI (v3) | https://www.chakra-ui.com/docs/components | `Drawer`、`Collapsible`、`Dialog`、`Button`、`Badge`、`Table`、`Tooltip`、`Portal` 等组件文档 |
-| lucide-react | https://lucide.dev/icons/ | 选择最贴合语义的图标
+| lucide-react | https://lucide.dev/icons/ | 选择最贴合语义的图标 |
 | React (v18) | https://react.dev/ | React 18 API |
 | Mermaid (v11) | https://mermaid.js.org/ | DAG 图渲染 API |
 | Vite (v8) | https://vite.dev/ | `createServer` Node API 文档 |
@@ -246,7 +255,7 @@ description = "[此处省略 300 字]"
 ### 测试原则
 - **底层代数断言**：给定静态 State 树，断言 Reactor 必然输出的 Action[]。0 毫秒执行，覆盖 100% 边界。
 - **中层时空折叠**：用内存 while 循环 + 伪造 SideEffect，瞬间推演多步流转，验证 DAG 因果律不变量。
-- **顶层真实混沌**：保留物理链路测试，验证 WebSocket 水位线同步在断网、乱序中绝不丢失状态。
+- **顶层真实混沌**：PTY 直连（`simulation.js`）不落盘、不轮询。管道挂载拦截内存流，验证 WebSocket 水位线同步在断网、乱序中绝不丢失状态。
 
 ### 代码审查原则
 - **出现兜底两个字就是垃圾**。review 时看到 fallback / guard / 防御性检查，直接打回。

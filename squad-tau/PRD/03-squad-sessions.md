@@ -1,5 +1,48 @@
 # Squad-Tau PRD — 03 会话体系
 
+## 3.0 确定性 URN 寻址
+
+**核心公理**：系统中不存在任何随机 ID。所有实体 ID 由确定性公式计算得出。
+
+### SessionID 公式
+
+```
+sessionId = `${nodeId}::${phase}::${retryCount}`
+```
+
+其中：
+- `nodeId`：节点文件名（不含 `.toml`），如 `auth-base`、`login`。外层 review 会话使用 `or` 作为 nodeId
+- `phase`：`authoring`、`confirming`、`reviewing`、`outer_review`
+- `retryCount`：从 0 开始的整数。重试后退回 authoring 时递增，reviewing 阶段失败后重置为 (node.retryCount + 1)
+
+**示例**：
+- `auth-base::authoring::0` — auth-base 节点的第一次 worker 执行
+- `auth-base::confirming::0` — auth-base 节点的第一次 self-confirm
+- `auth-base::reviewing::0` — auth-base 节点的第一次 review
+- `login::authoring::1` — login 节点的第二次 worker 执行（因 review 驳回）
+- `or::outer_review::1` — 第一轮外层 review
+
+### URN 消灭了什么
+
+| 旧世界实体 | 替代方式 |
+|-----------|---------|
+| 数据库自增 ID | SessionID `n1::authoring::0` 直接编码全部语义 |
+| 外键关联（session → node） | SessionID 中已包含 nodeId、phase、retryCount，通过 `sessionIdFor()` 双向可逆 |
+| 连表查询（查找某个 node 的 session） | `Object.values(state.sessions).filter(s → s.nodeId === nodeId)` → O(n)，但实际上 Reactor 通过 `state.sessions[sessionId]` O(1) 直接访问 |
+| 随机 ID 生成器 | 不需要了——`nodeId` 从 `.toml` 文件名派生，`phase` 从 Reactor 规则派生，`retryCount` 从状态树派生 |
+| 去重判断 | 同一个 `n1::authoring::0` 只会被创建一次，因为 `state.sessions[sessionId]` 已存在时 Reactor 跳过 |
+
+### 实现
+
+```javascript
+// shared/events.js
+export function sessionIdFor(nodeId, phase, retryCount) {
+  return `${nodeId}::${phase}::${retryCount}`;
+}
+```
+
+这个函数是系统中的唯一 ID 生成器。没有随机数、没有 UUID、没有 Math.random()。
+
 ## 3.1 工具注册策略
 
 所有 lifecycle 工具通过 `pi.registerTool()` **全局注册**，所有 session 共享。
@@ -22,7 +65,7 @@ Worker 和 Self-Confirm 共用**同一个 session 对象**。工具集在 `creat
 | Worker 重做 | `return({ status:'error', reason })` | → 退回 worker 阶段重做 |
 | Reviewer 驳回 | `return({ status:'error', reason })` | → 节点 rejected，retryCount++，退回 worker（Reactor 推导） |
 | 主会话 redo | `return({ status:'error', reason })` | → 整个 squad 任务标识需重新 `delegate` |
-| 外层 review 驳回 | approve=false 通过 delegate 返回值传递 | → Reactor 检测后重置所有节点回 authoring |
+| 外层 review 驳回 | `{ approved: false, reason }` 通过 delegate 返回值传递 | → Reactor 检测后重置所有节点回 authoring |
 
 `return({ status:'ok' })` 的语义在所有场景一致：当前阶段完成，Reactor 在下一次 pulse 中通过规则推导下一阶段。
 
@@ -46,7 +89,7 @@ Worker 和 Self-Confirm 共用**同一个 session 对象**。工具集在 `creat
 
 ### Session 策略
 - **每次新 session**：每次 review 都创建全新的 session（`SessionManager.create()`），不复用之前任何 session
-- 每个 retry 轮次都是全新的 reviewer session
+- 每个 retry 轮次都是全新的 reviewer session（id 为 `n1::reviewing::0`、`n1::reviewing::1`……）
 
 ### 可用工具
 Reviewer session 工具集受限：`['read', 'search', 'find', 'lsp', 'bash', 'return']`（`run-reviewer.js` 中 `buildBaseSessionOptions` + 显式 `toolNames` 覆盖），不包含 `delegate` 和 `write`/`edit` 等写操作工具
@@ -68,7 +111,7 @@ return({ status: 'ok' | 'error', reason: string })
 
 ```mermaid
 graph TD
-    subgraph runWorker["同⼀ session"]
+    subgraph runWorker["同一 session (n1::authoring::0)"]
         direction TB
         W1["1. session.prompt(workerTask)"]
         W2["2. agent return(1st, status:'ok')"]
@@ -89,13 +132,13 @@ graph TD
 
     R1 --> runWorker
 
-    subgraph runReviewer["每次新 session"]
+    subgraph runReviewer["新 session (n1::reviewing::0)"]
         direction TB
         REV1["session.prompt(review)"]
         REV2{"return(status)"}
         REV1 --> REV2
         REV2 -->|status='ok'| DONE["Reactor → node_state: approved"]
-        REV2 -->|status='error'| RETRY["Reactor → node_state: authoring\n(retryCount++)"]
+        REV2 -->|status='error'| RETRY["Reactor → node_state: authoring\n(n1::authoring::1)"]
     end
 
     R2 --> runReviewer
@@ -117,20 +160,23 @@ graph TD
 
 ### 路由机制
 
-```
-浏览器 WebSocket →  session:user_message {sessionId, text}  →  EventLog 追加
-EventLog 触发 Engine Pulse  →  Reactor 检测  →  cmd:user_message  →  SideEffect 调用 session.prompt(text)
+```mermaid
+graph LR
+    WS[浏览器 WebSocket
+    session:user_message] --> EL[EventLog 追加]
+    EL --> EP[Engine Pulse]
+    EP --> R[Reactor 推导
+    session:prompting]
+    R --> SE[SideEffects 调用
+    session.prompt text]
 ```
 
-**关键区别**：用户消息不直接发送给 LLM，而是通过 EventLog 追加事实 → Engine Pulse → Reactor 推导 → SideEffect 执行。所有路径统一走 EventLog。
+**关键区别**：用户消息不直接发送给 LLM，而是通过 EventLog 追加事实 → Engine Pulse → Reactor 推导过渡态事实 → SideEffects 订阅执行。所有路径统一走 EventLog。
 
 ### 实现要点
 
-- WebSocket 收到 `session:user_message` → 追加到 EventLog 两条：`session:message`（角色=user，用于 UI 同步）和 `session:user_message_received`（触发脉冲推导）
-- Reactor 通过 EventLog 水位线检测新的 `session:user_message_received` → 推导 `cmd:user_message` → SideEffects 调用 `session.prompt(text)`
-- 注入的消息先广播 `session:message`（role=user）到所有连接的浏览器，保持 UI 同步
-- Worker/Reviewer session 收到用户消息后，agent 会将其视为任务上下文的一部分，可据此调整行为
-- 用户消息不自动触发 squad 状态转换，但 agent 可能因此调用 lifecycle 工具（如 `return`、`delegate`）
+- WebSocket 收到 `session:user_message` → 追加 `session:message`（角色=user，用于 UI 同步）和 `session:user_message_received`（触发脉冲推导）
+- Reactor 检测新的 `session:user_message_received` → 推导 `session:prompting` → SideEffects 调用 `session.prompt(text)`
 - 已结束的 session（completed / aborted）拒绝接收用户消息，Web UI 会禁用输入框
 - 用户消息在 session 的 JSONL 文件中正常记录，与终端输入的消息等效
 

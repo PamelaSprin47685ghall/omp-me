@@ -1,19 +1,19 @@
 # Squad-Tau PRD — 08 测试策略
 
-**核心哲学**：不再使用 Puppeteer DOM 轮询 + Mock 等待时序 + 虚假的事件总线注入。新测试架构建立在系统的数学本质之上——Reactor 是纯函数，测试就应该像代数断言一样确定、零耗时。
+**核心哲学**：不再使用 Puppeteer DOM 轮询 + Mock 等待时序 + setInterval 轮询。新测试架构建立在系统的数学本质之上——Reactor 是纯函数，测试就应该像代数断言一样确定、零耗时。
 
-## 8.1 新测试金字塔
+## 8.1 三神级防线
 
 ```mermaid
 graph TD
-    subgraph 顶层
-        RC[Real-Env Chaos 测试\n物理链路 Tmux + 浏览器\n验证断网/乱序/中断不丢状态]
+    subgraph 顶层【幽灵 PTY】
+        SIM[simulation.js\n物理链路 Tmux + 管道挂载\n不落盘、不轮询、不 setInterval\n验证真实环境因果律]
     end
-    subgraph 中层
-        TT[时空折叠器 Time-Traveler\n内存 while 循环 + 伪造 SideEffect\n100 步推演验证因果律不变量]
+    subgraph 中层【时空折叠器】
+        TT[time-traveler.test.js + fuzzing.test.js\n内存 while 循环 + 伪造 SideEffect\n1ms 推演 200 步宇宙流转]
     end
-    subgraph 底层
-        AT[代数断言 Algebraic Tests\n给定静态 State → 断言 Action[]\n0 毫秒执行 · 100% 边界覆盖]
+    subgraph 底层【代数断言】
+        ALG[state-builder Fluent DSL\n给定静态 State 树 → 断言 Action[]\n0ms 执行 · 100% 边界覆盖]
     end
 ```
 
@@ -21,26 +21,33 @@ graph TD
 |---|----------|--------|----------|------|
 | 代数断言 | ~0ms（纯函数） | 大量（50+ 场景） | 每次提交 | 无 |
 | 时空折叠器 | ~1ms（内存循环） | 中量（10+ 场景） | 每次提交 | 无 |
-| 真实混沌 | ~30s（物理链路） | 少量（2-3 场景） | 释放前 | Puppeteer + Tmux |
+| 幽灵 PTY | ~30s（物理链路） | 少量（2-3 场景） | 释放前 | OMP + Tmux + Puppeteer |
 
-## 8.2 底层：代数断言（Algebraic Tests）
+## 8.2 底层：代数断言
 
-**原理**：Reactor 是纯函数 `f(State) → Action[]`。测试直接构造输入 State（通过 `project()` 或手动 `buildState()`），断言输出的 Action 数组符合预期。
+**原理**：Reactor 是纯函数 `f(State) → Action[]`。测试直接构造输入 State，断言输出的 Action 数组符合预期。
 
-**语法**：
+**Fluent DSL**（`test/helpers/state-builder.js`）：
+
 ```javascript
-// 给定一个 EventLog 序列
-const log = [];
-log.append(Events.SQUAD_INIT, { mode:'M', nodes:[{id:'n1',...}], originalTask:'t' });
-log.append(Events.SQUAD_NODE_STATE, { nodeId:'n1', status: STATUS.AUTHORING });
-// ...
+// 构造三节点菱形 DAG
+const state = buildState({
+  nodes: [
+    { id: 'n1', depends_on: [] },
+    { id: 'n2', depends_on: ['n1'] },
+    { id: 'n3', depends_on: ['n1'] },
+  ],
+  maxWorkers: 5,
+});
 
-// 折叠得到当前 State
-const state = project(log.getSince(0));
+// 设置 n1 为 approved
+setStatus(state, 'n1', 'approved');
 
-// Reactor 纯函数推导 → 断言 Action[]
+// Reactor 推导 → 应解锁 n2 和 n3
 const actions = reactState(state);
-expect(actions.filter(a => a.type === Events.MODEL_POOL_ACQUIRE).length).toBe(1);
+expect(actions.filter(a =>
+  a.type === 'squad:node_state' && a.payload.status === 'authoring'
+).length).toBe(2);
 ```
 
 **核心断言类别**：
@@ -49,20 +56,13 @@ expect(actions.filter(a => a.type === Events.MODEL_POOL_ACQUIRE).length).toBe(1)
 |------|----------|--------|
 | 初始状态 | SQUAD_INIT 后，所有节点得到 idle 状态 | 0 节点 / 1 节点 / N 节点 |
 | 依赖传导 | 上游 failed → 下游 blocked | 链式/菱形/扇出 |
-| 模型获取 | authoring 节点 + 空闲槽位 → MODEL_POOL_ACQUIRE | 0 槽位 / 1 槽位 / 多槽位 |
-| 空池降级 | 无配置槽位 → 直接 CMD_CREATE_SESSION | worker/reviewer 分别空 |
+| 并发闸门 | 节点数 > maxWorkers → 恰好 maxWorkers 个 session:creating | 超限/正好/空 |
 | 阶段推进 | 有 return('ok') → 下一 node_state | authoring→confirming→reviewing→approved |
 | 驳回重试 | return('error') + retryCount < MAX → 回 authoring | retryCount = 0..MAX-1 |
 | 超限失败 | return('error') + retryCount >= MAX → failed | MAX 边界 |
-| 释放规则 | terminal 节点 → MODEL_POOL_RELEASE | approved/failed/blocked |
 | 外层 review | 全部 approved → SQUAD_OUTER_REVIEW_START | M 模式 / L 模式 |
 | 外层驳回 | 外审 rejected → 节点重置回 authoring | retryCount 递增 |
-| 并发分配 | 3 节点等待 2 槽位 → 恰好 2 个 acquire | 槽位 > 节点 / 槽位 < 节点 / 槽位=0 |
-
-### 辅助工具
-
-- `test/helpers/state-builder.js`：`buildState()` 和 `nodeInPhase()` 快速构造特定阶段的 State
-- `test/helpers/assertions.js`：通用断言封装
+| 确定性 URN | sessionId = `${nodeId}::${phase}::${retryCount}` | 不同类型的 phase/retry |
 
 ### 关键测试文件
 
@@ -77,13 +77,44 @@ expect(actions.filter(a => a.type === Events.MODEL_POOL_ACQUIRE).length).toBe(1)
 
 ## 8.3 中层：时空折叠器（Time-Traveler）
 
-**原理**：模拟完整的 Engine Pulse 循环——在内存中 `while` 循环反复调用 `reactState()` + 伪造 SideEffect 执行业务动作 + 将结果追加回 EventLog。直到反应链收敛（`reactState` 返回 `[]`）。
+**原理**：模拟完整的 Engine Pulse 循环——在内存 `while` 循环中反复调用 `reactState()` + 伪造 SideEffect 执行业务动作 + 将结果追加回 EventLog，直到反应链收敛。
 
 ```javascript
-function timeTravel(initialEvents, promptBehavior) {
-    // 1. 初始 EventLog
-    // 2. while 循环：reactState → append → fake exec → append → repeat
-    // 3. 返回最终 EventLog
+function timeTravel(initialEvents, promptBehavior, maxSteps = 200) {
+  const eventLog = new EventLog();
+  for (const ev of initialEvents) eventLog.append(ev.type, ev.payload);
+  
+  let step = 0;
+  while (step < maxSteps) {
+    const state = project(eventLog.getSince(0));
+    const actions = reactState(state);
+    if (actions.length === 0) break;  // 收敛
+    
+    for (const action of actions) {
+      if (action.type === 'session:creating') {
+        // 伪造 SideEffect：直接 append session:start
+        eventLog.append('session:start', {
+          sessionId: action.payload.sessionId, ...
+        });
+      }
+      if (action.type === 'session:prompting') {
+        // 伪造 LLM 行为 → 调用 promptBehavior 回调
+        const result = promptBehavior(action.payload.sessionId);
+        // 将 return 结果写回 EventLog
+        eventLog.append('session:tool_call', {
+          sessionId: action.payload.sessionId,
+          toolName: 'return',
+          params: result,
+        });
+      }
+      // 持久事实直接追加
+      if (!action.type.startsWith('session:')) {
+        eventLog.append(action.type, action.payload);
+      }
+    }
+    step++;
+  }
+  return project(eventLog.getSince(0));
 }
 ```
 
@@ -94,11 +125,11 @@ function timeTravel(initialEvents, promptBehavior) {
 | 不变量 | 验证方式 |
 |--------|----------|
 | DAG 因果律 | 任意时间点，下游节点绝不早于上游节点进入 authoring |
-| 模型配对 | 每个 acquire 最终都有对应的 release |
-| 并发安全 | 任何时刻同一 slotId 不被双重 acquire |
-| 最终收敛 | while 循环始终在有限步内终止（200 步硬限+断言收敛） |
-| 空 usage | 结束后 `state.modelPool.usage` 为空 |
-| 最后事件 | `SQUAD_COMPLETE` 总是最后一个事件 |
+| 并发上界 | 任何时刻 `countLiveSessions(state) ≤ maxWorkers` |
+| 最终收敛 | while 循环始终在有限步内终止（200 步硬限 + 断言收敛） |
+| 最后事件 | `squad:complete` 总是最后一个事件 |
+| 确定性 | 相同输入 + 相同 promptBehavior → 完全相同的结果 EventLog |
+| URN 不变性 | 所有 sessionId 符合 `${nodeId}::${phase}::${retryCount}` 模式 |
 
 ### 关键测试文件
 
@@ -107,21 +138,52 @@ function timeTravel(initialEvents, promptBehavior) {
 | `test/integration/time-traveler.test.js` | 主时间旅行测试：M 模式、链式、菱形、驳回、外审 |
 | `test/integration/fuzzing.test.js` | 模糊推演：随机 promptBehavior、随机 DAG 结构 |
 
-## 8.4 顶层：真实混沌（Real-Env Chaos）
+## 8.4 顶层：幽灵 PTY 直连（`simulation.js`）
 
-**原理**：保留一组最小化但至关重要的物理链路测试。使用 Tmux 启动真实 `omp` + Puppeteer 控制浏览器，验证 WebSocket 水位线同步在断网、乱序、用户暴力操作中绝不丢失状态。
+**原理**：不使用硬盘文件作为 IPC 中介、不使用 `setInterval` 轮询、不使用 mock 替代真实组件。通过 Tmux 管道挂载（Pipe Attachment）拦截内存流，直接从 PTY 的标准输出流解析 URL 和事件信号。
 
-### 驱动原语
+```mermaid
+graph TD
+    PTY[Tmux PTY] --> AWA[attachAndWatch
+    内存流监听]
+    AWA --> REG[正则匹配
+    URL / 状态文本]
+    REG --> U{匹配到?}
+    U -->|URL| PP[Puppeteer
+    直连真实浏览器]
+    U -->|事件| WS[WebSocket
+    直连验证]
+```
 
-| 原语 | 实现 |
-|------|------|
-| `setup()` | `tmux new-session -d 'omp'` |
-| `type(text)` | `tmux send-keys ... Enter` |
-| `press(key)` | `tmux send-keys C-c / Escape` |
-| `screenshot()` | `tmux capture-pane -p` |
-| `isAlive()` | `tmux has-session` |
-| `browser(url)` | Puppeteer → `http://127.0.0.1:<port>` |
-| `teardown()` | `tmux kill-session` + `browser.close()` |
+**驱动原语**（`simulation.js`）：
+
+| 原语 | 实现 | 特点 |
+|------|------|------|
+| `attachAndWatch(tmuxSess, predicate, timeout)` | `Bun.spawn` 执行 `tmux attach`，管道 `stdout` 逐块解码，ANSI 剥离后匹配 | **0 落盘**——PTY 输出直接进入内存流，不经过临时文件 |
+| `awaitWsEvent(wsUrl, eventType, timeout)` | `new WebSocket` → `onmessage` 逐帧 JSON 解析 → 匹配 event type | **0 轮询**——事件驱动，状态到达即唤醒 |
+| `wsPingPong(wsUrl, count, timeout)` | 批量发送 ping → 等量 pong 回复 | **因果律核查**——验证 WS 通道双向可达 |
+| `setupBrowser()` | Puppeteer 启动 Chromium | **真实浏览器**——非 JSDOM、非 mock |
+
+### 为什么不是"文件轮询"
+
+传统 E2E 做法：进程写文件 → 测试进程轮询 `fs.watchFile` 或 `setInterval` → 读取文件内容 → 解析。
+
+`simulation.js` 的做法：**Tmux PTY 的内存流直接挂接到测试进程的异步迭代器**。不创建任何中介文件，不浪费 CPU 轮询，不依赖文件系统时效性。
+
+```javascript
+// 伪代码对比
+// ❌ 旧方式：文件轮询
+setInterval(() => {
+  const content = fs.readFileSync(logFile, 'utf8');
+  if (content.includes('URL:')) { ... }
+}, 500);
+
+// ✅ 新方式：内存流监听
+const url = await attachAndWatch(tmuxSess, (ptyText) => {
+  const m = ptyText.match(/Squad UI: (http:\/\/127\.0\.0\.1:\d+)/);
+  return m?.[1];  // 返回后 Promise resolve，流自动关闭
+});
+```
 
 ### 混沌攻击面
 
@@ -131,16 +193,16 @@ function timeTravel(initialEvents, promptBehavior) {
 | 运行时浏览器刷新 | WebSocket 重连后状态完全恢复 |
 | 多 Tab 一致性 | 多个浏览器看到的 UI 状态一致 |
 | 暴力 steer | 自然语言消息中断 + 矛盾指令 → 最终正常完成 |
-| 模型池面板操作 | 增删槽位中执行 squad → 正确降级/恢复 |
-| 恢复能力 | 多次中断 → 最后一次正常完成 |
+| 模型池配置操作 | 调整 maxWorkers 中执行 squad → 正确降级/恢复 |
+| 多次中断 | 最后一次正常完成 |
 
 ### 关键测试文件
 
 | 文件 | 覆盖 |
 |------|------|
-| `test/real-env/real-environment.test.js` | 基础链路：页面加载、WS 连接、squad 提交 |
-| `test/real-env/real-env-chaos.test.js` | 混沌测试：中断、恢复、多 Tab |
-| `test/e2e/chaos-ui-e2e.test.js` | 浏览器端混沌：模型池面板操作 + 多 Tab 同步 |
+| `simulation.js` | 基础物理链路：页面加载、WS ping/pong、squad:init→complete 全流程 |
+| `test/e2e/chaos-ui-e2e.test.js` | 浏览器端混沌：多 Tab 同步、面板操作 |
+| `test/e2e/ui-full-flow.test.js` | UI 全流程：交互时序、消息渲染 |
 
 ## 8.5 测试执行策略
 
@@ -153,7 +215,7 @@ bun test test/integration/time-traveler.test.js
 bun test test/unit/ test/integration/
 
 # 释放前（分钟级）
-bun test test/real-env/  # 需要 omp + Tmux + Puppeteer
+SQUAD_MODEL=p-openai/gpt-5.2 bun test ./simulation.js  # 需要 omp + Tmux + Puppeteer
 ```
 
 ### 已移除的旧测试类型
@@ -162,6 +224,6 @@ bun test test/real-env/  # 需要 omp + Tmux + Puppeteer
 |--------|----------|----------|
 | Puppeteer DOM 轮询 | 不可靠、慢、脆弱的 selector 依赖 | 代数断言验证 Reactor 输出 + 时空折叠器验证全流程 |
 | Mock 等待时序 | 掩盖竞态 | 时空折叠器的同步推演暴露所有竞态 |
+| setInterval 文件轮询 | CPU 浪费、竞态依赖文件系统延迟 | `attachAndWatch` PTY 内存流异步迭代 |
 | EventBus 注入测试 | 模拟事件总线是假测试 | 代数断言直接输入 State 对象 |
-| 拓扑排序单元测试 | Kahn 算法已被替代 | 声明式依赖规则测试（reactor-dag-invariants） |
-| 模型池 acquire/release 时序 | `ModelPool` 类已删除 | 槽位差值的代数断言 + 配对齐等性验证 |
+| 模型池 acquire/release 时序 | `ModelPool` 类已删除 | `countLive < maxWorkers` 不等式的代数断言 |

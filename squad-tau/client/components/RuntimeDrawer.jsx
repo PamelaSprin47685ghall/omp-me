@@ -2,16 +2,13 @@ import React from 'react';
 import { usePathState } from '../hooks/useAtomicState.js';
 import { eventStore } from '../event-store.js';
 import {
-  Button,
   Drawer,
-  Icon,
   Stack,
   Box,
 } from '@chakra-ui/react';
-import { Settings } from 'lucide-react';
 
-export default function ModelPoolDrawer() {
-  const isOpen = usePathState('ui', s => s.ui?.modelPoolOpen || false);
+export default function RuntimeDrawer() {
+  const isOpen = usePathState('ui', s => s.ui?.drawerOpen || false);
   const maxWorkers = usePathState('modelPool', s => s.modelPool?.maxWorkers || 3);
   const sessions = usePathState('sessions', s => Object.values(s.sessions || {}));
   const activeSessions = sessions.filter(s => s.status === 'active' || s.status === 'creating');
@@ -22,7 +19,7 @@ export default function ModelPoolDrawer() {
       <Drawer.Positioner>
         <Drawer.Content>
           <Drawer.CloseTrigger />
-          <Drawer.Header>Model Pool</Drawer.Header>
+          <Drawer.Header>Runtime Metrics</Drawer.Header>
           <Drawer.Body pb={6}>
             <Stack gap={4}>
               <Box p={4} bg="bg.subtle" borderRadius="md">

@@ -1,36 +1,72 @@
 /**
- * Physical real-environment simulation.
+ * Physical real-environment simulation (v3 — Ghost Terminal, Zero Polling, Zero Disk).
  *
- * Start OMP in tmux → send /squad → poll for UI URL → run baseline + chaos tests.
- * Uses bun:test primitives.
- * Run explicitly (not picked up by default `bun test`):
+ * Start OMP in tmux → ghost attach PTY memory stream → await CLI ready →
+ * send /squad → await Squad UI URL in stream → run baseline + chaos tests.
+ *
+ * Run explicitly:
  *   SQUAD_MODEL=p-openai/gpt-5.2 bun test ./simulation.js
  */
 import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import path from 'path';
+import { readdirSync, readFileSync } from 'fs';
 import { setupBrowser, teardownBrowser } from './test/helpers/puppeteer-setup.js';
 
 let tmuxSess, testDir, uiUrl, browser, page;
 
-function fileExists(fp) {
-    return Bun.spawnSync({ cmd: ['test', '-f', fp] }).exitCode === 0;
+function stripAnsi(raw) {
+    return raw
+        .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
+        .replace(/\x1b\][^\x07]*\x07/g, '')
+        .replace(/\x1b[\(\)][A-Za-z0-9]/g, '')
+        .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
 }
 
-async function pollFor(predicate, timeoutMs = 30000, interval = 500) {
-    const end = Date.now() + timeoutMs;
-    while (Date.now() < end) {
-        const result = predicate();
-        if (result) return result;
-        await new Promise((resolve) => setTimeout(resolve, interval));
-    }
-    throw new Error(`pollFor timed out after ${timeoutMs}ms`);
+function attachAndWatch(tmuxSess, predicate, timeoutMs = 30000) {
+    return new Promise((resolve, reject) => {
+        const proc = Bun.spawn({ cmd: ['tmux', 'attach', '-t', tmuxSess], stdout: 'pipe' });
+        const timer = setTimeout(() => {
+            proc.kill();
+            reject(new Error(`attachAndWatch timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+
+        let rawBuffer = '';
+        const decoder = new TextDecoder();
+        const maxBuf = 8192;
+
+        async function consume() {
+            try {
+                for await (const chunk of proc.stdout) {
+                    rawBuffer += decoder.decode(chunk, { stream: true });
+                    if (rawBuffer.length > maxBuf) {
+                        rawBuffer = rawBuffer.slice(-maxBuf);
+                    }
+                    const clean = stripAnsi(rawBuffer);
+                    const result = predicate(clean);
+                    if (result) {
+                        clearTimeout(timer);
+                        proc.kill();
+                        resolve(result);
+                        return;
+                    }
+                }
+                clearTimeout(timer);
+                reject(new Error('PTY stream ended without match'));
+            } catch (err) {
+                clearTimeout(timer);
+                proc.kill();
+                reject(err);
+            }
+        }
+        consume();
+    });
 }
 
 function wsPingPong(wsUrl, count, timeoutMs) {
     return new Promise((resolve, reject) => {
         const ws = new WebSocket(wsUrl);
         const pongs = [];
-        const timeout = setTimeout(() => {
+        const timer = setTimeout(() => {
             try {
                 ws.close();
             } catch {}
@@ -47,18 +83,55 @@ function wsPingPong(wsUrl, count, timeoutMs) {
                 if (msg.type === 'pong') {
                     pongs.push(msg);
                     if (pongs.length >= count) {
-                        clearTimeout(timeout);
+                        clearTimeout(timer);
                         ws.close();
                         resolve(pongs);
                     }
                 }
             } catch {}
         };
-        ws.onerror = () => {
-            clearTimeout(timeout);
+        ws.onclose = () => {
+            clearTimeout(timer);
             try {
                 ws.close();
             } catch {}
+            reject(new Error('WS closed'));
+        };
+        ws.onerror = () => {
+            clearTimeout(timer);
+            try {
+                ws.close();
+            } catch {}
+            reject(new Error('WS error'));
+        };
+    });
+}
+
+function awaitWsEvent(wsUrl, eventType, timeoutMs) {
+    return new Promise((resolve, reject) => {
+        const ws = new WebSocket(wsUrl);
+        const timer = setTimeout(() => {
+            ws.close();
+            reject(new Error(`${eventType} timeout`));
+        }, timeoutMs);
+
+        ws.onmessage = (event) => {
+            try {
+                const raw = typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data);
+                const msg = JSON.parse(raw);
+                if (msg.type === eventType) {
+                    clearTimeout(timer);
+                    ws.close();
+                    resolve(msg);
+                }
+            } catch {}
+        };
+        ws.onclose = () => {
+            clearTimeout(timer);
+            reject(new Error('WS closed'));
+        };
+        ws.onerror = () => {
+            clearTimeout(timer);
             reject(new Error('WS error'));
         };
     });
@@ -71,22 +144,12 @@ beforeAll(async () => {
     const model = process.env.SQUAD_MODEL;
     const modelArgs = model ? ['--model', model] : [];
 
-    console.log('[setup] testDir:', testDir, 'model:', model || 'default');
     Bun.spawnSync({ cmd: ['mkdir', '-p', testDir] });
     Bun.spawnSync({
         cmd: ['tmux', 'new-session', '-d', '-s', tmuxSess, '-c', testDir, 'omp', ...modelArgs, '-e', pluginPath],
     });
-    console.log('[setup] tmux session:', tmuxSess);
 
-    await pollFor(
-        () => {
-            const r = Bun.spawnSync({ cmd: ['tmux', 'capture-pane', '-t', tmuxSess, '-p', '-S', '-5'] });
-            return new TextDecoder().decode(r.stdout).includes('omp') ? true : null;
-        },
-        15000,
-        500,
-    );
-    console.log('[setup] CLI ready, sending /squad');
+    await attachAndWatch(tmuxSess, (clean) => (clean.includes('omp') ? true : null), 15000);
 
     Bun.spawnSync({
         cmd: [
@@ -98,16 +161,14 @@ beforeAll(async () => {
             'C-m',
         ],
     });
-    console.log('[setup] /squad sent, polling for URL...');
 
-    const urlMatch = await pollFor(
-        () => {
-            const r = Bun.spawnSync({ cmd: ['tmux', 'capture-pane', '-t', tmuxSess, '-p', '-S', '-20'] });
-            const m = new TextDecoder().decode(r.stdout).match(/Squad UI: (http:\/\/127\.0\.0\.1:\d+)/);
-            return m?.length > 1 ? m[1] : null;
+    const urlMatch = await attachAndWatch(
+        tmuxSess,
+        (clean) => {
+            const m = clean.match(/Squad UI: (http:\/\/127\.0\.0\.1:\d+)/);
+            return m?.[1] || null;
         },
         30000,
-        500,
     );
     if (!urlMatch) throw new Error('Failed to get Squad UI URL');
     uiUrl = urlMatch;
@@ -115,14 +176,17 @@ beforeAll(async () => {
     const launched = await setupBrowser();
     browser = launched.browser;
     page = launched.page;
-    console.log('[setup] URL:', uiUrl);
 }, 60000);
 
-afterAll(() => {
-    if (browser) teardownBrowser(browser).catch(() => {});
-    try {
+afterAll(async () => {
+    if (browser) {
+        try {
+            await teardownBrowser(browser);
+        } catch {}
+    }
+    if (tmuxSess) {
         Bun.spawnSync({ cmd: ['tmux', 'kill-session', '-t', tmuxSess] });
-    } catch {}
+    }
 });
 
 describe('Squad Physical Simulation', () => {
@@ -154,8 +218,7 @@ describe('Squad Physical Simulation', () => {
         const counts = [];
         for (let i = 0; i < 5; i++) {
             try {
-                const pongs = await wsPingPong(wsUrl, 3, 5000);
-                counts.push(pongs.length);
+                counts.push((await wsPingPong(wsUrl, 3, 5000)).length);
             } catch {
                 counts.push(0);
             }
@@ -165,69 +228,44 @@ describe('Squad Physical Simulation', () => {
 
     test('concurrent HTTP + WS stress', async () => {
         const wsUrl = uiUrl.replace('http', 'ws') + '/ws';
-        const httpStorm = Array.from({ length: 10 }, async () => {
-            try {
-                return (await fetch(`${uiUrl}/api/status`)).status;
-            } catch {
-                return 503;
-            }
-        });
-        const wsStorm = Array.from({ length: 3 }, async () => {
-            try {
-                return (await wsPingPong(wsUrl, 3, 8000)).length;
-            } catch {
-                return 0;
-            }
-        });
-        const httpStatuses = await Promise.all(httpStorm);
-        const wsLengths = await Promise.all(wsStorm);
-        expect(httpStatuses.every((s) => s === 200)).toBe(true);
-        expect(wsLengths.every((c) => c >= 3)).toBe(true);
+        const httpResults = await Promise.all(
+            Array.from({ length: 10 }, () =>
+                fetch(`${uiUrl}/api/status`)
+                    .then((r) => r.status)
+                    .catch(() => 503),
+            ),
+        );
+        const wsResults = await Promise.all(
+            Array.from({ length: 3 }, () =>
+                wsPingPong(wsUrl, 3, 8000)
+                    .then((r) => r.length)
+                    .catch(() => 0),
+            ),
+        );
+        expect(httpResults.every((s) => s === 200)).toBe(true);
+        expect(wsResults.every((c) => c >= 3)).toBe(true);
     }, 30000);
 
     test('WebSocket receives squad:init event', async () => {
-        const wsUrl = uiUrl.replace('http', 'ws') + '/ws';
-        const ws = new WebSocket(wsUrl);
-        const init = await new Promise((resolve, reject) => {
-            const timeout = setTimeout(() => {
-                ws.close();
-                reject(new Error('init timeout'));
-            }, 180000);
-            ws.onmessage = (event) => {
-                try {
-                    const raw = typeof event.data === 'string' ? event.data : new TextDecoder().decode(event.data);
-                    const msg = JSON.parse(raw);
-                    if (msg.type === 'squad:init') {
-                        clearTimeout(timeout);
-                        ws.close();
-                        resolve(msg);
-                    }
-                } catch {}
-            };
-            ws.onerror = () => {
-                clearTimeout(timeout);
-                reject(new Error('WS error'));
-            };
-        });
-        expect(init.payload).toBeDefined();
-        expect(init.payload.mode).toMatch(/^[ML]$/);
-        expect(Array.isArray(init.payload.nodes)).toBe(true);
+        const msg = await awaitWsEvent(uiUrl.replace('http', 'ws') + '/ws', 'squad:init', 180000);
+        expect(msg.payload).toBeDefined();
+        expect(msg.payload.mode).toMatch(/^[ML]$/);
+        expect(Array.isArray(msg.payload.nodes)).toBe(true);
     }, 200000);
 
-    test('squad completes and writes .squad-complete marker', async () => {
-        const markerPath = `${testDir}/.squad-complete`;
-        const markerRaw = await pollFor(
-            () => {
-                if (!fileExists(markerPath)) return null;
-                const r = Bun.spawnSync({ cmd: ['cat', markerPath] });
-                return new TextDecoder().decode(r.stdout);
-            },
-            600000,
-            5000,
-        );
-        const marker = JSON.parse(markerRaw);
-        expect(marker.completedAt).toBeGreaterThan(0);
-        expect(marker.durationMs).toBeGreaterThan(0);
-        expect(marker.nodes).toBeGreaterThanOrEqual(1);
+    test('squad completes via WebSocket event and writes artifact', async () => {
+        const wsUrl = uiUrl.replace('http', 'ws') + '/ws';
+        const msg = await awaitWsEvent(wsUrl, 'squad:complete', 620000);
+
+        // Algebraic assertion
+        expect(Array.isArray(msg.payload.results)).toBe(true);
+        expect(msg.payload.results.length).toBeGreaterThanOrEqual(1);
+        expect(msg.payload.results.every((r) => r.nodeId)).toBe(true);
+
+        // Physical assertion — non-polling, diskless until the final read
+        const files = readdirSync(testDir).filter((f) => !f.startsWith('.') && f.endsWith('.js'));
+        expect(files.length).toBeGreaterThanOrEqual(1);
+        const content = readFileSync(path.join(testDir, files[0]), 'utf8');
+        expect(content.length).toBeGreaterThan(100);
     }, 620000);
 });

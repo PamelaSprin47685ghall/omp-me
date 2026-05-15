@@ -3,16 +3,17 @@
 ## 7.1 结构与拆分原则
 
 ### 顶层布局
-```
-squad-tau/
-├── index.js          # 插件入口
-├── server/           # 服务端（Node.js）
-├── client/           # 前端（React SPA）
-├── shared/           # 前后端共享代码
-├── test/             # 测试
-├── package.json
-├── README.md
-└── SPEC.md
+```mermaid
+mindmap
+  root((squad-tau))
+    index.js
+    server
+    client
+    shared
+    test
+    package.json
+    README.md
+    SPEC.md
 ```
 
 ### 拆分原则
@@ -29,12 +30,12 @@ squad-tau/
 | **真理源** | EventLog 追加式事实日志 | `event-log.js` |
 | **推导引擎** | Engine Pulse + Reactor 纯函数 | `engine.js`, `reactor.js` |
 | **物化视图** | 前后端同构增量折叠 | `shared/projections.js`, `shared/events.js` |
-| **肌肉层** | Session 创建、prompt 发送、文件 I/O | `side-effects.js`, `*-prompt.js`, `session-options.js`, `session-events.js` |
-| **模型池** | 配置文件读写 + 槽位同步 | `model-pool-config.js`, `model-pool-events.js` |
+| **肌肉层** | EventLog 订阅者：创建 session、发 prompt、文件 I/O | `side-effects.js`, `*-prompt.js`, `session-options.js`, `session-events.js` |
+| **模型池** | 静态配置读取 + `maxWorkers` 整数字段 | `model-pool-config.js` |
 | **网络** | HTTP 服务器、WebSocket、心跳、事件桥接 | `http-*`, `ws-*`, `server-lifecycle.js` |
-| **验证** | Plan 验证 | `validate-plan.js`, `dag-validate.js` |
-| **前端** | React 组件、hooks、事件存储 | `*.jsx`, `use*.js`, `event-store.js` |
-| **测试** | 代数断言、时空折叠、真实混沌 | `*.test.js` |
+| **验证** | Plan 验证 + DAG 环检测 | `validate-plan.js`, `dag-validate.js` |
+| **前端** | React 纯展示层、hooks、event-store | `*.jsx`, `use*.js`, `event-store.js` |
+| **测试** | 代数断言、时空折叠、PTY 真实混沌 | `*.test.js` |
 
 ## 7.2 服务端组件
 
@@ -46,17 +47,22 @@ sequenceDiagram
     participant PROJ as Projections
     participant REACT as Reactor
     participant SE as SideEffects
-    participant WS as WebSocket
+    participant API as LLM / FS APIs
 
     Note over EL: 事实追加触发脉冲
     EL->>PROJ: subscribe → 增量折叠
     PROJ->>REACT: reactState(state)
-    REACT->>REACT: 推导 Action[]
-    REACT-->>EL: 追加推导出的事实 (squad:node_state etc.)
-    REACT-->>SE: 执行 CMD (cmd:create_session etc.)
-    SE-->>EL: 执行结果作为新事实追加
-    SE-->>EL: 过渡态事实 (session:creating)
-    EL-->>WS: 广播所有持久事实
+    REACT->>REACT: 推导 Action[] (纯事实)
+    REACT-->>EL: 追加过渡态事实 (session:creating)
+    REACT-->>EL: 追加持久事实 (squad:node_state)
+    Note over SE: 无声订阅 EventLog
+    EL-->>SE: session:creating 事实
+    SE->>SE: handleCreateSession()
+    SE-->>API: createAgentSession()
+    API-->>SE: session ready
+    SE-->>EL: session:start 持久事实
+    EL-->>PROJ: 增量折叠
+    Note over REACT: 下次 pulse 继续推导
 ```
 
 ### 7.2.2 HTTP + WebSocket
@@ -80,34 +86,34 @@ sequenceDiagram
 ### 7.2.4 Engine（引擎脉冲）
 - 订阅 EventLog 的新条目 → 设置 dirty 标志
 - `queueMicrotask` 合并多次追加到同一次 pulse
-- pulse 中：`reactState(state)` → Action[] → 循环执行（事实追加 → 再触发 pulse）
-- CMD 执行前先追加过渡态事实，防止 Reactor 重复推导
-- 用户消息通过 EventLog 水位线检测（`getSince(lastUserMsgSeq)`）发现，非 log 扫描
+- pulse 中：`reactState(state)` → Action[] → 循环追加 → 再触发 pulse，直到收敛
+- 过渡态事实（`session:creating`、`session:prompting`）由 Reactor 推导后直接追加到 EventLog，SideEffects 自动响应
 
 ### 7.2.5 Reactor（推导大脑）
 - 纯函数 `reactState(state) → Action[]`
 - 不可包含任何 `eventLog.getSince()`、`.find()` 扫描
 - 输入仅为 `shared/projections.js` 折叠后的 State 对象
+- 所有 Action 均为**事实**（持久事实或过渡态事实），不存在 CMD 类别
 - 内置 sub-reactors：
   - 初始状态推导（undefined → idle）
-  - 模型释放（terminal 节点 → release）
-  - 外层 Review 闸门（全部 approved → 外审 / 完成）
-  - 节点状态机（idle → authoring → confirming → reviewing → approved）
-- 并发通过**槽位差值**自然收敛：`Available = Total - usage.length`
+  - 节点状态机（idle → authoring → confirming → reviewing → approved/failed）
+  - DAG 依赖传导（上游 failed → 下游 blocked）
+  - 外层 Review 闸门（全部 approved → 外审 → complete）
+  - 并发闸门（`countLiveSessions(state) < maxWorkers`）
+- **无模型池交互**：Reactor 不 emit acquire/release，仅从 `state.modelPool.maxWorkers` 读取整数阈值
 
 ### 7.2.6 Side Effects（肌肉层）
-- Fire-and-Forget 命令处理器
-- `handleCreateSession`：调用 `createAgentSession` → 追加 `session:start` 事实
-- `handlePrompt`：根据 phase 构建 prompt 文本 → 调用 `session.prompt()` → 会话异步流经 EventLog 广播
-- `handleUserMessage`：转发用户输入到活跃 session
-- **无业务状态**：session 句柄存储在本地 Map（`sessionStore`），不可序列化到 EventLog
-- **无 async/await 业务挂起**：所有调用是"发后即忘"（Fire-and-Forget）
+- EventLog 的**无声订阅者**，非 Reactor 调用者
+- 事件 → 处理函数路由矩阵（`Effects = { [eventType]: handler }`），无 switch/case
+- `register(Events.SESSION_CREATING)`：`handleCreateSession` → `createAgentSession()` → 追加 `session:start`
+- `register(Events.SESSION_PROMPTING)`：`handlePrompt` → `session.prompt()` → 结果通过 EventLog 广播
+- **无业务状态**：除 session 句柄的本地 Map（`sessionStore`）外，不持有任何持久状态
+- **无 async/await 业务挂起**：调用是 Fire-and-Forget，结果通过 EventLog 反馈
 
-### 7.2.7 模型池（纯配置 + 投影）
-- `model-pool-config.js`：`.omp/models.toml` 读写 + `fs.watchFile` 监听
-- `model-pool-events.js`：WebSocket 消息 → EventLog 追加 + 文件持久化
-- 无 `ModelPool` 类、无 `acquire()`/`release()` 方法、无等待队列
-- Reactor 直接从 `state.modelPool` 投影读取槽位占用情况
+### 7.2.7 模型池（纯静态配置）
+- `model-pool-config.js`：读取 `.omp/models.toml`，提取 `maxWorkers` 字段
+- 无「槽位（Slot）」概念、无 `acquire()`/`release()`、无等待队列
+- Reactor 从 `state.modelPool.maxWorkers` 读取整数阈值
 
 ### 7.2.8 其他
 - 常量/状态枚举：`constants.js`

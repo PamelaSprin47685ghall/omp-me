@@ -21,7 +21,7 @@ User → /squad command → Squad Engine → DAG Executor → Worker/Reviewer Ag
 /squad-models          # 生成默认模型池配置
 ```
 
-浏览器打开 `http://127.0.0.1:9527` 查看实时 UI。
+浏览器打开 UI 地址（由 Vite 分配随机端口）查看实时状态。
 
 ## 命令
 

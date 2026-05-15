@@ -25,16 +25,16 @@
 
 ## 2.3 节点生命周期 — 声明式规则表
 
-**这不是状态机**。这些规则是 Reactor 纯函数内部的条件分支。Reactor 每次被调用时，对每个活跃节点逐一检查这些规则，输出对应的 Action。
+**这不是状态机**。这些规则是 Reactor 纯函数内部的条件分支。Reactor 每次被调用时，对每个活跃节点逐一检查这些规则，输出对应的 Action 事实。
 
 ### 依赖规则
 
-| 条件（全部满足） | 结论 | 说明 |
-|----------------|------|------|
-| `node.status === undefined` | → emit `node_state: idle` | 初始状态声明 |
-| `node.status === idle` && 所有上游已 approved | → emit `node_state: authoring` | 依赖满足，可执行 |
-| `node.status !== idle` && 上游有 failed/blocked | → emit `node_state: blocked` | 依赖断阻 |
-| `node.status === idle` && 上游未全部满足 | 无 action | 等待 |
+| 条件（全部满足） | 结论 |
+|----------------|------|
+| `node.status === undefined` | → emit `node_state: idle` |
+| `node.status === idle` && 所有上游已 approved | → emit `node_state: authoring` |
+| `node.status !== idle` && 上游有 failed/blocked | → emit `node_state: blocked` |
+| `node.status === idle` && 上游未全部满足 | 无 action |
 
 ### 阶段推进规则
 
@@ -46,6 +46,16 @@
 | `reviewing` | session 中存在 `return({status:'error'})` + retryCount < MAX_RETRIES | → emit `node_state: authoring`（重试） |
 | `reviewing` | session 中存在 `return({status:'error'})` + retryCount >= MAX_RETRIES | → emit `node_state: failed` |
 
+### 并发规则（纯代数不等式）
+
+| 条件 | 结论 |
+|------|------|
+| 节点处于 authoring/confirming/reviewing，需要 LLM session | Reactor 计算 `countLiveSessions(state) < maxWorkers` |
+| 不等式成立（有富余并发容量） | → emit `session:creating {sessionId}`（过渡态事实） |
+| 不等式不成立 | 静默等待——下次 pulse 重新检查 |
+
+**并发的自然收敛**：无需队列、无需信号量、无需 acquire。Reactor 计算 `countLiveSessions(state) < maxWorkers`，若不等式成立则推导 `session:creating` 过渡态事实。节点终结时 `session:end` 会导致下次 pulse 中 `countLiveSessions` 减少，不等式自然重新成立。
+
 ### 外层 Review 规则
 
 | 条件 | 结论 |
@@ -54,18 +64,6 @@
 | 外层 review 已 rejected + 任一节点有 retryCount > 0 | → emit `squad:outer_review_start`（新一轮） |
 | 外层 review 已 rejected + 所有节点 retryCount === 0 | → 重置所有节点为 `authoring`（+retryCount） |
 | 外层 review 已 approved | → emit `squad:complete` |
-
-### 并发规则（无队列）
-
-| 条件 | 结论 |
-|------|------|
-| 节点进入 authoring/confirming/reviewing，需要 worker 模型 | 检查 `state.modelPool.usage` 中该角色空闲槽位 |
-| 有空闲槽位 | → emit `model_pool:acquire` |
-| 无空闲槽位 | 静默等待——下次 pulse 再次检查 |
-| 该角色槽位数为 0（未配置） | 跳过 acquire，直接 → emit `cmd:create_session` |
-| 模型已分配但无 session | → emit `cmd:create_session` |
-
-**并发的自然收敛**：无需队列、无需信号量。Reactor 计算 `Available = slotCount - usage.length`，若有正数差值则推导对应数量的 acquire 动作。release 同理——节点终结时 Reactor 扫描 usage 中失效条目，推导 release。
 
 ## 2.4 delegate 参数
 
@@ -105,8 +103,8 @@ description = "Follows design system"
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `task` | string | **必须详细具体**，包含问题背景、目标、工作方法（如 TDD）、参考材料、注意事项等。LLM 准备文件时应尽可能细致 |
-| `depends_on` | string[] | **M 模式不允许**（`validate-plan.js` 会报错）；L 模式必填，独立节点填 `[]`，依赖节点填其他文件名（不含 `.toml` 后缀） |
+| `task` | string | **必须详细具体**，包含问题背景、目标、工作方法（如 TDD）、参考材料、注意事项等 |
+| `depends_on` | string[] | **M 模式不允许**（`validate-plan.js` 会报错）；L 模式必填 |
 | `review_criteria` | table[] 或 string[] 或 string | 可接受 `{name, description}` 对象数组、字符串数组或纯字符串 |
 
 ### 设计理由
@@ -136,13 +134,14 @@ description = "Follows design system"
 | `idle` | 无活跃任务。LLM 可静默结束 | EventLog 中无活跃 squad |
 | `active` | 有活跃任务 | Reactor 处于推导循环中 |
 
-`idle` 与 `active` 的区别通过 `state.squad.status` 反映—Reactor 在 `status !== 'active'` 时直接返回 `[]`。
+`idle` 与 `active` 的区别通过 `state.squad.status` 反映——Reactor 在 `status !== 'active'` 时直接返回 `[]`。
 
 ## 2.8 实际约束
 
 | 参数 | 值 |
 |------|----|
 | `MAX_RETRIES` | 5（`constants.js` 中 `DEFAULTS.MAX_RETRIES = 5`） |
+| `maxWorkers` | 3（默认，可从 `.omp/models.toml` 或浏览器面板调整） |
 | `MAX_EMPTY_TURNS`（Worker） | 20 |
 | `CONFIRM_MAX_EMPTY` | 5（独立于 Worker） |
 | `REVIEWER_MAX_EMPTY` | 20 |

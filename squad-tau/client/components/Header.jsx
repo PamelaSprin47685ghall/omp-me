@@ -37,13 +37,13 @@ export default function Header() {
       <HStack>
         <Tooltip.Root>
           <Tooltip.Trigger asChild>
-            <Button variant="ghost" size="sm" onClick={() => eventStore.dispatch('ui:toggle_drawer', { open: true })} aria-label="Model Pool">
+            <Button variant="ghost" size="sm" onClick={() => eventStore.dispatch('ui:toggle_drawer', { open: true })} aria-label="Runtime Metrics">
               <Icon as={Settings} boxSize={4} />
             </Button>
           </Tooltip.Trigger>
           <Portal>
             <Tooltip.Positioner>
-              <Tooltip.Content>Model Pool</Tooltip.Content>
+              <Tooltip.Content>Runtime Metrics</Tooltip.Content>
             </Tooltip.Positioner>
           </Portal>
         </Tooltip.Root>

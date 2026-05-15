@@ -229,9 +229,7 @@ function countLiveSessions(state) {
         }
         const node = state.squad.nodes[sess.nodeId];
         if (!node) continue;
-        const parts = sess.sessionId.split('::');
-        const retry = parts.length === 3 ? parseInt(parts[2], 10) : -1;
-        if (node.status === sess.phase && node.retryCount === retry) count++;
+        if (node.status === sess.phase && node.retryCount === sess.retryCount) count++;
     }
     return count;
 }

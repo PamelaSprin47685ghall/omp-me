@@ -3,7 +3,7 @@ import { Flex } from '@chakra-ui/react';
 import Header from './components/Header.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import MainContent from './components/MainContent.jsx';
-import ModelPoolDrawer from './components/ModelPoolDrawer.jsx';
+import RuntimeDrawer from './components/RuntimeDrawer.jsx';
 import { useDarkMode } from './hooks/useDarkMode.js';
 import { useWebSocket } from './hooks/useWebSocket.js';
 import { WebSocketContext } from './websocket-context.js';
@@ -24,7 +24,7 @@ export default function App() {
           <Sidebar />
           <MainContent />
         </Flex>
-        <ModelPoolDrawer />
+        <RuntimeDrawer />
       </Flex>
     </WebSocketContext.Provider>
   );

@@ -5,11 +5,39 @@ import { usePathState } from '../hooks/useAtomicState.js';
 import { eventStore } from '../event-store.js';
 
 const STATUS_ICONS = { approved: CheckCircle, rejected: XCircle, pending: Clock, active: RefreshCw, authoring: RefreshCw, confirming: RefreshCw, reviewing: RefreshCw, failed: Ban, blocked: Ban };
-const STATUS_COLOR_MAP = { approved: 'green.fg', rejected: 'red.fg', failed: 'red.fg', blocked: 'red.fg', active: 'orange.fg', authoring: 'orange.fg', confirming: 'orange.fg', reviewing: 'orange.fg' };
+const STATUS_COLOR_MAP = { 
+  approved: 'green.fg', 
+  rejected: 'red.fg', 
+  failed: 'red.fg', 
+  blocked: 'fg.muted', 
+  active: 'orange.fg', 
+  authoring: 'orange.fg', 
+  confirming: 'orange.fg', 
+  reviewing: 'orange.fg',
+  pending: 'fg.subtle'
+};
+const ACTIVE_STATUSES = ['authoring', 'active', 'confirming', 'reviewing'];
 
 function TreeIcon({ status, ...rest }) {
   const IconCmp = STATUS_ICONS[status] ?? Circle;
-  return <Icon as={IconCmp} boxSize={4} data-status={status} {...rest} />;
+  const isAnimating = ACTIVE_STATUSES.includes(status);
+  
+  return (
+    <Icon 
+      as={IconCmp} 
+      boxSize={4} 
+      color={STATUS_COLOR_MAP[status] || 'fg.subtle'}
+      css={isAnimating ? {
+        animation: 'squad-pulse 2s infinite ease-in-out',
+        '@keyframes squad-pulse': {
+          '0%': { opacity: 1 },
+          '50%': { opacity: 0.6 },
+          '100%': { opacity: 1 }
+        }
+      } : undefined}
+      {...rest} 
+    />
+  );
 }
 
 function SessionRow({ sessionData }) {

@@ -5,6 +5,14 @@ import ToolCall from './ToolCall.jsx';
 import { eventStore } from '../event-store.js';
 import { streamingManager } from '../streaming-manager.js';
 
+function getThinkingForMessage(sessionId, messageId) {
+  const state = eventStore.getState();
+  const sess = state.sessions[sessionId];
+  if (!sess) return '';
+  const msg = sess.messages.find(m => m.messageId === messageId);
+  return msg?.joinedThinking || '';
+}
+
 const ROLE_BG = { user: 'blue.subtle', authoring: 'green.subtle', confirming: 'green.subtle', reviewing: 'orange.subtle', outer_review: 'bg.subtle' };
 const ROLE_FG = { user: 'blue.fg', authoring: 'green.fg', confirming: 'green.fg', reviewing: 'orange.fg', outer_review: 'fg' };
 
@@ -13,8 +21,7 @@ function getTextForMessage(sessionId, messageId) {
   const sess = state.sessions[sessionId];
   if (!sess) return '';
   const msg = sess.messages.find(m => m.messageId === messageId);
-  if (!msg || !Array.isArray(msg.content)) return '';
-  return msg.content.filter((block) => block.type === 'text').map((block) => block.text).join('');
+  return msg?.joinedText || '';
 }
 
 export default function MessageItem({ message, sessionRole = 'user' }) {
@@ -47,10 +54,8 @@ export default function MessageItem({ message, sessionRole = 'user' }) {
 
   const content = message.content || [];
   const toolCalls = content.filter((block) => block.type === 'tool_call');
-  const nonToolBlocks = content.filter((block) => block.type !== 'tool_call');
-  const thinkingBlocks = nonToolBlocks.filter((block) => block.type === 'thinking');
-  const thinking = thinkingBlocks.map((block) => block.text).join('');
   const text = getTextForMessage(message.sessionId, message.messageId);
+  const thinking = getThinkingForMessage(message.sessionId, message.messageId);
   const roleBg = ROLE_BG[sessionRole] || ROLE_BG.outer_review;
   const roleFg = ROLE_FG[sessionRole] || ROLE_FG.outer_review;
 

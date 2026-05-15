@@ -5,18 +5,15 @@ const BACKOFF_STEPS = [1000, 2000, 4000, 8000, 16000, 30000];
 const MAX_RECONNECT_ATTEMPTS = 50;
 const PING_INTERVAL = 30000;
 
-export function useWebSocket({ port, onEvent } = {}) {
-    const resolvedPort = port != null ? port : typeof window !== 'undefined' ? window.location.port : 9527;
+export function useWebSocket({ port } = {}) {
+    const resolvedPort = port != null ? port : window.location.port;
     const wsRef = useRef(null);
     const reconnectTimeoutRef = useRef(null);
     const pingIntervalRef = useRef(null);
     const backoffIndexRef = useRef(0);
     const reconnectAttemptsRef = useRef(0);
     const lastPongRef = useRef(true);
-    const onEventRef = useRef(onEvent);
     const [connected, setConnected] = useState(false);
-
-    onEventRef.current = onEvent;
 
     const clearTimers = useCallback(() => {
         clearTimeout(reconnectTimeoutRef.current);
@@ -80,18 +77,8 @@ export function useWebSocket({ port, onEvent } = {}) {
 
                 // Durable events go to EventStore
                 eventStore.dispatch(type, payload, seq);
-
-                // We still notify onEvent for legacy hooks and logging
-                try {
-                    onEventRef.current(type, payload);
-                } catch (err) {
-                    console.error('onEvent callback threw:', err);
-                }
             } catch (err) {
                 console.error('Failed to parse WebSocket message:', err);
-                try {
-                    onEventRef.current('error', { message: 'Failed to parse message', raw: event.data });
-                } catch {}
             }
         };
 

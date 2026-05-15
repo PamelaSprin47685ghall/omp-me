@@ -21,7 +21,6 @@ const EventPaths = {
     'session:tool_result': 'sessions',
     'session:message_delta': 'sessions',
     'session:thinking_delta': 'sessions',
-    'session:user_message_received': 'sessions',
     'model_pool:snapshot': 'modelPool',
     'ui:select_session': 'ui',
     'ui:set_view_mode': 'ui',
@@ -35,7 +34,6 @@ const EventPaths = {
  */
 class EventStore {
     constructor() {
-        this.log = [];
         this.cursor = 0;
         this.listeners = new Set();
         this.state = project([]);
@@ -50,53 +48,13 @@ class EventStore {
     dispatch(type, payload, seq) {
         this._changedPaths.clear();
 
-        if (type.startsWith('ui:')) {
-            applyEvent(this.state, type, payload);
-            this._trackPath(type);
-            this._notify();
-            return;
-        }
-
-        if (type === 'session:message_delta' || type === 'session:thinking_delta') {
-            this._applyDelta(payload);
-            this._changedPaths.add('sessions');
-            this._notify();
-            return;
-        }
-
         if (seq != null) {
             this.cursor = Math.max(this.cursor, seq + 1);
         }
 
-        this.log.push({ type, payload, seq });
         applyEvent(this.state, type, payload);
         this._trackPath(type);
         this._notify();
-    }
-
-    _applyDelta(payload) {
-        const sess = this.state.sessions[payload.sessionId];
-        if (!sess) return;
-
-        const list = sess.messages;
-        const msgIdx = list.findIndex((m) => m.messageId === payload.messageId);
-
-        if (msgIdx === -1) {
-            const blockType = payload.delta.type === 'thinking_delta' ? 'thinking' : 'text';
-            list.push({
-                role: 'assistant',
-                messageId: payload.messageId,
-                content: [{ type: blockType, text: payload.delta.text || '' }],
-                streaming: true,
-            });
-        } else {
-            const msg = list[msgIdx];
-            if (!msg.streaming) msg.streaming = true;
-            if (payload.delta.type === 'thinking_delta') {
-                const hasThinking = msg.content.some((c) => c.type === 'thinking');
-                if (!hasThinking) msg.content.push({ type: 'thinking', text: '' });
-            }
-        }
     }
 
     subscribe(listener) {
@@ -113,7 +71,6 @@ class EventStore {
     }
 
     reset() {
-        this.log = [];
         this.cursor = 0;
         this.state = project([]);
         this._changedPaths.clear();
