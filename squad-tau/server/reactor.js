@@ -32,17 +32,13 @@ function hasFailedDep(s, n) {
 }
 
 function countLiveSessions(state) {
-    let c = 0;
+    let count = 0;
     for (const sess of Object.values(state.sessions)) {
-        // Physical counting: unless session:end says otherwise, this session
-        // consumes resources (memory, handles, concurrency slot).
-        // DO NOT compare against node.status — the node may have transitioned
-        // while the underlying LLM session is still winding down (ctx.abort()
-        // is async, session:end arrives later across network boundaries).
-        // The only safe measure: is it alive in the log?
-        if (sess.status === 'active' || sess.status === 'creating') c++;
+        if (sess.status === 'active' || sess.status === 'creating') {
+            count++;
+        }
     }
-    return c;
+    return count;
 }
 
 function nodePhases(nodeId) {
@@ -101,6 +97,10 @@ function nodePhaseActions(state, node) {
     if (!sess) return handleSessionCreate(state, node);
     if (sess.status === 'creating') return [];
     if (sess.status === 'faulted') return handleSessionFaulted(state, node, sess);
+    // Terminal session states (completed, error, aborted) → treat as no session
+    if (sess.status === 'completed' || sess.status === 'error' || sess.status === 'aborted') {
+        return handleSessionCreate(state, node);
+    }
     return handleSessionPrompt(state, node, sess);
 }
 
@@ -181,7 +181,7 @@ const RULES = [
         perNode: true,
     },
 
-    // R5: __or__ rejected → emit squad:phase_changed (Architect Awakening)
+    // R5: __or__ rejected → emit squad:phase_changed + squad:force_replan_prompt
     // Outer review failure is a macro-level event, not a micro-level node reset.
     // The entire DAG topology is frozen; the main session must re-plan.
     // This rule fires only once — setting phase to 'revising' prevents re-trigger.
@@ -190,6 +190,9 @@ const RULES = [
         then: (s) => [
             ac('squad:phase_changed', {
                 phase: 'revising',
+                feedback: s.squad.nodes.__or__.feedback || 'Outer review rejected the aggregate result',
+            }),
+            ac('squad:force_replan_prompt', {
                 feedback: s.squad.nodes.__or__.feedback || 'Outer review rejected the aggregate result',
             }),
         ],

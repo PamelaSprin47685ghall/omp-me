@@ -9,13 +9,7 @@
  * Pure DOM component with style-isolated shadow DOM.
  */
 
-let _markedPromise = null;
-function getMarked() {
-    if (!_markedPromise) {
-        _markedPromise = import('marked').then((mod) => mod.default || mod);
-    }
-    return _markedPromise;
-}
+import { marked } from 'marked';
 
 const STYLE = `
   :host {
@@ -155,7 +149,7 @@ class AgentMessage extends HTMLElement {
         this.appendChild(textSpan);
 
         // Drain any early tokens that arrived before this element was mounted
-        const early = drainEarlyBuffer(messageId);
+        const early = readStreamBuffer(messageId);
         if (early) {
             if (early.thinking) {
                 if (this._detailsEl) this._detailsEl.style.display = '';
@@ -210,9 +204,8 @@ class AgentMessage extends HTMLElement {
         if (this._textBox) this._textBox.classList.add('finalized');
     }
 
-    async _renderMarkdown() {
+    _renderMarkdown() {
         if (!this._text) return;
-        const marked = await getMarked();
         const html = marked.parse(this._text, { breaks: true, gfm: true });
         const wrapper = document.createElement('div');
         wrapper.className = 'markdown-body';
@@ -231,11 +224,14 @@ class AgentMessage extends HTMLElement {
 // StreamRouter may deliver deltas before <agent-message> is mounted in DOM.
 const _earlyBuffer = new Map();
 
-export function drainEarlyBuffer(messageId) {
+export function readStreamBuffer(messageId) {
     const buf = _earlyBuffer.get(messageId);
     if (!buf) return null;
+    return { text: buf.text, thinking: buf.thinking };
+}
+
+export function deleteStreamBuffer(messageId) {
     _earlyBuffer.delete(messageId);
-    return buf;
 }
 
 export function pushEarlyBuffer(messageId, text, type) {
@@ -249,7 +245,7 @@ export function pushEarlyBuffer(messageId, text, type) {
 }
 
 if (typeof window !== 'undefined') {
-    window.__earlyBuffer = { push: pushEarlyBuffer, drain: drainEarlyBuffer };
+    window.__earlyBuffer = { push: pushEarlyBuffer, read: readStreamBuffer, delete: deleteStreamBuffer };
 }
 
 customElements.define('agent-message', AgentMessage);

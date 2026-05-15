@@ -80,109 +80,132 @@ describe('R3 infinite loop regression — awaiting_replan breaks the cycle', () 
     });
 });
 
-// ── Regression: countLiveSessions (REPAIR.md §3.2) ──
-// Original phase+epoch matching logic preserved.
-// The race condition window between node transition and session:end
-// is handled by the Engine's convergence loop (countLiveSessions sees
-// the post-drop state because session:end fires before engine tick).
-describe('countLiveSessions regression — phase transitions', () => {
-    test('physical counting: all active sessions consume slots', () => {
-        // Physical counting (REPAIR.md §3.2 final fix): all active sessions
-        // consume slots regardless of node.status vs sess.phase match.
-        const st = createBaseState('n1', 'n2');
-        st.config = { ...st.config, maxWorkers: 2 };
-        // n1 at 'confirming' with 2 active sessions (authoring + confirming)
+// ── Regression: countLiveSessions (physical-reality semantics) ──
+// countLiveSessions counts sessions by their own status ('active'/'creating'),
+// NOT by matching node phase/epoch. A session is physically "live" as long as
+// its LLM connection hasn't terminated (session:end).
+// When a node phase changes, the existing session is still live and still counts.
+// The reactor prompts the existing session for the new phase instead of creating
+// a new one. Only session:end frees the concurrency slot.
+describe('countLiveSessions regression — physical-reality semantics', () => {
+    test('active session counts regardless of node phase', () => {
+        const st = createBaseState('n1');
+        st.config = { ...st.config, maxWorkers: 1 };
         setStatus(st, 'n1', 'authoring');
         createSession(st, 'n1', 'authoring');
-        setStatus(st, 'n1', 'confirming');
-        createSession(st, 'n1', 'confirming');
-        // 2 active sessions >= maxWorkers(2) → n2 blocked
+        // 1 active session = maxWorkers → no new sessions
         const actions = reactState(st);
-        const creatingN2 = actions.filter((a) => a.type === 'session:creating' && a.payload.nodeId === 'n2');
-        expect(creatingN2.length).toBe(0);
+        expect(actions.filter((a) => a.type === 'session:creating').length).toBe(0);
+        // Prompting fires for existing session
+        expect(actions.filter((a) => a.type === 'session:prompting').length).toBe(1);
     });
 
-    test('sessions closed via session:end free slots for downstream', () => {
-        // In the real system, session:end is emitted when the return tool
-        // completes (side-effects handleToolEnd). This closes the session
-        // and frees the concurrency slot. Test that path.
-        const st = createBaseState(
-            { id: 'n1', task: 'a', depends_on: [] },
-            { id: 'n2', task: 'b', depends_on: ['n1'] },
-        );
-        // Simulate real flow: each phase transition closes old session
-        // applyEvent returns new state — must assign back via Object.assign
+    test('phase progression does NOT free slot — old session still active', () => {
+        const st = createBaseState('n1');
+        st.config = { ...st.config, maxWorkers: 1 };
         setStatus(st, 'n1', 'authoring');
-        const sidA = createSession(st, 'n1', 'authoring');
+        createSession(st, 'n1', 'authoring');
+        // n1 moves to 'confirming' — old session still physically alive
         setStatus(st, 'n1', 'confirming');
-        Object.assign(st, applyEvent(st, 'session:end', { sessionId: sidA, reason: 'completed' }));
-
-        const sidC = createSession(st, 'n1', 'confirming');
-        setStatus(st, 'n1', 'reviewing');
-        Object.assign(st, applyEvent(st, 'session:end', { sessionId: sidC, reason: 'completed' }));
-
-        const sidR = createSession(st, 'n1', 'reviewing');
-        setStatus(st, 'n1', 'approved');
-        Object.assign(st, applyEvent(st, 'session:end', { sessionId: sidR, reason: 'completed' }));
-
-        // 0 active sessions → n2 gets slot
-        const pulse1 = reactState(st);
-        const promoteN2 = pulse1.find((a) => a.type === 'squad:node_state' && a.payload.nodeId === 'n2');
-        expect(promoteN2).toBeDefined();
-        expect(promoteN2.payload.status).toBe('authoring');
-
-        setStatus(st, 'n2', 'authoring');
-        const pulse2 = reactState(st);
-        const creatingN2 = pulse2.filter((a) => a.type === 'session:creating' && a.payload.nodeId === 'n2');
-        expect(creatingN2.length).toBe(1);
+        const actions = reactState(st);
+        // countLiveSessions = 1 (session still active) >= maxWorkers → no new session
+        const creating = actions.filter((a) => a.type === 'session:creating' && a.payload.nodeId === 'n1');
+        expect(creating.length).toBe(0);
+        // Instead of creating a new session, reactor prompts the existing one for the new phase
+        const prompting = actions.filter((a) => a.type === 'session:prompting' && a.payload.nodeId === 'n1');
+        expect(prompting.length).toBe(1);
+        expect(prompting[0].payload.phase).toBe('confirming');
     });
 
-    test('maxWorkers gating with physical counting', () => {
+    test('session:end frees the concurrency slot for a new epoch', () => {
+        const st = createBaseState('n1');
+        st.config = { ...st.config, maxWorkers: 1 };
+        setStatus(st, 'n1', 'authoring', { epoch: 0 });
+        createSession(st, 'n1', 'authoring');
+        giveReturn(st, sessionIdFor('n1', 'authoring', 0), 'ok', 'done');
+        // After session:end, session is 'completed' → 0 live
+        // Node advanced to 'confirming' via node:work_submitted
+        const actionsBefore = reactState(st);
+        const creatingBefore = actionsBefore.filter((a) => a.type === 'session:creating');
+        // Session ended, node at 'confirming' → new session created for confirming
+        const confirmingCreating = creatingBefore.filter(
+            (a) => a.payload.nodeId === 'n1' && a.payload.phase === 'confirming',
+        );
+        expect(confirmingCreating.length).toBe(1);
+    });
+
+    test('active old-epoch session blocks new epoch creation — stall until session:end', () => {
+        const st = createBaseState('n1');
+        st.config = { ...st.config, maxWorkers: 1 };
+        setStatus(st, 'n1', 'authoring', { epoch: 0 });
+        createSession(st, 'n1', 'authoring');
+        // Force rejected + new epoch WITHOUT ending the old session
+        setStatus(st, 'n1', 'rejected', { epoch: 0 });
+        setStatus(st, 'n1', 'authoring', { epoch: 1 });
+        // Old session (epoch 0) is still physically active (LLM connection alive)
+        // New epoch needs sessionId n1::v1, but old n1::v0 still active
+        // countLiveSessions = 1 >= maxWorkers = 1 → stall: no actions
+        const actions = reactState(st);
+        expect(actions.filter((a) => a.type === 'session:creating').length).toBe(0);
+        expect(actions.filter((a) => a.type === 'session:prompting').length).toBe(0);
+    });
+
+    test('cross-node concurrency respects maxWorkers', () => {
         const st = createBaseState('n1', 'n2', 'n3');
         st.config = { ...st.config, maxWorkers: 2 };
-        // All 3 at 'authoring' — no sessions yet, all get through
+        // All 3 at 'authoring' — no sessions yet, R4 creates sessions for all
         let actions = reactState(st);
         let creating = actions.filter((a) => a.type === 'session:creating');
         expect(creating.length).toBe(3);
 
-        // Apply sessions (simulate engine convergence)
+        // Apply sessions to state
         for (const a of creating) {
             const s = applyEvent(st, a.type, a.payload);
             Object.assign(st, s);
-            const start = applyEvent(st, 'session:start', {
-                sessionId: a.payload.sessionId,
-                nodeId: a.payload.nodeId,
-                phase: a.payload.phase,
-                epoch: a.payload.epoch,
-            });
-            Object.assign(st, start);
+            Object.assign(
+                st,
+                applyEvent(st, 'session:start', {
+                    sessionId: a.payload.sessionId,
+                    nodeId: a.payload.nodeId,
+                    phase: a.payload.phase,
+                    epoch: a.payload.epoch,
+                }),
+            );
         }
 
-        // Second pulse: 3 active sessions ≥ maxWorkers(2)
-        // No new sessions can be created
+        // Now 3 active sessions ≥ maxWorkers=2 → no new sessions
         actions = reactState(st);
         creating = actions.filter((a) => a.type === 'session:creating');
         expect(creating.length).toBe(0);
 
-        // But prompting still fires for existing sessions
+        // Prompting still fires for existing sessions
         const prompting = actions.filter((a) => a.type === 'session:prompting');
         expect(prompting.length).toBe(3);
     });
 
-    test('same-epoch same-phase sessions correctly gated', () => {
+    test('end one session frees slot for another node', () => {
         const st = createBaseState('n1', 'n2');
         st.config = { ...st.config, maxWorkers: 2 };
-        // n1 at 'authoring' with 2 sessions of the same phase (simulates race window)
+        // n1 at 'authoring' with session
         setStatus(st, 'n1', 'authoring');
         createSession(st, 'n1', 'authoring');
-        createSession(st, 'n1', 'authoring');
-        // But wait — second createSession creates same sessionId. Let me force a unique one.
-        // Actually, createSession uses sessionIdFor which returns deterministic IDs.
-        // For the race simulation, just use 1 session:
+        // n2 at 'authoring' with session
+        setStatus(st, 'n2', 'authoring');
+        createSession(st, 'n2', 'authoring');
+        // 2 active = maxWorkers
+        // n1 moves to 'confirming' → session still active → 2 active
+        setStatus(st, 'n1', 'confirming');
+        // End n1's session → 1 active → slot free for...
+        // n1's session ended, count=1 < maxWorkers=2 → new session for n1 (confirming)
+        // or if n2's session needed something
+        const sid = sessionIdFor('n1', 'authoring', 0);
+        let s = applyEvent(st, 'session:end', { sessionId: sid, reason: 'completed' });
+        Object.assign(st, s);
+
         const actions = reactState(st);
-        const creatingN2 = actions.filter((a) => a.type === 'session:creating' && a.payload.nodeId === 'n2');
-        // n1 has 1 counted session (authoring+epoch0) < 2 → n2 gets slot
-        expect(creatingN2.length).toBe(1);
+        const n1Creating = actions.filter((a) => a.type === 'session:creating' && a.payload.nodeId === 'n1');
+        expect(n1Creating.length).toBe(1);
+        expect(n1Creating[0].payload.phase).toBe('confirming');
     });
 });
 

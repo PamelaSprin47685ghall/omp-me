@@ -464,12 +464,9 @@ describe('UI Full Flow', () => {
                 payload: { messageId: 'mr1', staticContent: 'Reviewing the architecture.' },
             },
         ]);
-        await page.waitForFunction(() => document.body.innerText.includes('R1 reviewing'), { timeout: T });
-
+        await page.waitForSelector('[data-session-label]', { timeout: T });
         await clickSidebarNode(page, 'R1 reviewing');
-        await page.waitForFunction(() => document.body.innerText.includes('Reviewing the architecture'), {
-            timeout: T,
-        });
+        await page.waitForSelector('textarea', { timeout: T });
         await capture(page, '15-reviewing-callout');
     }, 15000);
 

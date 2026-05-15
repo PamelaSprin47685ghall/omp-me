@@ -11,7 +11,7 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { eventStore } from '../event-store.js';
-import { pushEarlyBuffer } from '../components/agent-message.js';
+import { pushEarlyBuffer, deleteStreamBuffer } from '../components/agent-message.js';
 
 const BACKOFF_STEPS = [1000, 2000, 4000, 8000, 16000, 30000];
 const MAX_RECONNECT_ATTEMPTS = 50;
@@ -29,6 +29,7 @@ function routeDelta(payload) {
 function routeStreamEnd(payload) {
     const el = document.querySelector(`agent-message[message-id="${payload.messageId}"]`);
     if (el) el.finalize(payload.staticContent || '');
+    deleteStreamBuffer(payload.messageId);
 }
 
 export function useWebSocket({ port } = {}) {

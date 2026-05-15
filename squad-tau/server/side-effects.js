@@ -32,7 +32,7 @@ register('session:creating')(async (payload, { pi, getState, eventLog, broadcast
     const { nodeId, sessionId, phase, epoch = 0 } = payload;
     const state = getState();
     const { SessionManager } = await getCodingAgentModule();
-    const options = buildWorkerSessionOptions(pi);
+    const options = buildSessionOptions(pi, phase);
     const sessionOpts = { ...options, sessionManager: SessionManager.create(options.cwd), customTools: [returnTool] };
 
     const { session } = await pi.pi.createAgentSession(sessionOpts);
@@ -100,17 +100,6 @@ register('squad:phase_changed')(async (payload, { eventLog, getState, pi }) => {
         // sendMessage is fire-and-forget (returns void per ExtensionAPI types)
         const msg = `[Squad-Tau Architect Awakening]\n\nYour outer review was rejected:\n\n${feedback}\n\nPlease analyze the feedback, revise your plan, and call \`squad_delegate\` again.`;
 
-        if (pi && typeof pi.sendMessage === 'function') {
-            pi.sendMessage(
-                {
-                    customType: 'squad-awakening',
-                    content: msg,
-                    display: false,
-                },
-                { triggerTurn: true },
-            );
-        }
-
         // Return session:message fact for UI broadcast (Engine appends after handler resolution)
         return {
             type: 'session:message',
@@ -123,23 +112,51 @@ register('squad:phase_changed')(async (payload, { eventLog, getState, pi }) => {
     }
 });
 
+register('squad:force_replan_prompt')(async (payload, { pi }) => {
+    if (!pi || typeof pi.sendMessage !== 'function') return;
+    const feedback = payload.feedback || 'No feedback provided';
+    const msg = `[Squad-Tau Architect Awakening — Re-prompt]\n\nYour outer review was rejected:\n\n${feedback}\n\nPlease analyze the feedback, revise your plan, and call \`squad_delegate\` again.`;
+    pi.sendMessage(
+        {
+            customType: 'squad-revision-force',
+            content: msg,
+            display: false,
+        },
+        { triggerTurn: true },
+    );
+});
+
 register('squad:complete')(() => {
+    for (const entry of sessionStore.values()) {
+        entry.session?.abort?.();
+    }
     sessionStore.clear();
 });
 
 register('squad:abort')(() => {
+    for (const entry of sessionStore.values()) {
+        entry.session?.abort?.();
+    }
     sessionStore.clear();
 });
 
 // ── Builder helpers ──
 
-function buildWorkerSessionOptions(pi) {
+function buildSessionOptions(pi, phase) {
     const options = { cwd: process.cwd(), hasUI: false };
     const tl = pi?.getThinkingLevel?.();
     if (tl) options.thinkingLevel = tl;
-    const activeTools = pi?.getActiveTools?.()?.filter((t) => t !== 'squad_delegate') ?? [];
-    if (activeTools.length > 0)
-        options.toolNames = activeTools.includes('return') ? activeTools : [...activeTools, 'return'];
+
+    const isReviewer = phase === 'reviewing' || phase === 'outer_review';
+    if (isReviewer) {
+        // Reviewer sessions: read-only tools + return
+        options.toolNames = ['read', 'search', 'find', 'lsp', 'bash', 'return'];
+    } else {
+        // Worker sessions: inherit parent tools (minus squad_delegate), ensure return
+        const activeTools = pi?.getActiveTools?.()?.filter((t) => t !== 'squad_delegate') ?? [];
+        if (activeTools.length > 0)
+            options.toolNames = activeTools.includes('return') ? activeTools : [...activeTools, 'return'];
+    }
     return options;
 }
 
@@ -217,9 +234,8 @@ function handleToolEnd(event, { eventLog, sessionId, getState }) {
         if (!node) return;
 
         // Params were stored by tool_call:started projection
-        const tcs = Object.values(state.toolCalls);
-        const tc = tcs.find((t) => t.toolId === event.toolCallId && t.sessionId === sessionId);
-        if (!tc) return;
+        const tc = state.toolCalls[event.toolCallId];
+        if (!tc || tc.sessionId !== sessionId) return;
         const params = tc.params || {};
 
         if (phase === 'authoring' || phase === 'confirming') {
@@ -241,14 +257,8 @@ function handleToolEnd(event, { eventLog, sessionId, getState }) {
             });
         }
 
-        // Session is done — emit session:end so physical counting
-        // (countLiveSessions) releases the slot immediately.
-        // This must fire AFTER domain facts to ensure the node transition
-        // is folded before the session is freed.
-        eventLog.append('session:end', {
-            sessionId,
-            reason: 'completed',
-        });
+        // Session work is done — free the concurrency slot
+        eventLog.append('session:end', { sessionId, reason: 'completed' });
     }
 }
 
@@ -270,6 +280,9 @@ function extractText(content) {
 // These expose internal state/helpers for regression testing
 // without polluting the production interface.
 
+/** Expose handleToolEnd for engine-simulator to use real domain fact elevation */
+export { handleToolEnd };
+
 /** @returns {Map} sessionStore for test inspection */
 export function _getSessionStore() {
     return sessionStore;
@@ -285,7 +298,7 @@ export function _clearTestSession() {
     sessionStore.clear();
 }
 
-/** Expose buildWorkerSessionOptions for unit testing its filter logic */
-export function _getWorkerSessionOptions(pi) {
-    return buildWorkerSessionOptions(pi);
+/** Expose buildSessionOptions for unit testing its filter logic */
+export function _getWorkerSessionOptions(pi, phase) {
+    return buildSessionOptions(pi, phase);
 }

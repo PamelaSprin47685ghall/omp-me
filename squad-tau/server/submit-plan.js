@@ -1,6 +1,5 @@
 import { validatePlan } from './validate-plan.js';
 import { project } from '../shared/projections.js';
-import { discardNDJSON } from './persistence.js';
 import fs from 'fs';
 import path from 'path';
 import { getGlobalEventLog } from './server-lifecycle.js';
@@ -88,8 +87,6 @@ export async function processDelegate(params, options = {}) {
             mainSessionId,
         });
     } else {
-        discardNDJSON();
-        eventLog.reset();
         eventLog.append('squad:init', {
             mode,
             nodes,

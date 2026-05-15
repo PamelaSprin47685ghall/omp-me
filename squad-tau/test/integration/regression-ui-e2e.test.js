@@ -65,9 +65,13 @@ describe('Regression: frontend fixes (REPAIR.md §4)', () => {
             if (!window.__earlyBuffer) return '__earlyBuffer missing';
             window.__earlyBuffer.push('t1', 'X', 'text');
             window.__earlyBuffer.push('t1', 'Y', 'text');
-            const buf = window.__earlyBuffer.drain('t1');
+            const buf = window.__earlyBuffer.read('t1');
             if (!buf || buf.text !== 'XY') return `bad text: ${buf?.text}`;
-            if (window.__earlyBuffer.drain('t1') !== null) return 'not cleared after drain';
+            // read is non-destructive: second read still returns data
+            const buf2 = window.__earlyBuffer.read('t1');
+            if (!buf2 || buf2.text !== 'XY') return 'second read lost data';
+            window.__earlyBuffer.delete('t1');
+            if (window.__earlyBuffer.read('t1') !== null) return 'not cleared after delete';
             return 'ok';
         });
         expect(ok).toBe('ok');

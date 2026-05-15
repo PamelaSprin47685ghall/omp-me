@@ -11,6 +11,7 @@
 import { reactState } from '../../server/reactor.js';
 import { project } from '../../shared/projections.js';
 import { EventLog } from '../../server/event-log.js';
+import { handleToolEnd } from '../../server/side-effects.js';
 
 /**
  * Synchronous Time Traveler.
@@ -36,58 +37,29 @@ export function timeTravel(initialEvents, promptBehavior = () => ({ status: 'ok'
             ];
         },
         'session:prompting': (payload) => {
-            const { sessionId, phase, nodeId } = payload;
-            const result = promptBehavior({ sessionId, phase, nodeId });
-            const state = getState();
-            const node = state.squad.nodes[nodeId];
-            const epoch = node?.epoch ?? 0;
-            const facts = [];
+            const result = promptBehavior({
+                sessionId: payload.sessionId,
+                phase: payload.phase,
+                nodeId: payload.nodeId,
+            });
             const toolIdx = eventLog.length;
 
-            // Record the tool call (same idx for both started and finished)
-            facts.push({
-                type: 'tool_call:started',
-                payload: { sessionId, toolName: 'return', toolId: `call-${toolIdx}`, params: result },
-            });
-            facts.push({
-                type: 'tool_call:finished',
-                payload: { toolId: `call-${toolIdx}`, result: result, isError: false },
+            // tool_call:started must be in log before handleToolEnd reads params
+            eventLog.append('tool_call:started', {
+                sessionId: payload.sessionId,
+                toolName: 'return',
+                toolId: `call-${toolIdx}`,
+                params: result,
             });
 
-            // Translate to domain facts (as real side-effects handleToolEnd does)
-            if (phase === 'reviewing' || phase === 'outer_review') {
-                facts.push({
-                    type: 'node:review_decided',
-                    payload: {
-                        nodeId,
-                        sessionId,
-                        approved: result.status === 'ok',
-                        summary: result.reason || '',
-                        affected_files: result.affected_files || [],
-                        epoch,
-                    },
-                });
-            } else if (phase === 'authoring' || phase === 'confirming') {
-                facts.push({
-                    type: 'node:work_submitted',
-                    payload: {
-                        nodeId,
-                        sessionId,
-                        summary: result.reason || '',
-                        affected_files: result.affected_files || [],
-                        epoch,
-                    },
-                });
-            }
+            // Use real handleToolEnd for domain fact elevation (tool_call:finished + node:*)
+            // handleToolEnd appends directly to eventLog, just like the production code path.
+            handleToolEnd(
+                { toolCallId: `call-${toolIdx}`, result, toolName: 'return', isError: false },
+                { eventLog, sessionId: payload.sessionId, getState },
+            );
 
-            // Close the session — mirrors real side-effects handleToolEnd.
-            // Must be AFTER domain facts so node transition folds before slot frees.
-            facts.push({
-                type: 'session:end',
-                payload: { sessionId, reason: 'completed' },
-            });
-
-            return facts;
+            // All facts already appended via direct calls — no return needed
         },
     };
 

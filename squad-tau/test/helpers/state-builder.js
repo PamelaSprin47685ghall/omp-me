@@ -134,10 +134,11 @@ export function giveReturn(state, sessionId, status, reason) {
         params: { status, reason, affected_files: [] },
     });
 
-    // Extract phase from sessionId (format: nodeId::phase::v{epoch})
-    const parts = sessionId.split('::');
-    const phase = parts[1] || '';
-    const nodeId = parts[0] || '';
+    // Derive nodeId and phase from the session state (not from sessionId parsing)
+    const sess = state.sessions[sessionId];
+    if (!sess) return;
+    const nodeId = sess.nodeId;
+    const phase = sess.phase;
 
     if (phase === 'reviewing') {
         s = applyEvent(s, 'node:review_decided', {
@@ -157,6 +158,9 @@ export function giveReturn(state, sessionId, status, reason) {
             epoch: state.squad.nodes[nodeId]?.epoch ?? 0,
         });
     }
+
+    // Session work is done — free the concurrency slot
+    s = applyEvent(s, 'session:end', { sessionId, reason: 'completed' });
 
     Object.assign(state, s);
 }

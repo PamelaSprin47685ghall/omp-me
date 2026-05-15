@@ -10,14 +10,16 @@ import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import squadPlugin, { _resetSquadState, _setTestEventLog, _restoreGlobalEventLog } from '../../server/plugin.js';
+import squadPlugin, { _resetSquadState } from '../../server/plugin.js';
 import { EventLog } from '../../server/event-log.js';
 import { processDelegate } from '../../server/submit-plan.js';
 import {
     EffectHandlers,
     _setTestSession,
     _clearTestSession,
+    _getSessionStore,
     _getWorkerSessionOptions,
+    handleToolEnd,
 } from '../../server/side-effects.js';
 import { getInitialState, project, applyEvent } from '../../shared/projections.js';
 
@@ -293,16 +295,6 @@ describe('pi.on(input) handler compliance', () => {
         expect(typeof shutdownHandler.handler).toBe('function');
     });
 
-    test('registers agent_end handler', async () => {
-        _resetSquadState();
-        const pi = mockPi();
-        squadPlugin(pi);
-
-        const agentEndHandler = pi.events.find((e) => e.event === 'agent_end');
-        expect(agentEndHandler).toBeDefined();
-        expect(typeof agentEndHandler.handler).toBe('function');
-    });
-
     test('squad_delegate tool has defaultInactive: true', async () => {
         _resetSquadState();
         const pi = mockPi();
@@ -432,32 +424,33 @@ describe('pi.on(input) handler compliance', () => {
     });
 });
 
-describe('buildWorkerSessionOptions filter regression', () => {
+describe('buildSessionOptions filter regression', () => {
+    // Worker phase tests
     test('filters squad_delegate from worker session tools', () => {
         const pi = {
             getThinkingLevel: () => undefined,
             getActiveTools: () => ['squad_delegate', 'read', 'write'],
         };
-        const opts = _getWorkerSessionOptions(pi);
+        const opts = _getWorkerSessionOptions(pi, 'authoring');
         expect(opts.toolNames).not.toContain('squad_delegate');
         expect(opts.toolNames).toContain('read');
     });
 
-    test('adds return tool when not in active tools', () => {
+    test('adds return tool when not in active tools (worker)', () => {
         const pi = {
             getThinkingLevel: () => undefined,
             getActiveTools: () => ['read', 'write'],
         };
-        const opts = _getWorkerSessionOptions(pi);
+        const opts = _getWorkerSessionOptions(pi, 'authoring');
         expect(opts.toolNames).toContain('return');
     });
 
-    test('does not duplicate return when already present', () => {
+    test('does not duplicate return when already present (worker)', () => {
         const pi = {
             getThinkingLevel: () => undefined,
             getActiveTools: () => ['read', 'write', 'return'],
         };
-        const opts = _getWorkerSessionOptions(pi);
+        const opts = _getWorkerSessionOptions(pi, 'authoring');
         const count = opts.toolNames.filter((t) => t === 'return').length;
         expect(count).toBe(1);
     });
@@ -467,8 +460,41 @@ describe('buildWorkerSessionOptions filter regression', () => {
             getThinkingLevel: () => 'high',
             getActiveTools: () => ['read'],
         };
-        const opts = _getWorkerSessionOptions(pi);
+        const opts = _getWorkerSessionOptions(pi, 'authoring');
         expect(opts.thinkingLevel).toBe('high');
+    });
+
+    // Reviewer phase tests
+    test('reviewing phase gets restricted tool set', () => {
+        const pi = {
+            getThinkingLevel: () => undefined,
+            getActiveTools: () => ['read', 'write', 'edit', 'bash'],
+        };
+        const opts = _getWorkerSessionOptions(pi, 'reviewing');
+        expect(opts.toolNames).toEqual(['read', 'search', 'find', 'lsp', 'bash', 'return']);
+        expect(opts.toolNames).not.toContain('write');
+        expect(opts.toolNames).not.toContain('edit');
+    });
+
+    test('outer_review phase gets restricted tool set', () => {
+        const pi = {
+            getThinkingLevel: () => undefined,
+            getActiveTools: () => ['read', 'write', 'edit', 'bash'],
+        };
+        const opts = _getWorkerSessionOptions(pi, 'outer_review');
+        expect(opts.toolNames).toEqual(['read', 'search', 'find', 'lsp', 'bash', 'return']);
+        expect(opts.toolNames).not.toContain('write');
+        expect(opts.toolNames).not.toContain('edit');
+    });
+
+    test('confirming phase still gets full worker tools', () => {
+        const pi = {
+            getThinkingLevel: () => undefined,
+            getActiveTools: () => ['read', 'write', 'edit', 'bash'],
+        };
+        const opts = _getWorkerSessionOptions(pi, 'confirming');
+        expect(opts.toolNames).toContain('write');
+        expect(opts.toolNames).toContain('edit');
     });
 });
 
@@ -599,11 +625,7 @@ describe('squad:phase_changed handler contract regression', () => {
         expect(result).toBeUndefined();
     });
 
-    test('calls pi.sendMessage with triggerTurn when phase=revising', async () => {
-        const state = getInitialState();
-        state.squad.mainSessionId = 'main-456';
-        state.sessions['main-456'] = { sessionId: 'main-456', messageIds: [] };
-
+    test('squad:force_replan_prompt sends revision-force message', async () => {
         let sentMsg = null;
         let sentOpts = null;
         const pi = {
@@ -613,122 +635,193 @@ describe('squad:phase_changed handler contract regression', () => {
             },
         };
 
-        const handler = EffectHandlers['squad:phase_changed'];
-        await handler({ phase: 'revising', feedback: 'needs rework' }, { getState: () => state, pi });
+        const handler = EffectHandlers['squad:force_replan_prompt'];
+        expect(handler).toBeDefined();
+        await handler({ feedback: 'needs rework' }, { pi });
 
         expect(sentMsg).not.toBeNull();
-        expect(sentMsg.customType).toBe('squad-awakening');
+        expect(sentMsg.customType).toBe('squad-revision-force');
         expect(sentMsg.display).toBe(false);
         expect(sentOpts.triggerTurn).toBe(true);
         expect(sentMsg.content).toContain('needs rework');
         expect(sentMsg.content).toContain('squad_delegate');
     });
+
+    test('squad:force_replan_prompt returns void when pi has no sendMessage', async () => {
+        const handler = EffectHandlers['squad:force_replan_prompt'];
+        const result = await handler({ feedback: 'test' }, { pi: {} });
+        expect(result).toBeUndefined();
+    });
 });
 
-describe('agent_end safety net regression', () => {
-    afterEach(() => {
-        _resetSquadState();
-        _restoreGlobalEventLog();
+// ── Fatal 3: squad:abort/squad:complete must abort sessions before clearing --
+describe('squad:abort/squad:complete abort sessions regression', () => {
+    beforeEach(() => _clearTestSession());
+    afterEach(() => _clearTestSession());
+
+    test('squad:abort calls abort() on each active session', async () => {
+        const aborted = [];
+        _setTestSession('s1', { session: { abort: () => aborted.push('s1') }, status: 'active' });
+        _setTestSession('s2', { session: { abort: () => aborted.push('s2') }, status: 'active' });
+
+        const handler = EffectHandlers['squad:abort'];
+        await handler({ reason: 'test' }, {});
+
+        expect(aborted).toEqual(['s1', 's2']);
+        expect(_getSessionStore().size).toBe(0);
     });
 
-    /** Track only squad-revision-force messages, ignore activation sendMessage */
-    function makeForceTracker() {
-        const sent = [];
-        return {
-            tracker: (msg, opts) => {
-                if (msg.customType === 'squad-revision-force') {
-                    sent.push(msg);
-                }
+    test('squad:complete also aborts sessions before clearing', async () => {
+        const aborted = [];
+        _setTestSession('s1', { session: { abort: () => aborted.push('s1') }, status: 'active' });
+        _setTestSession('s2', { session: { abort: () => aborted.push('s2') }, status: 'active' });
+
+        const handler = EffectHandlers['squad:complete'];
+        await handler({ results: [] }, {});
+
+        expect(aborted).toEqual(['s1', 's2']);
+        expect(_getSessionStore().size).toBe(0);
+    });
+
+    test('squad:abort handles sessions without abort method gracefully', async () => {
+        _setTestSession('s1', { session: {}, status: 'active' });
+        const handler = EffectHandlers['squad:abort'];
+        await handler({ reason: 'test' }, {});
+        expect(_getSessionStore().size).toBe(0);
+    });
+
+    test('squad:complete handles sessions without abort method gracefully', async () => {
+        _setTestSession('s1', { session: {}, status: 'active' });
+        const handler = EffectHandlers['squad:complete'];
+        await handler({ results: [] }, {});
+        expect(_getSessionStore().size).toBe(0);
+    });
+
+    test('squad:abort on empty store does not crash', async () => {
+        const handler = EffectHandlers['squad:abort'];
+        await handler({ reason: 'test' }, {});
+        expect(true).toBe(true);
+    });
+
+    test('squad:complete on empty store does not crash', async () => {
+        const handler = EffectHandlers['squad:complete'];
+        await handler({ results: [] }, {});
+        expect(true).toBe(true);
+    });
+});
+
+describe('handleToolEnd O(1) toolCalls access regression', () => {
+    test('reads toolCalls by toolCallId directly (O(1))', async () => {
+        const { EventLog } = await import('../../server/event-log.js');
+        const state = {
+            toolCalls: {
+                'call-123': {
+                    toolId: 'call-123',
+                    sessionId: 'session-x',
+                    toolName: 'return',
+                    params: { status: 'ok', reason: 'done', affected_files: ['file1.js'] },
+                },
             },
-            sent,
+            sessions: {
+                'session-x': { sessionId: 'session-x', nodeId: 'n1', phase: 'authoring', epoch: 0 },
+            },
+            squad: {
+                nodes: {
+                    n1: { id: 'n1', epoch: 0 },
+                },
+            },
         };
-    }
 
-    function makeRevisingEventLog() {
-        const el = new EventLog();
-        el.append('squad:init', {
-            mode: 'L',
-            nodes: [{ id: 'n1', task: 'test', review_criteria: ['ok'], depends_on: [] }],
-            mainSessionId: 'main-999',
-        });
-        // Manually advance to revising phase
-        el.append('squad:phase_changed', { phase: 'revising', feedback: 'rejected' });
-        return el;
-    }
+        const eventLog = new EventLog();
+        await handleToolEnd(
+            { toolCallId: 'call-123', toolName: 'return', result: { status: 'ok', reason: 'done' }, isError: false },
+            { eventLog, sessionId: 'session-x', getState: () => state },
+        );
 
-    function activateSquadForHandler(pi) {
-        const cmd = pi.commands.find((c) => c.name === 'squad');
-        return cmd.handler('test task', { ui: { notify: () => {} } });
-    }
+        // tool_call:finished appended
+        const finished = eventLog.log.find((e) => e.event === 'tool_call:finished');
+        expect(finished).toBeDefined();
+        expect(finished.payload.toolId).toBe('call-123');
 
-    test('sends force message when phase is revising and EventLog available', async () => {
-        _resetSquadState();
-        const { tracker, sent } = makeForceTracker();
-        const pi = mockPi();
-        pi.sendMessage = tracker;
-        squadPlugin(pi);
+        // Domain facts elevated
+        const submitted = eventLog.log.find((e) => e.event === 'node:work_submitted');
+        expect(submitted).toBeDefined();
+        expect(submitted.payload.nodeId).toBe('n1');
 
-        _setTestEventLog(makeRevisingEventLog());
-        await activateSquadForHandler(pi);
-
-        const agentEndHandler = pi.events.find((e) => e.event === 'agent_end');
-        await agentEndHandler.handler({ type: 'agent_end' }, {});
-
-        expect(sent.length).toBe(1);
-        expect(sent[0].customType).toBe('squad-revision-force');
-        expect(sent[0].content).toContain('squad_delegate');
+        const ended = eventLog.log.find((e) => e.event === 'session:end');
+        expect(ended).toBeDefined();
+        expect(ended.payload.sessionId).toBe('session-x');
     });
 
-    test('does NOT send force message when squad not active', async () => {
-        _resetSquadState();
-        const { tracker, sent } = makeForceTracker();
-        const pi = mockPi();
-        pi.sendMessage = tracker;
-        squadPlugin(pi);
+    test('unknown toolCallId returns silently after tool_call:finished', async () => {
+        const { EventLog } = await import('../../server/event-log.js');
+        const state = { toolCalls: {}, sessions: {}, squad: { nodes: {} } };
 
-        // Don't activate squad
-        const agentEndHandler = pi.events.find((e) => e.event === 'agent_end');
-        await agentEndHandler.handler({ type: 'agent_end' }, {});
+        const eventLog = new EventLog();
+        await handleToolEnd(
+            { toolCallId: 'nonexistent', toolName: 'return', result: {}, isError: false },
+            { eventLog, sessionId: 'session-x', getState: () => state },
+        );
 
-        expect(sent.length).toBe(0);
+        // tool_call:finished always appended
+        const finished = eventLog.log.find((e) => e.event === 'tool_call:finished');
+        expect(finished).toBeDefined();
+
+        // Domain facts skipped — toolCall not in state
+        expect(eventLog.log.find((e) => e.event === 'node:work_submitted')).toBeUndefined();
+        expect(eventLog.log.find((e) => e.event === 'session:end')).toBeUndefined();
     });
 
-    test('does NOT send force message when EventLog is null', async () => {
-        _resetSquadState();
-        const { tracker, sent } = makeForceTracker();
-        const pi = mockPi();
-        pi.sendMessage = tracker;
-        squadPlugin(pi);
+    test('non-return tool only appends tool_call:finished', async () => {
+        const { EventLog } = await import('../../server/event-log.js');
+        const state = {
+            toolCalls: {
+                'call-456': {
+                    toolId: 'call-456',
+                    sessionId: 'session-x',
+                    toolName: 'bash',
+                    params: { command: 'echo hi' },
+                },
+            },
+            sessions: { 'session-x': { sessionId: 'session-x', nodeId: 'n1', phase: 'authoring', epoch: 0 } },
+            squad: { nodes: { n1: { id: 'n1', epoch: 0 } } },
+        };
 
-        await activateSquadForHandler(pi);
-        // Don't set test EventLog — getGlobalEventLog returns null
+        const eventLog = new EventLog();
+        await handleToolEnd(
+            { toolCallId: 'call-456', toolName: 'bash', result: { output: 'hi', exitCode: 0 }, isError: false },
+            { eventLog, sessionId: 'session-x', getState: () => state },
+        );
 
-        const agentEndHandler = pi.events.find((e) => e.event === 'agent_end');
-        await agentEndHandler.handler({ type: 'agent_end' }, {});
-
-        expect(sent.length).toBe(0);
+        expect(eventLog.log.find((e) => e.event === 'tool_call:finished')).toBeDefined();
+        expect(eventLog.log.find((e) => e.event === 'node:work_submitted')).toBeUndefined();
+        expect(eventLog.log.find((e) => e.event === 'session:end')).toBeUndefined();
     });
 
-    test('does NOT send force message when phase is not revising', async () => {
-        _resetSquadState();
-        const { tracker, sent } = makeForceTracker();
-        const pi = mockPi();
-        pi.sendMessage = tracker;
-        squadPlugin(pi);
+    test('sessionId mismatch skips domain facts', async () => {
+        const { EventLog } = await import('../../server/event-log.js');
+        const state = {
+            toolCalls: {
+                'call-789': {
+                    toolId: 'call-789',
+                    sessionId: 'different-session',
+                    toolName: 'return',
+                    params: { status: 'ok', reason: 'done' },
+                },
+            },
+            sessions: { 'session-x': { sessionId: 'session-x', nodeId: 'n1', phase: 'authoring', epoch: 0 } },
+            squad: { nodes: { n1: { id: 'n1', epoch: 0 } } },
+        };
 
-        const el = new EventLog();
-        el.append('squad:init', {
-            mode: 'M',
-            nodes: [{ id: 'n1', task: 'test', review_criteria: ['ok'], depends_on: [] }],
-            mainSessionId: 'main-777',
-        });
-        _setTestEventLog(el);
-        await activateSquadForHandler(pi);
+        const eventLog = new EventLog();
+        await handleToolEnd(
+            { toolCallId: 'call-789', toolName: 'return', result: {}, isError: false },
+            { eventLog, sessionId: 'session-x', getState: () => state },
+        );
 
-        const agentEndHandler = pi.events.find((e) => e.event === 'agent_end');
-        await agentEndHandler.handler({ type: 'agent_end' }, {});
-
-        expect(sent.length).toBe(0);
+        expect(eventLog.log.find((e) => e.event === 'tool_call:finished')).toBeDefined();
+        expect(eventLog.log.find((e) => e.event === 'node:work_submitted')).toBeUndefined();
+        expect(eventLog.log.find((e) => e.event === 'session:end')).toBeUndefined();
     });
 });
 

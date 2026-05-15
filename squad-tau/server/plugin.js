@@ -22,15 +22,14 @@
  * where ctx provides sessionManager.getSessionId().
  */
 import { processDelegate } from './submit-plan.js';
-import { startServer, getGlobalEventLog } from './server-lifecycle.js';
-import { project } from '../shared/projections.js';
+import { startServer } from './server-lifecycle.js';
 
-const PLAN_WRITING_GUIDE = [
-    '## Plan Writing Guide',
+const CLASSIFICATION_PROMPT = [
+    '## Squad Task',
     '',
-    '### Two-phase approach (avoids output truncation)',
-    '1. Write a TOML skeleton file per node — each file is one node. Fill `id`, `mode`, `reasoning`, and `depends_on`. Leave `task` and `review_criteria` as empty or `[]`.',
-    '2. Fill in `task` and `review_criteria` for each node, one file at a time using the shell.',
+    'Classify this task:',
+    '- **M** — multi-file but cohesive, needs review: plan has exactly 1 node.',
+    '- **L** — multi-module, strong dependencies, parallel work: plan has multiple nodes with `depends_on`.',
     '',
     '### Each node MUST contain in its `task` field:',
     '- **Objective** — what this node accomplishes',
@@ -41,18 +40,8 @@ const PLAN_WRITING_GUIDE = [
     '### Each node MUST contain in its `review_criteria` field:',
     '- Specific, checkable assertions — not vague qualities like "good code"',
     '- At least 3 distinct criteria covering correctness, completeness, and edge cases',
-].join('\n');
-
-const CLASSIFICATION_PROMPT = [
-    '## Squad Task',
     '',
-    'Classify this task:',
-    '- **M** — multi-file but cohesive, needs review: plan has exactly 1 node.',
-    '- **L** — multi-module, strong dependencies, parallel work: plan has multiple nodes with `depends_on`.',
-    '',
-    PLAN_WRITING_GUIDE,
-    '',
-    'You MUST write the plan as .toml files in a temp directory using the two-phase approach above, then call `squad_delegate` with the absolute directory path before ending your turn.',
+    'Write the plan as .toml files in a temp directory, then call `squad_delegate` with the absolute directory path before ending your turn.',
 ].join('\n');
 
 let _squadActive = false;
@@ -130,32 +119,6 @@ export default function squadPlugin(pi) {
         }
     });
 
-    // ── Agent end safety net: force revision prompt if squad is in revising phase ──
-    // Matches ../squad/index.js where agent_end sends a force message when fsm.isRevising().
-    // This handles edge cases where the squad:phase_changed side-effect didn't trigger
-    // (e.g., agent ends turn before effect handler completes).
-    pi.on('agent_end', async () => {
-        if (!_squadActive) return;
-        const eventLog = _testEventLog || getGlobalEventLog();
-        if (!eventLog) return;
-        const state = project(eventLog.log);
-        if (state.squad.phase !== 'revising') return;
-        pi.sendMessage(
-            {
-                customType: 'squad-revision-force',
-                content: [
-                    '[Squad-Tau Architect Awakening — Re-prompt]',
-                    '',
-                    'You were given feedback to revise your plan but did not call `squad_delegate`.',
-                    'Write a revised plan as .toml files in a temp directory, then call `squad_delegate`',
-                    'with the absolute path before ending your turn.',
-                ].join('\n'),
-                display: false,
-            },
-            { triggerTurn: true },
-        );
-    });
-
     // ── Register squad_delegate tool via pi.registerTool (standard OMP ExtensionAPI) ──
     // execute receives (toolCallId, params, signal, onUpdate, ctx)
     // ctx.sessionManager.getSessionId() captures the main session ID
@@ -223,16 +186,6 @@ export default function squadPlugin(pi) {
 // Test helpers: reset squad state between test runs
 export function _resetSquadState() {
     _squadActive = false;
-}
-
-// Override getGlobalEventLog for testing the agent_end safety net.
-// Restore by calling _restoreGlobalEventLog().
-let _testEventLog = null;
-export function _setTestEventLog(eventLog) {
-    _testEventLog = eventLog;
-}
-export function _restoreGlobalEventLog() {
-    _testEventLog = null;
 }
 
 // Export prompts for contract verification
