@@ -4,7 +4,6 @@
  * Frontend only sends: sync (catch-up), session:user_message, model_pool:update, ping, abort.
  * Backend only does: append to EventLog, let the reactor+engine drive everything.
  */
-import { Events } from '../shared/events.js';
 
 const STRATEGIES = {
     sync: async ({ payload, eventLog, ws }) => {

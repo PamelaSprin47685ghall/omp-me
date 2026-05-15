@@ -1,7 +1,6 @@
 import { validatePlan } from './validate-plan.js';
 import fs from 'fs';
 import path from 'path';
-import { Events } from '../shared/events.js';
 import { getGlobalEventLog } from './server-lifecycle.js';
 
 function readNodesFromDir(plan_dir) {
@@ -70,6 +69,6 @@ export async function processDelegate(params) {
         throw new Error(`Invalid plan: ${validation.errors.join('; ')}`);
     }
 
-    eventLog.append(Events.SQUAD_INIT, { mode, nodes, originalTask: '' });
+    eventLog.append('squad:init', { mode, nodes, originalTask: '' });
     return { success: true, message: 'Squad started' };
 }

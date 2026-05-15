@@ -1,6 +1,5 @@
 import { describe, test, expect } from 'bun:test';
 import { project } from '../../shared/projections.js';
-import { Events } from '../../shared/events.js';
 import { timeTravel, initSquad } from '../helpers/engine-simulator.js';
 
 function firstNode(state) {
@@ -30,7 +29,7 @@ describe('M mode — single node', () => {
                 originalTask: 'test',
             }),
         );
-        expect(log[log.length - 1].event).toBe(Events.SQUAD_COMPLETE);
+        expect(log[log.length - 1].event).toBe('squad:complete');
     });
 });
 
@@ -50,10 +49,10 @@ describe('L mode — chain', () => {
         expect(state.squad.status).toBe('complete');
         expect(Object.values(state.squad.nodes).every((n) => n.status === 'approved')).toBe(true);
         const n1a = log.findIndex(
-            (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'n1' && e.payload.status === 'authoring',
+            (e) => e.event === 'squad:node_state' && e.payload.nodeId === 'n1' && e.payload.status === 'authoring',
         );
         const n2a = log.findIndex(
-            (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'n2' && e.payload.status === 'authoring',
+            (e) => e.event === 'squad:node_state' && e.payload.nodeId === 'n2' && e.payload.status === 'authoring',
         );
         expect(n2a).toBeGreaterThan(n1a);
     });
@@ -77,17 +76,17 @@ describe('diamond A -> B,C -> D', () => {
         expect(state.squad.status).toBe('complete');
         expect(Object.values(state.squad.nodes).every((n) => n.status === 'approved')).toBe(true);
         const aA = log.findIndex(
-            (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'A' && e.payload.status === 'authoring',
+            (e) => e.event === 'squad:node_state' && e.payload.nodeId === 'A' && e.payload.status === 'authoring',
         );
         const bA = log.findIndex(
-            (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'B' && e.payload.status === 'authoring',
+            (e) => e.event === 'squad:node_state' && e.payload.nodeId === 'B' && e.payload.status === 'authoring',
         );
         const dA = log.findIndex(
-            (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'D' && e.payload.status === 'authoring',
+            (e) => e.event === 'squad:node_state' && e.payload.nodeId === 'D' && e.payload.status === 'authoring',
         );
         expect(bA).toBeGreaterThan(aA);
         const bAp = log.findIndex(
-            (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'B' && e.payload.status === 'approved',
+            (e) => e.event === 'squad:node_state' && e.payload.nodeId === 'B' && e.payload.status === 'approved',
         );
         expect(dA).toBeGreaterThan(bAp);
     });
@@ -149,7 +148,7 @@ describe('outer review rejection cycle', () => {
         const state = project(log);
         expect(state.squad.status).toBe('complete');
         expect(state.squad.nodes['n1'].status).toBe('approved');
-        expect(log.filter((e) => e.event === Events.SQUAD_OUTER_REVIEW_START).length).toBe(2);
+        expect(log.filter((e) => e.event === 'squad:outer_review_start').length).toBe(2);
     });
 });
 
@@ -162,8 +161,8 @@ describe('concurrency invariants', () => {
                 originalTask: 'test',
             }),
         );
-        expect(log.filter((e) => e.event === Events.MODEL_POOL_ACQUIRE).length).toBe(0);
-        expect(log.filter((e) => e.event === Events.MODEL_POOL_RELEASE).length).toBe(0);
+        expect(log.filter((e) => e.event === 'model_pool:acquire').length).toBe(0);
+        expect(log.filter((e) => e.event === 'model_pool:release').length).toBe(0);
     });
 
     test('SESSION_CREATING has deterministic sessionId', () => {
@@ -174,7 +173,7 @@ describe('concurrency invariants', () => {
                 originalTask: 'test',
             }),
         );
-        for (const c of log.filter((e) => e.event === Events.SESSION_CREATING)) {
+        for (const c of log.filter((e) => e.event === 'session:creating')) {
             expect(c.payload.sessionId).toMatch(/^.+::.+::\d+$/);
         }
     });

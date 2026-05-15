@@ -1,14 +1,8 @@
 import { describe, test, expect } from 'bun:test';
 import { reactState } from '../../server/reactor.js';
-import { createBaseState, setStatus, createSession } from '../helpers/state-builder.js';
+import { createBaseState, setStatus } from '../helpers/state-builder.js';
 
 function approveNode(st, id) {
-    setStatus(st, id, 'authoring');
-    createSession(st, id, 'authoring');
-    setStatus(st, id, 'confirming');
-    createSession(st, id, 'confirming');
-    setStatus(st, id, 'reviewing');
-    createSession(st, id, 'reviewing');
     setStatus(st, id, 'approved');
 }
 

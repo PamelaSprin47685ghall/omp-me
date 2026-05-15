@@ -2,7 +2,6 @@
  * Homomorphic event projections — shared between client and server.
  * v4: Flat state (nodes as map), deterministic URN sessions, no model pool.
  */
-import { Events } from './events.js';
 
 const Reducers = {};
 
@@ -22,7 +21,7 @@ export function getInitialState() {
 
 // ── Squad Lifecycle ──
 
-register(Events.SQUAD_INIT)((state, payload) => {
+register('squad:init')((state, payload) => {
     const nodes = {};
     if (payload.nodes) {
         for (const n of payload.nodes) {
@@ -43,32 +42,32 @@ register(Events.SQUAD_INIT)((state, payload) => {
     state.squad = { ...state.squad, ...payload, nodes, status: 'active' };
 });
 
-register(Events.SQUAD_NODE_STATE)((state, payload) => {
+register('squad:node_state')((state, payload) => {
     const node = state.squad.nodes[payload.nodeId];
     if (!node) return;
     Object.assign(node, payload);
 });
 
-register(Events.SQUAD_COMPLETE)((state, payload) => {
+register('squad:complete')((state, payload) => {
     state.squad.status = 'complete';
     state.squad.results = payload.results;
 });
 
-register(Events.SQUAD_ABORT)((state) => {
+register('squad:abort')((state) => {
     state.squad.status = 'aborted';
 });
 
 // ── Outer Review ──
 
-register(Events.SQUAD_OUTER_REVIEW_START)((state, payload) => {
+register('squad:outer_review_start')((state, payload) => {
     state.squad.outerReview = { status: 'pending', round: payload.round || 1 };
 });
 
-register(Events.SQUAD_OUTER_REVIEW_DONE)((state) => {
+register('squad:outer_review_done')((state) => {
     if (state.squad.outerReview) state.squad.outerReview.status = 'approved';
 });
 
-register(Events.SQUAD_OUTER_REVIEW_FAILED)((state, payload) => {
+register('squad:outer_review_failed')((state, payload) => {
     state.squad.outerReview = {
         status: 'rejected',
         round: state.squad.outerReview?.round || 1,
@@ -78,7 +77,7 @@ register(Events.SQUAD_OUTER_REVIEW_FAILED)((state, payload) => {
 
 // ── Session Lifecycle ──
 
-register(Events.SESSION_CREATING)((state, payload) => {
+register('session:creating')((state, payload) => {
     state.sessions[payload.sessionId] = state.sessions[payload.sessionId] || {
         sessionId: payload.sessionId,
         nodeId: payload.nodeId,
@@ -90,7 +89,7 @@ register(Events.SESSION_CREATING)((state, payload) => {
     };
 });
 
-register(Events.SESSION_START)((state, payload) => {
+register('session:start')((state, payload) => {
     const sid = payload.sessionId;
     if (state.sessions[sid]) {
         state.sessions[sid].status = 'active';
@@ -111,7 +110,7 @@ register(Events.SESSION_START)((state, payload) => {
     }
 });
 
-register(Events.SESSION_PROMPTING)((state, payload) => {
+register('session:prompting')((state, payload) => {
     const sess = state.sessions[payload.sessionId];
     if (!sess) return;
     sess.lastPromptedPhase = payload.phase;
@@ -120,21 +119,21 @@ register(Events.SESSION_PROMPTING)((state, payload) => {
     }
 });
 
-register(Events.SESSION_STATE)((state, payload) => {
+register('session:state')((state, payload) => {
     const sess = state.sessions[payload.sessionId];
     if (!sess) return;
     sess.phase = payload.phase;
     sess.status = ['completed', 'aborted', 'error'].includes(payload.phase) ? payload.phase : 'active';
 });
 
-register(Events.SESSION_END)((state, payload) => {
+register('session:end')((state, payload) => {
     const sess = state.sessions[payload.sessionId];
     if (!sess) return;
     sess.status = payload.reason || 'completed';
     if (payload.errorMessage) sess.errorMessage = payload.errorMessage;
 });
 
-register(Events.SESSION_MESSAGE)((state, payload) => {
+register('session:message')((state, payload) => {
     const sess = state.sessions[payload.sessionId];
     if (!sess) return;
     const list = sess.messages;
@@ -157,7 +156,7 @@ register(Events.SESSION_MESSAGE)((state, payload) => {
 
 // ── Streaming Delta (transient, never stored in EventLog) ──
 
-register(Events.SESSION_MESSAGE_DELTA)((state, payload) => {
+register('session:message_delta')((state, payload) => {
     const sess = state.sessions[payload.sessionId];
     if (!sess) return;
     const list = sess.messages;
@@ -189,7 +188,7 @@ register(Events.SESSION_MESSAGE_DELTA)((state, payload) => {
     }
 });
 
-register(Events.SESSION_THINKING_DELTA)((state, payload) => {
+register('session:thinking_delta')((state, payload) => {
     const sess = state.sessions[payload.sessionId];
     if (!sess) return;
     const list = sess.messages;
@@ -215,7 +214,7 @@ register(Events.SESSION_THINKING_DELTA)((state, payload) => {
     }
 });
 
-register(Events.SESSION_TOOL_CALL)((state, payload) => {
+register('session:tool_call')((state, payload) => {
     const sess = state.sessions[payload.sessionId];
     if (!sess) return;
     const { sessionId, ...toolFields } = payload;
@@ -229,7 +228,7 @@ register(Events.SESSION_TOOL_CALL)((state, payload) => {
     }
 });
 
-register(Events.SESSION_TOOL_RESULT)((state, payload) => {
+register('session:tool_result')((state, payload) => {
     const sess = state.sessions[payload.sessionId];
     if (!sess) return;
     const msg = sess.messages.find((m) => m.messageId === payload.toolId);
@@ -242,7 +241,7 @@ register(Events.SESSION_TOOL_RESULT)((state, payload) => {
 
 // ── Model Pool Config (static, no runtime usage tracking) ──
 
-register(Events.MODEL_POOL_SNAPSHOT)((state, payload) => {
+register('model_pool:snapshot')((state, payload) => {
     if (payload.maxWorkers) state.modelPool.maxWorkers = payload.maxWorkers;
 });
 

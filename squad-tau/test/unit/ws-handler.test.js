@@ -1,7 +1,6 @@
 import { describe, test, expect, beforeEach } from 'bun:test';
 import { EventLog } from '../../server/event-log.js';
 import { routeMessage } from '../../server/ws-handler.js';
-import { Events } from '../../shared/events.js';
 
 function createMockWs() {
     const sent = [];
@@ -53,7 +52,7 @@ describe('routeMessage', () => {
 
     test('session:user_message requires active session', async () => {
         const ws = createMockWs();
-        eventLog.append(Events.SESSION_START, { sessionId: 's1', nodeId: 'n1', phase: 'worker' });
+        eventLog.append('session:start', { sessionId: 's1', nodeId: 'n1', phase: 'worker' });
 
         const result = await routeMessage(
             { type: 'session:user_message', payload: { sessionId: 's1', text: 'hello', messageId: 'm1' } },

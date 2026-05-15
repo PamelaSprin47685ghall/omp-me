@@ -56,19 +56,7 @@ export async function startServer({ pi, skipVite = false } = {}) {
     const rawServer = createServer();
     const viteMiddlewares = await createViteDevServer({ skipVite });
     const { wss } = await createWsServer(rawServer, null, {
-        onConnection: (ws) => {
-            const missing = eventLog.getSince(0);
-            for (const event of missing) {
-                ws.send(
-                    JSON.stringify({
-                        type: event.event,
-                        payload: event.payload,
-                        timestamp: event.timestamp,
-                        seq: event.id,
-                    }),
-                );
-            }
-        },
+        onConnection: () => {},
         onMessage: async (msg, ws) => {
             await routeMessage(msg, eventLog, ws, engine.getState);
         },

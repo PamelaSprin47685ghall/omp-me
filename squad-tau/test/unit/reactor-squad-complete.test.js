@@ -1,16 +1,8 @@
 import { describe, test, expect } from 'bun:test';
 import { reactState } from '../../server/reactor.js';
-import { Events } from '../../shared/events.js';
-import { createBaseState, setStatus, createSession } from '../helpers/state-builder.js';
+import { createBaseState, setStatus } from '../helpers/state-builder.js';
 
 function approveNode(st, id) {
-    setStatus(st, id, 'idle');
-    setStatus(st, id, 'authoring');
-    createSession(st, id, 'authoring');
-    setStatus(st, id, 'confirming');
-    createSession(st, id, 'confirming');
-    setStatus(st, id, 'reviewing');
-    createSession(st, id, 'reviewing');
     setStatus(st, id, 'approved', { summary: `${id} done` });
 }
 
@@ -20,14 +12,14 @@ describe('happy path', () => {
         approveNode(st, 'n1');
         st.squad.outerReview = { status: 'approved', round: 1 };
         const e = reactState(st);
-        expect(e.find((a) => a.type === Events.SQUAD_COMPLETE)).toBeDefined();
+        expect(e.find((a) => a.type === 'squad:complete')).toBeDefined();
     });
 
     test('SQUAD_COMPLETE emitted only once', () => {
         const st = createBaseState('n1');
         approveNode(st, 'n1');
         st.squad.outerReview = { status: 'approved', round: 1 };
-        expect(reactState(st).some((a) => a.type === Events.SQUAD_COMPLETE)).toBe(true);
+        expect(reactState(st).some((a) => a.type === 'squad:complete')).toBe(true);
         st.squad.status = 'complete';
         expect(reactState(st).length).toBe(0);
     });
@@ -38,7 +30,7 @@ describe('outer review rejection', () => {
         const st = createBaseState('n1');
         approveNode(st, 'n1');
         st.squad.outerReview = { status: 'rejected', round: 1, feedback: 'rework' };
-        const a = reactState(st).find((e) => e.type === Events.SQUAD_NODE_STATE && e.payload.status === 'authoring');
+        const a = reactState(st).find((e) => e.type === 'squad:node_state' && e.payload.status === 'authoring');
         expect(a).toBeDefined();
         expect(a.payload.retryCount).toBe(1);
     });

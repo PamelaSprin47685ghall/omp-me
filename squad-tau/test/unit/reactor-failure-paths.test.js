@@ -1,6 +1,5 @@
 import { describe, test, expect } from 'bun:test';
 import { reactState } from '../../server/reactor.js';
-import { Events } from '../../shared/events.js';
 import { createBaseState, setStatus, createSession, giveReturn } from '../helpers/state-builder.js';
 import { sessionIdFor } from '../../shared/events.js';
 
@@ -20,7 +19,7 @@ describe('reviewer rejection', () => {
     test('error sends back to AUTHORING with retryCount', () => {
         const st = reviewReady();
         giveReturn(st, sessionIdFor('n1', 'reviewing', 0), 'error', 'needs work');
-        const a = reactState(st).find((e) => e.type === Events.SQUAD_NODE_STATE && e.payload.status === 'authoring');
+        const a = reactState(st).find((e) => e.type === 'squad:node_state' && e.payload.status === 'authoring');
         expect(a).toBeDefined();
         expect(a.payload.retryCount).toBe(1);
         expect(a.payload.feedback).toBe('needs work');
@@ -29,7 +28,7 @@ describe('reviewer rejection', () => {
     test('retryCount increments on repeat rejections', () => {
         const st = reviewReady();
         giveReturn(st, sessionIdFor('n1', 'reviewing', 0), 'error', 'fix 1');
-        let a = reactState(st).find((e) => e.type === Events.SQUAD_NODE_STATE && e.payload.status === 'authoring');
+        let a = reactState(st).find((e) => e.type === 'squad:node_state' && e.payload.status === 'authoring');
         expect(a.payload.retryCount).toBe(1);
 
         setStatus(st, 'n1', 'authoring', { retryCount: 1, feedback: 'fix 1' });
@@ -40,14 +39,14 @@ describe('reviewer rejection', () => {
         createSession(st, 'n1', 'reviewing');
         giveReturn(st, sessionIdFor('n1', 'reviewing', 1), 'error', 'fix 2');
 
-        a = reactState(st).find((e) => e.type === Events.SQUAD_NODE_STATE && e.payload.status === 'authoring');
+        a = reactState(st).find((e) => e.type === 'squad:node_state' && e.payload.status === 'authoring');
         expect(a.payload.retryCount).toBe(2);
     });
 
     test('approval transitions to APPROVED', () => {
         const st = reviewReady();
         giveReturn(st, sessionIdFor('n1', 'reviewing', 0), 'ok', 'good');
-        const a = reactState(st).find((e) => e.type === Events.SQUAD_NODE_STATE && e.payload.status === 'approved');
+        const a = reactState(st).find((e) => e.type === 'squad:node_state' && e.payload.status === 'approved');
         expect(a).toBeDefined();
         expect(a.payload.summary).toBe('good');
     });

@@ -5,7 +5,6 @@
  */
 import fs from 'fs';
 import path from 'path';
-import { Events } from '../shared/events.js';
 
 const CONFIG_PATH = path.join(process.cwd(), '.omp', 'models.toml');
 

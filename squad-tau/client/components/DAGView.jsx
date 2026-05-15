@@ -20,7 +20,8 @@ const STATUS_COLOR = Object.freeze({
 const MERMAID_THEME = THEMES['github-light'];
 
 export default function DAGView() {
-  const nodes = usePathState('squad', s => Object.values(s.squad.nodes || {}));
+  const nodeMap = usePathState('squad', s => s.squad.nodes || {});
+  const nodes = useMemo(() => Object.values(nodeMap), [nodeMap]);
   const activeNodeId = usePathState('ui', s => s.ui?.activeSessionId);
 
   const svg = useMemo(() => {

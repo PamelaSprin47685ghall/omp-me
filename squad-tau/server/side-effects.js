@@ -5,9 +5,8 @@
  * No switch/case. No slot management (Cut 1).
  */
 import { PromptDoc, PROMPT_TEMPLATES } from './prompt-builder.js';
-import { Events } from '../shared/events.js';
 
-export const sessionStore = new Map();
+const sessionStore = new Map();
 
 export async function getCodingAgentModule() {
     return (await import('@oh-my-pi/resolve-pi')).getCodingAgentModule();
@@ -21,7 +20,7 @@ function register(event) {
     };
 }
 
-register(Events.SESSION_CREATING)(async (payload, { eventLog, pi, getState }) => {
+register('session:creating')(async (payload, { eventLog, pi, getState }) => {
     try {
         await handleCreateSession(payload, eventLog, pi, getState);
     } catch (err) {
@@ -29,7 +28,7 @@ register(Events.SESSION_CREATING)(async (payload, { eventLog, pi, getState }) =>
     }
 });
 
-register(Events.SESSION_PROMPTING)(async (payload, { eventLog, pi, getState }) => {
+register('session:prompting')(async (payload, { eventLog, pi, getState }) => {
     try {
         await handlePrompt(payload, eventLog, pi, getState);
     } catch (err) {
@@ -37,10 +36,9 @@ register(Events.SESSION_PROMPTING)(async (payload, { eventLog, pi, getState }) =
     }
 });
 
-register(Events.SESSION_MESSAGE)(async (payload, { eventLog, pi, getState }) => {
+register('session:message')(async (payload, { eventLog, pi, getState }) => {
     try {
-        // Only route user messages from the WebSocket to the LLM session
-        if (payload.role === 'user' && payload.messageId?.startsWith('opt_')) {
+        if (payload.role === 'user') {
             await handleUserMessage(payload);
         }
     } catch (err) {
@@ -48,8 +46,8 @@ register(Events.SESSION_MESSAGE)(async (payload, { eventLog, pi, getState }) => 
     }
 });
 
-register(Events.SQUAD_COMPLETE)(() => sessionStore.clear());
-register(Events.SQUAD_ABORT)(() => sessionStore.clear());
+register('squad:complete')(() => sessionStore.clear());
+register('squad:abort')(() => sessionStore.clear());
 
 export function setupSideEffects(eventLog, pi, getState) {
     const unsub = eventLog.subscribe((entry) => {
@@ -59,7 +57,7 @@ export function setupSideEffects(eventLog, pi, getState) {
     return unsub;
 }
 
-export async function handleCreateSession({ nodeId, sessionId, phase, retryCount }, eventLog, pi, getState) {
+async function handleCreateSession({ nodeId, sessionId, phase, retryCount }, eventLog, pi, getState) {
     const { SessionManager } = await getCodingAgentModule();
     const state = getState();
     const node = state.squad.nodes[nodeId];
@@ -81,7 +79,7 @@ export async function handleCreateSession({ nodeId, sessionId, phase, retryCount
         sessionStore.set(sessionId, sessionStore.get(actualSessionId));
     }
 
-    eventLog.append(Events.SESSION_START, {
+    eventLog.append('session:start', {
         sessionId,
         nodeId,
         phase,
@@ -92,7 +90,7 @@ export async function handleCreateSession({ nodeId, sessionId, phase, retryCount
     subscribeToSessionEvents(session, eventLog, sessionId);
 }
 
-export async function handlePrompt({ sessionId, phase, nodeId }, eventLog, pi, getState) {
+async function handlePrompt({ sessionId, phase, nodeId }, eventLog, pi, getState) {
     const entry = sessionStore.get(sessionId);
     if (!entry) {
         console.error(`[SideEffects] Session ${sessionId} not found in store`);
@@ -106,7 +104,7 @@ export async function handlePrompt({ sessionId, phase, nodeId }, eventLog, pi, g
     }
 }
 
-export async function handleUserMessage({ sessionId, text, messageId }) {
+async function handleUserMessage({ sessionId, text, messageId }) {
     const entry = sessionStore.get(sessionId);
     if (!entry || entry.status !== 'active') return;
     await entry.session.prompt(text);
@@ -153,7 +151,7 @@ function handleMessageUpdate(event, eventLog, sessionId) {
     const ae = event.assistantMessageEvent;
     if (!ae || !event.message || !event.message.id) return;
     const t = ae.type === 'thinking_delta' ? 'thinking_delta' : 'text_delta';
-    eventLog.append(Events.SESSION_MESSAGE_DELTA, {
+    eventLog.append('session:message_delta', {
         sessionId,
         messageId: event.message.id,
         delta: { type: t, text: ae.delta },
@@ -161,7 +159,7 @@ function handleMessageUpdate(event, eventLog, sessionId) {
 }
 
 function handleToolStart(event, eventLog, sessionId) {
-    eventLog.append(Events.SESSION_TOOL_CALL, {
+    eventLog.append('session:tool_call', {
         sessionId,
         toolName: event.toolName,
         toolId: event.toolId,
@@ -170,7 +168,7 @@ function handleToolStart(event, eventLog, sessionId) {
 }
 
 function handleToolEnd(event, eventLog, sessionId) {
-    eventLog.append(Events.SESSION_TOOL_RESULT, {
+    eventLog.append('session:tool_result', {
         sessionId,
         toolId: event.toolId,
         result: event.result,
@@ -179,7 +177,7 @@ function handleToolEnd(event, eventLog, sessionId) {
 }
 
 function handleMessageEnd(event, eventLog, sessionId) {
-    eventLog.append(Events.SESSION_MESSAGE, {
+    eventLog.append('session:message', {
         sessionId,
         role: event.message.role,
         content: event.message.content,

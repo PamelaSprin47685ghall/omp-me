@@ -9,7 +9,7 @@
  *   - Flat key-value state maps, no .find() traversals (Cut 4)
  *   - Config-driven concurrency from state.modelPool.maxWorkers
  */
-import { Events, sessionIdFor } from '../shared/events.js';
+import { sessionIdFor } from '../shared/events.js';
 
 const MAX_RETRIES = 5;
 
@@ -24,7 +24,7 @@ export function reactState(state) {
     const pendingInit = allNodes.filter((n) => n.status === undefined);
     if (pendingInit.length > 0) {
         return pendingInit.map((n) => ({
-            type: Events.SQUAD_NODE_STATE,
+            type: 'squad:node_state',
             payload: { nodeId: n.id, status: 'idle' },
         }));
     }
@@ -42,7 +42,7 @@ export function reactState(state) {
             if (or?.status === 'approved') {
                 if (state.squad.status !== 'complete') {
                     actions.push({
-                        type: Events.SQUAD_COMPLETE,
+                        type: 'squad:complete',
                         payload: {
                             results: allNodes.map((n) => ({ nodeId: n.id, status: n.status, summary: n.summary })),
                         },
@@ -51,12 +51,12 @@ export function reactState(state) {
             } else if (or?.status === 'rejected') {
                 const anyReset = allNodes.some((n) => (n.retryCount || 0) > 0);
                 if (anyReset) {
-                    actions.push({ type: Events.SQUAD_OUTER_REVIEW_START, payload: { round: (or?.round || 0) + 1 } });
+                    actions.push({ type: 'squad:outer_review_start', payload: { round: (or?.round || 0) + 1 } });
                 } else {
                     const reason = or?.feedback || 'Outer review rejected';
                     for (const node of completed) {
                         actions.push({
-                            type: Events.SQUAD_NODE_STATE,
+                            type: 'squad:node_state',
                             payload: {
                                 nodeId: node.id,
                                 status: 'authoring',
@@ -69,12 +69,12 @@ export function reactState(state) {
             } else if (or?.status === 'pending') {
                 handleOuterReviewPhase(state, actions);
             } else {
-                actions.push({ type: Events.SQUAD_OUTER_REVIEW_START, payload: { round: 1 } });
+                actions.push({ type: 'squad:outer_review_start', payload: { round: 1 } });
             }
         } else if (allDone && completed.length + failed.length === allNodes.length) {
             if (state.squad.status !== 'complete') {
                 actions.push({
-                    type: Events.SQUAD_COMPLETE,
+                    type: 'squad:complete',
                     payload: { results: allNodes.map((n) => ({ nodeId: n.id, status: n.status, summary: n.summary })) },
                 });
             }
@@ -93,7 +93,7 @@ export function reactState(state) {
         if (blocking) {
             if (node.status !== 'blocked') {
                 actions.push({
-                    type: Events.SQUAD_NODE_STATE,
+                    type: 'squad:node_state',
                     payload: { nodeId: node.id, status: 'blocked', summary: 'Blocked by upstream' },
                 });
             }
@@ -110,7 +110,7 @@ export function reactState(state) {
             case 'idle':
                 if (depsMet)
                     actions.push({
-                        type: Events.SQUAD_NODE_STATE,
+                        type: 'squad:node_state',
                         payload: { nodeId: node.id, status: 'authoring' },
                     });
                 break;
@@ -141,7 +141,7 @@ function handlePhase(node, role, state, actions) {
             if (role === 'reviewing') {
                 if (p.status === 'ok') {
                     actions.push({
-                        type: Events.SQUAD_NODE_STATE,
+                        type: 'squad:node_state',
                         payload: {
                             nodeId: node.id,
                             status: 'approved',
@@ -153,25 +153,25 @@ function handlePhase(node, role, state, actions) {
                     const rc = (node.retryCount || 0) + 1;
                     if (rc >= MAX_RETRIES) {
                         actions.push({
-                            type: Events.SQUAD_NODE_STATE,
+                            type: 'squad:node_state',
                             payload: { nodeId: node.id, status: 'failed' },
                         });
                     } else {
                         actions.push({
-                            type: Events.SQUAD_NODE_STATE,
+                            type: 'squad:node_state',
                             payload: { nodeId: node.id, status: 'authoring', retryCount: rc, feedback: p.reason },
                         });
                     }
                 }
             } else {
                 const next = role === 'authoring' ? 'confirming' : 'reviewing';
-                actions.push({ type: Events.SQUAD_NODE_STATE, payload: { nodeId: node.id, status: next } });
+                actions.push({ type: 'squad:node_state', payload: { nodeId: node.id, status: next } });
             }
             return;
         }
 
         if (sess.lastPromptedPhase !== role) {
-            actions.push({ type: Events.SESSION_PROMPTING, payload: { nodeId: node.id, sessionId, phase: role } });
+            actions.push({ type: 'session:prompting', payload: { nodeId: node.id, sessionId, phase: role } });
         }
         return;
     }
@@ -179,7 +179,7 @@ function handlePhase(node, role, state, actions) {
     const maxWorkers = state.modelPool.maxWorkers || 3;
     if (countLiveSessions(state) < maxWorkers) {
         actions.push({
-            type: Events.SESSION_CREATING,
+            type: 'session:creating',
             payload: { nodeId: node.id, sessionId, phase: role, retryCount: node.retryCount || 0 },
         });
     }
@@ -197,15 +197,15 @@ function handleOuterReviewPhase(state, actions) {
             const p = sess.latestReturn;
             const ok = p.status === 'ok';
             actions.push({
-                type: ok ? Events.SQUAD_OUTER_REVIEW_DONE : Events.SQUAD_OUTER_REVIEW_FAILED,
+                type: ok ? 'squad:outer_review_done' : 'squad:outer_review_failed',
                 payload: { reason: p.reason || '' },
             });
-            actions.push({ type: Events.SESSION_END, payload: { sessionId, reason: ok ? 'completed' : 'error' } });
+            actions.push({ type: 'session:end', payload: { sessionId, reason: ok ? 'completed' : 'error' } });
             return;
         }
 
         if (state.squad.outerReview && !state.squad.outerReview.lastPrompted) {
-            actions.push({ type: Events.SESSION_PROMPTING, payload: { phase: 'outer_review', sessionId } });
+            actions.push({ type: 'session:prompting', payload: { phase: 'outer_review', sessionId } });
         }
         return;
     }
@@ -213,7 +213,7 @@ function handleOuterReviewPhase(state, actions) {
     const maxWorkers = state.modelPool.maxWorkers || 3;
     if (countLiveSessions(state) < maxWorkers) {
         actions.push({
-            type: Events.SESSION_CREATING,
+            type: 'session:creating',
             payload: { nodeId: null, sessionId, phase: 'outer_review', retryCount: 0 },
         });
     }

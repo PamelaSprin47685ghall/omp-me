@@ -9,7 +9,6 @@
 import { describe, test, expect } from 'bun:test';
 import { project, applyEvent, getInitialState } from '../../shared/projections.js';
 import { reactState } from '../../server/reactor.js';
-import { Events } from '../../shared/events.js';
 import { timeTravel } from '../helpers/engine-simulator.js';
 
 function pick(arr) {
@@ -19,9 +18,24 @@ function randInt(min, max) {
     return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-const ALL_EVENT_TYPES = Object.values(Events).filter(
-    (t) => !t.startsWith('session:message_delta') && !t.startsWith('session:thinking_delta'),
-);
+const ALL_EVENT_TYPES = [
+    'squad:init',
+    'squad:node_state',
+    'squad:complete',
+    'squad:abort',
+    'squad:outer_review_start',
+    'squad:outer_review_done',
+    'squad:outer_review_failed',
+    'session:start',
+    'session:state',
+    'session:end',
+    'session:message',
+    'session:tool_call',
+    'session:tool_result',
+    'model_pool:snapshot',
+    'session:creating',
+    'session:prompting',
+];
 const NODE_STATUSES = [
     'waiting_deps',
     'pending',
@@ -55,49 +69,49 @@ describe('Structural Fuzzing (crash resistance)', () => {
             const et = pick(ALL_EVENT_TYPES);
             const payload = (() => {
                 switch (et) {
-                    case Events.SQUAD_INIT:
+                    case 'squad:init':
                         return { mode: pick(['M', 'L']), nodes: [], originalTask: '' };
-                    case Events.SQUAD_NODE_STATE:
+                    case 'squad:node_state':
                         return { nodeId: `n${randInt(0, 20)}`, status: pick(NODE_STATUSES.concat(['idle'])) };
-                    case Events.SQUAD_COMPLETE:
+                    case 'squad:complete':
                         return { results: [] };
-                    case Events.SQUAD_ABORT:
+                    case 'squad:abort':
                         return { reason: 'fuzz' };
-                    case Events.SESSION_START:
+                    case 'session:start':
                         return {
                             sessionId: `s-${randInt(0, 999)}`,
                             nodeId: `n${randInt(0, 20)}`,
                             phase: pick(['authoring', 'reviewing']),
                         };
-                    case Events.SESSION_CREATING:
+                    case 'session:creating':
                         return {
                             sessionId: `s-${randInt(0, 999)}`,
                             nodeId: `n${randInt(0, 20)}`,
                             phase: pick(['authoring', 'reviewing']),
                         };
-                    case Events.SESSION_STATE:
+                    case 'session:state':
                         return { sessionId: `s-${randInt(0, 999)}`, phase: pick(['completed', 'aborted', 'error']) };
-                    case Events.SESSION_END:
+                    case 'session:end':
                         return { sessionId: `s-${randInt(0, 999)}`, reason: pick(['completed', 'aborted', 'error']) };
-                    case Events.SESSION_MESSAGE:
+                    case 'session:message':
                         return {
                             sessionId: `s-${randInt(0, 999)}`,
                             role: 'user',
                             content: [{ type: 'text', text: 'fuzz' }],
                             messageId: `m-${i}`,
                         };
-                    case Events.SESSION_TOOL_CALL:
+                    case 'session:tool_call':
                         return {
                             sessionId: `s-${randInt(0, 999)}`,
                             toolName: 'return',
                             toolId: `c-${i}`,
                             params: { status: 'ok' },
                         };
-                    case Events.SESSION_TOOL_RESULT:
+                    case 'session:tool_result':
                         return { sessionId: `s-${randInt(0, 999)}`, toolId: `c-${i}`, result: {}, isError: false };
-                    case Events.MODEL_POOL_SNAPSHOT:
+                    case 'model_pool:snapshot':
                         return { slots: [] };
-                    case Events.MODEL_POOL_CONFIG_UPDATE:
+                    case 'model_pool:config_update':
                         return {
                             action: 'add',
                             slot: { provider: 'test', modelId: 'm', role: 'worker', slotId: `s-${i}` },
@@ -149,7 +163,7 @@ describe('Behavioral Fuzzing (causal invariants via TimeTraveler)', () => {
     test('M mode converges to SQUAD_COMPLETE', () => {
         const log = timeTravel([
             {
-                event: Events.SQUAD_INIT,
+                event: 'squad:init',
                 payload: {
                     mode: 'M',
                     nodes: [{ id: 'n1', task: 't', review_criteria: ['ok'], depends_on: [] }],
@@ -166,7 +180,7 @@ describe('Behavioral Fuzzing (causal invariants via TimeTraveler)', () => {
     test('L chain converges — both nodes approved with ordering', () => {
         const log = timeTravel([
             {
-                event: Events.SQUAD_INIT,
+                event: 'squad:init',
                 payload: {
                     mode: 'L',
                     nodes: [
@@ -182,10 +196,10 @@ describe('Behavioral Fuzzing (causal invariants via TimeTraveler)', () => {
         expect(Object.values(state.squad.nodes).every((n) => n.status === 'approved')).toBe(true);
 
         const aAuth = log.findIndex(
-            (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'A' && e.payload.status === 'authoring',
+            (e) => e.event === 'squad:node_state' && e.payload.nodeId === 'A' && e.payload.status === 'authoring',
         );
         const bAuth = log.findIndex(
-            (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'B' && e.payload.status === 'authoring',
+            (e) => e.event === 'squad:node_state' && e.payload.nodeId === 'B' && e.payload.status === 'authoring',
         );
         expect(aAuth).toBeLessThan(bAuth);
         assertConvergedInvariants(state);
@@ -194,7 +208,7 @@ describe('Behavioral Fuzzing (causal invariants via TimeTraveler)', () => {
     test('diamond converges — A -> B,C -> D', () => {
         const log = timeTravel([
             {
-                event: Events.SQUAD_INIT,
+                event: 'squad:init',
                 payload: {
                     mode: 'L',
                     nodes: [
@@ -218,7 +232,7 @@ describe('Behavioral Fuzzing (causal invariants via TimeTraveler)', () => {
         const log = timeTravel(
             [
                 {
-                    event: Events.SQUAD_INIT,
+                    event: 'squad:init',
                     payload: {
                         mode: 'M',
                         nodes: [{ id: 'n1', task: 't', review_criteria: ['ok'], depends_on: [] }],
@@ -248,7 +262,7 @@ describe('Behavioral Fuzzing (causal invariants via TimeTraveler)', () => {
         const log = timeTravel(
             [
                 {
-                    event: Events.SQUAD_INIT,
+                    event: 'squad:init',
                     payload: {
                         mode: 'M',
                         nodes: [{ id: 'n1', task: 't', review_criteria: ['ok'], depends_on: [] }],
@@ -276,13 +290,13 @@ describe('Behavioral Fuzzing (causal invariants via TimeTraveler)', () => {
 describe('Edge pressure tests', () => {
     test('100 consecutive aborts — no explosion', () => {
         const state = getInitialState();
-        applyEvent(state, Events.SQUAD_INIT, {
+        applyEvent(state, 'squad:init', {
             mode: 'M',
             nodes: [{ id: 'n1', task: 't', review_criteria: [] }],
             originalTask: 't',
         });
         for (let i = 0; i < 100; i++) {
-            applyEvent(state, Events.SQUAD_ABORT, { reason: `abort-${i}` });
+            applyEvent(state, 'squad:abort', { reason: `abort-${i}` });
         }
         const actions = reactState(state);
         expect(Array.isArray(actions)).toBe(true);

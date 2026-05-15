@@ -1,6 +1,5 @@
 import { describe, test, expect } from 'bun:test';
 import { reactState } from '../../server/reactor.js';
-import { Events } from '../../shared/events.js';
 import { createBaseState, setStatus, createSession, giveReturn } from '../helpers/state-builder.js';
 import { sessionIdFor } from '../../shared/events.js';
 
@@ -20,7 +19,7 @@ function approvedState() {
 describe('happy path', () => {
     test('emits SQUAD_OUTER_REVIEW_START', () => {
         const st = approvedState();
-        expect(reactState(st).find((e) => e.type === Events.SQUAD_OUTER_REVIEW_START)).toBeDefined();
+        expect(reactState(st).find((e) => e.type === 'squad:outer_review_start')).toBeDefined();
     });
 
     test('full lifecycle to SQUAD_COMPLETE', () => {
@@ -29,7 +28,7 @@ describe('happy path', () => {
         st.squad.outerReview = { status: 'pending', round: 1 };
 
         e = reactState(st);
-        const createEv = e.find((a) => a.type === Events.SESSION_CREATING);
+        const createEv = e.find((a) => a.type === 'session:creating');
         expect(createEv).toBeDefined();
         expect(createEv.payload.sessionId).toBe(sessionIdFor('or', 'outer_review', 1));
 
@@ -46,12 +45,12 @@ describe('happy path', () => {
 
         giveReturn(st, sid, 'ok', 'all good');
         e = reactState(st);
-        expect(e.find((a) => a.type === Events.SQUAD_OUTER_REVIEW_DONE)).toBeDefined();
-        expect(e.find((a) => a.type === Events.SESSION_END)).toBeDefined();
+        expect(e.find((a) => a.type === 'squad:outer_review_done')).toBeDefined();
+        expect(e.find((a) => a.type === 'session:end')).toBeDefined();
 
         st.squad.outerReview.status = 'approved';
         e = reactState(st);
-        expect(e.find((a) => a.type === Events.SQUAD_COMPLETE)).toBeDefined();
+        expect(e.find((a) => a.type === 'squad:complete')).toBeDefined();
     });
 });
 
@@ -61,7 +60,7 @@ describe('rejection', () => {
         let e = reactState(st);
         st.squad.outerReview = { status: 'pending', round: 1 };
         e = reactState(st);
-        const createEv = e.find((a) => a.type === Events.SESSION_CREATING);
+        const createEv = e.find((a) => a.type === 'session:creating');
         const sid = createEv?.payload?.sessionId || sessionIdFor('or', 'outer_review', 1);
         st.sessions[sid] = {
             sessionId: sid,
@@ -74,6 +73,6 @@ describe('rejection', () => {
         st.squad.outerReview.lastPrompted = true;
         giveReturn(st, sid, 'error', 'bad');
         e = reactState(st);
-        expect(e.find((a) => a.type === Events.SQUAD_OUTER_REVIEW_FAILED)).toBeDefined();
+        expect(e.find((a) => a.type === 'squad:outer_review_failed')).toBeDefined();
     });
 });

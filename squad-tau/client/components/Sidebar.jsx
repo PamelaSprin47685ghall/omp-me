@@ -101,8 +101,10 @@ function NodeGroup({ nodeId, nodeIds, sessions }) {
 }
 
 export default function Sidebar() {
-  const nodes = usePathState('squad', s => Object.values(s.squad.nodes || {}));
-  const sessions = usePathState('sessions', s => Object.values(s.sessions || {}));
+  const nodeMap = usePathState('squad', s => s.squad.nodes || {});
+  const sessionMap = usePathState('sessions', s => s.sessions || {});
+  const nodes = useMemo(() => Object.values(nodeMap), [nodeMap]);
+  const sessions = useMemo(() => Object.values(sessionMap), [sessionMap]);
   const viewMode = usePathState('ui', s => s.ui?.viewMode || 'dag');
 
   const nodeIds = useMemo(() => {

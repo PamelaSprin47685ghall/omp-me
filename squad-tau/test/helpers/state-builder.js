@@ -1,12 +1,12 @@
 import { applyEvent, getInitialState } from '../../shared/projections.js';
-import { Events, sessionIdFor } from '../../shared/events.js';
+import { sessionIdFor } from '../../shared/events.js';
 
 export function buildState(overrides = {}) {
     const state = getInitialState();
 
     // Apply squad init via event
     const nodeDefs = overrides.nodes || [];
-    applyEvent(state, Events.SQUAD_INIT, {
+    applyEvent(state, 'squad:init', {
         mode: overrides.mode || 'M',
         nodes: nodeDefs.map((n) => ({
             id: n.id,
@@ -19,7 +19,7 @@ export function buildState(overrides = {}) {
 
     // Apply outer review
     if (overrides.outerReview) {
-        applyEvent(state, Events.SQUAD_OUTER_REVIEW_START, overrides.outerReview);
+        applyEvent(state, 'squad:outer_review_start', overrides.outerReview);
     }
 
     // Override squad-level fields
@@ -32,13 +32,13 @@ export function buildState(overrides = {}) {
         for (const [sid, s] of Object.entries(overrides.sessions)) {
             const retryCount = s.retryCount != null ? s.retryCount : 0;
             const phase = s.phase || 'authoring';
-            applyEvent(state, Events.SESSION_CREATING, {
+            applyEvent(state, 'session:creating', {
                 sessionId: sid,
                 nodeId: s.nodeId,
                 phase,
                 retryCount,
             });
-            applyEvent(state, Events.SESSION_START, {
+            applyEvent(state, 'session:start', {
                 sessionId: sid,
                 nodeId: s.nodeId,
                 phase,
@@ -46,15 +46,15 @@ export function buildState(overrides = {}) {
                 model: s.model,
             });
             if (s.status && s.status !== 'active') {
-                applyEvent(state, Events.SESSION_STATE, { sessionId: sid, phase: s.status });
+                applyEvent(state, 'session:state', { sessionId: sid, phase: s.status });
             }
             if (s.messages) {
                 for (const msg of s.messages) {
-                    applyEvent(state, Events.SESSION_MESSAGE, { sessionId: sid, ...msg });
+                    applyEvent(state, 'session:message', { sessionId: sid, ...msg });
                 }
             }
             if (s.latestReturn) {
-                applyEvent(state, Events.SESSION_TOOL_CALL, {
+                applyEvent(state, 'session:tool_call', {
                     sessionId: sid,
                     toolName: 'return',
                     toolId: `call-${sid}`,
@@ -67,7 +67,7 @@ export function buildState(overrides = {}) {
     // Apply model pool config
     if (overrides.modelPool || overrides.maxWorkers) {
         const mpOverrides = overrides.modelPool || {};
-        applyEvent(state, Events.MODEL_POOL_SNAPSHOT, {
+        applyEvent(state, 'model_pool:snapshot', {
             maxWorkers: overrides.maxWorkers || mpOverrides.maxWorkers || 3,
         });
     }
@@ -84,7 +84,7 @@ export function createBaseState(...nodeDefs) {
 }
 
 export function setStatus(state, nodeId, status, extra = {}) {
-    applyEvent(state, Events.SQUAD_NODE_STATE, { nodeId, status, ...extra });
+    applyEvent(state, 'squad:node_state', { nodeId, status, ...extra });
 }
 
 export function createSession(state, nodeId, phase) {
@@ -97,8 +97,8 @@ export function createSession(state, nodeId, phase) {
     } else {
         sessionId = sessionIdFor('or', 'outer_review', state.squad.outerReview?.round || 1);
     }
-    applyEvent(state, Events.SESSION_CREATING, { sessionId, nodeId, phase, retryCount });
-    applyEvent(state, Events.SESSION_START, { sessionId, nodeId, phase, retryCount });
+    applyEvent(state, 'session:creating', { sessionId, nodeId, phase, retryCount });
+    applyEvent(state, 'session:start', { sessionId, nodeId, phase, retryCount });
     return sessionId;
 }
 
@@ -106,7 +106,7 @@ export function giveReturn(state, sessionId, status, reason) {
     const sess = state.sessions[sessionId];
     if (!sess) return;
     const params = { status, reason, affected_files: [] };
-    applyEvent(state, Events.SESSION_TOOL_CALL, {
+    applyEvent(state, 'session:tool_call', {
         sessionId,
         toolName: 'return',
         toolId: `call-${Date.now()}`,

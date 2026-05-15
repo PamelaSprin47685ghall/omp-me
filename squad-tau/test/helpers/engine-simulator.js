@@ -14,7 +14,6 @@
  */
 import { reactState } from '../../server/reactor.js';
 import { project } from '../../shared/projections.js';
-import { Events } from '../../shared/events.js';
 
 /**
  * Synchronous Time Traveler.
@@ -46,15 +45,15 @@ export function timeTravel(initialEvents, promptBehavior = () => ({ status: 'ok'
             append(action.type, action.payload);
 
             // Simulate side effects for facts that need async processing
-            if (action.type === Events.SESSION_CREATING) {
+            if (action.type === 'session:creating') {
                 // sessionId is deterministic — use it directly
-                append(Events.SESSION_START, {
+                append('session:start', {
                     sessionId: action.payload.sessionId,
                     nodeId: action.payload.nodeId,
                     phase: action.payload.phase,
                 });
-            } else if (action.type === Events.SESSION_PROMPTING) {
-                append(Events.SESSION_TOOL_CALL, {
+            } else if (action.type === 'session:prompting') {
+                append('session:tool_call', {
                     sessionId: action.payload.sessionId,
                     toolName: 'return',
                     toolId: `call-${log.nextId}`,
@@ -71,5 +70,5 @@ export function timeTravel(initialEvents, promptBehavior = () => ({ status: 'ok'
  * Create a seed event array from a squad init payload.
  */
 export function initSquad(events) {
-    return [{ event: Events.SQUAD_INIT, payload: events }];
+    return [{ event: 'squad:init', payload: events }];
 }

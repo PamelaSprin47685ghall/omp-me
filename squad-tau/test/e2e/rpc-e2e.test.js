@@ -6,7 +6,6 @@ import { setupRpc, rpcSend, waitForResponse, waitForMatch, teardownRpc } from '.
 import { EventLog } from '../../server/event-log.js';
 import { processDelegate } from '../../server/submit-plan.js';
 import squadPlugin from '../../server/plugin.js';
-import { Events } from '../../shared/events.js';
 import { project } from '../../shared/projections.js';
 import { timeTravel, initSquad } from '../helpers/engine-simulator.js';
 
@@ -83,7 +82,7 @@ describe('OMP RPC E2E', () => {
                 expect(result.success).toBe(true);
 
                 const last = eventLog.log[eventLog.log.length - 1];
-                expect(last.event).toBe(Events.SQUAD_INIT);
+                expect(last.event).toBe('squad:init');
                 expect(last.payload.mode).toBe('M');
                 expect(last.payload.nodes).toHaveLength(1);
                 expect(last.payload.nodes[0].id).toBe('n1');
@@ -104,7 +103,7 @@ describe('OMP RPC E2E', () => {
             expect(Object.values(state.squad.nodes).every((n) => n.status === 'approved')).toBe(true);
 
             // SQUAD_COMPLETE must be the last event
-            expect(log[log.length - 1].event).toBe(Events.SQUAD_COMPLETE);
+            expect(log[log.length - 1].event).toBe('squad:complete');
         },
         { timeout: 10_000 },
     );

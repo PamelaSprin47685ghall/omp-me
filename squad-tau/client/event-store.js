@@ -19,8 +19,7 @@ const EventPaths = {
     'session:message': 'sessions',
     'session:tool_call': 'sessions',
     'session:tool_result': 'sessions',
-    'session:message_delta': 'sessions',
-    'session:thinking_delta': 'sessions',
+
     'model_pool:snapshot': 'modelPool',
     'ui:select_session': 'ui',
     'ui:set_view_mode': 'ui',
@@ -53,8 +52,10 @@ class EventStore {
         }
 
         applyEvent(this.state, type, payload);
-        this._trackPath(type);
-        this._notify();
+        if (type !== 'session:message_delta' && type !== 'session:thinking_delta') {
+            this._trackPath(type);
+            this._notify();
+        }
     }
 
     subscribe(listener) {
