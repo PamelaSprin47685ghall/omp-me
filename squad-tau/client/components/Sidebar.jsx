@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { VStack, HStack, Text, Icon, Box, Collapsible } from '@chakra-ui/react';
 import { CheckCircle, XCircle, Clock, RefreshCw, Ban, Circle, Network } from 'lucide-react';
-import { useAppState } from '../use-app-state.js';
+import { usePathState } from '../hooks/useAtomicState.js';
 import { eventStore } from '../event-store.js';
 
 const STATUS_ICONS = { approved: CheckCircle, rejected: XCircle, pending: Clock, active: RefreshCw, authoring: RefreshCw, confirming: RefreshCw, reviewing: RefreshCw, failed: Ban, blocked: Ban };
@@ -12,11 +12,13 @@ function TreeIcon({ status, ...rest }) {
   return <Icon as={IconCmp} boxSize={4} data-status={status} {...rest} />;
 }
 
-function SessionRow({ isSelected, sessionData, onClick }) {
+function SessionRow({ sessionData }) {
   const { sessionId, status } = sessionData;
   const round = (sessionData.retryCount != null ? sessionData.retryCount : 0) + 1;
   const phase = sessionData.phase || 'worker';
   const label = `R${round} ${phase.replace(/_/g, ' ')}`;
+  const handleClick = () => eventStore.dispatch('ui:select_session', { sessionId });
+
   return (
     <HStack
       gap={1}
@@ -24,10 +26,7 @@ function SessionRow({ isSelected, sessionData, onClick }) {
       py="0.5"
       cursor="pointer"
       borderRadius="md"
-      bg={isSelected ? 'blue.subtle' : undefined}
-      color={isSelected ? 'blue.fg' : 'inherit'}
-      fontWeight={isSelected ? 600 : 400}
-      onClick={onClick}
+      onClick={handleClick}
       role="treeitem"
       title={sessionId}
     >
@@ -37,13 +36,14 @@ function SessionRow({ isSelected, sessionData, onClick }) {
   );
 }
 
-function NodeGroup({ nodeId, nodes, sessions, activeSessionId, onSelectSession }) {
-  const node = eventStore.getState().squad.nodes[nodeId];
+function NodeGroup({ nodeId, nodeIds, sessions }) {
   const nodeSessions = useMemo(() => 
     sessions.filter(s => s.nodeId === nodeId),
     [sessions, nodeId]
   );
   const [expanded, setExpanded] = useState(true);
+  const activeSessionId = usePathState('ui', s => s.ui?.activeSessionId);
+  const node = usePathState('squad', s => s.squad.nodes[nodeId]);
   const label = node?.label || node?.id || nodeId;
 
   return (
@@ -63,12 +63,7 @@ function NodeGroup({ nodeId, nodes, sessions, activeSessionId, onSelectSession }
         <Collapsible.Content>
           <Box pl={3} borderLeft="1px solid" borderColor="border">
             {nodeSessions.map(session => (
-              <SessionRow
-                key={session.sessionId}
-                sessionData={session}
-                isSelected={activeSessionId === session.sessionId}
-                onClick={() => onSelectSession(session.sessionId)}
-              />
+              <SessionRow key={session.sessionId} sessionData={session} />
             ))}
           </Box>
         </Collapsible.Content>
@@ -77,9 +72,10 @@ function NodeGroup({ nodeId, nodes, sessions, activeSessionId, onSelectSession }
   );
 }
 
-export default function Sidebar({ activeSessionId, onSelectSession, viewMode, onSelectDAG }) {
-  const nodes = useAppState(s => Object.values(s.squad.nodes || {}));
-  const sessions = useAppState(s => Object.values(s.sessions || {}));
+export default function Sidebar() {
+  const nodes = usePathState('squad', s => Object.values(s.squad.nodes || {}));
+  const sessions = usePathState('sessions', s => Object.values(s.sessions || {}));
+  const viewMode = usePathState('ui', s => s.ui?.viewMode || 'dag');
 
   const nodeIds = useMemo(() => {
     const ids = new Set(nodes.map(n => n.id));
@@ -102,7 +98,7 @@ export default function Sidebar({ activeSessionId, onSelectSession, viewMode, on
         bg={viewMode === 'dag' ? 'blue.subtle' : undefined}
         color={viewMode === 'dag' ? 'blue.fg' : 'inherit'}
         fontWeight={viewMode === 'dag' ? 600 : 400}
-        onClick={onSelectDAG}
+        onClick={() => eventStore.dispatch('ui:set_view_mode', { viewMode: 'dag' })}
         gap={1}
         role="treeitem"
       >
@@ -114,20 +110,13 @@ export default function Sidebar({ activeSessionId, onSelectSession, viewMode, on
         <NodeGroup
           key={id}
           nodeId={id}
-          nodes={nodes}
+          nodeIds={nodeIds}
           sessions={sessions}
-          activeSessionId={activeSessionId}
-          onSelectSession={onSelectSession}
         />
       ))}
 
       {topLevelSessions.map(session => (
-        <SessionRow
-          key={session.sessionId}
-          sessionData={session}
-          isSelected={activeSessionId === session.sessionId}
-          onClick={() => onSelectSession(session.sessionId)}
-        />
+        <SessionRow key={session.sessionId} sessionData={session} />
       ))}
     </VStack>
   );

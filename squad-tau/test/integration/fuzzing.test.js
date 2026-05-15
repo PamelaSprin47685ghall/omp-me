@@ -10,7 +10,6 @@ import { describe, test, expect } from 'bun:test';
 import { project, applyEvent, getInitialState } from '../../shared/projections.js';
 import { reactState } from '../../server/reactor.js';
 import { Events } from '../../shared/events.js';
-import { STATUS, DEFAULTS } from '../../server/constants.js';
 import { timeTravel } from '../helpers/engine-simulator.js';
 
 function pick(arr) {
@@ -23,15 +22,25 @@ function randInt(min, max) {
 const ALL_EVENT_TYPES = Object.values(Events).filter(
     (t) => !t.startsWith('session:message_delta') && !t.startsWith('session:thinking_delta'),
 );
-const NODE_STATUSES = Object.values(STATUS);
+const NODE_STATUSES = [
+    'waiting_deps',
+    'pending',
+    'authoring',
+    'confirming',
+    'reviewing',
+    'approved',
+    'rejected',
+    'blocked',
+    'failed',
+];
 
 function assertConvergedInvariants(state) {
     // DAG barrier
     for (const node of Object.values(state.squad.nodes || {})) {
-        if (node.status !== STATUS.APPROVED) continue;
+        if (node.status !== 'approved') continue;
         for (const depId of node.depends_on || []) {
             const dep = state.squad.nodes[depId];
-            if (dep) expect(dep.status).toBe(STATUS.APPROVED);
+            if (dep) expect(dep.status).toBe('approved');
         }
     }
 }
@@ -150,7 +159,7 @@ describe('Behavioral Fuzzing (causal invariants via TimeTraveler)', () => {
         ]);
         const state = project(log);
         expect(state.squad.status).toBe('complete');
-        expect(state.squad.nodes['n1'].status).toBe(STATUS.APPROVED);
+        expect(state.squad.nodes['n1'].status).toBe('approved');
         assertConvergedInvariants(state);
     });
 
@@ -170,19 +179,13 @@ describe('Behavioral Fuzzing (causal invariants via TimeTraveler)', () => {
         ]);
         const state = project(log);
         expect(state.squad.status).toBe('complete');
-        expect(Object.values(state.squad.nodes).every((n) => n.status === STATUS.APPROVED)).toBe(true);
+        expect(Object.values(state.squad.nodes).every((n) => n.status === 'approved')).toBe(true);
 
         const aAuth = log.findIndex(
-            (e) =>
-                e.event === Events.SQUAD_NODE_STATE &&
-                e.payload.nodeId === 'A' &&
-                e.payload.status === STATUS.AUTHORING,
+            (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'A' && e.payload.status === 'authoring',
         );
         const bAuth = log.findIndex(
-            (e) =>
-                e.event === Events.SQUAD_NODE_STATE &&
-                e.payload.nodeId === 'B' &&
-                e.payload.status === STATUS.AUTHORING,
+            (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'B' && e.payload.status === 'authoring',
         );
         expect(aAuth).toBeLessThan(bAuth);
         assertConvergedInvariants(state);
@@ -206,7 +209,7 @@ describe('Behavioral Fuzzing (causal invariants via TimeTraveler)', () => {
         ]);
         const state = project(log);
         expect(state.squad.status).toBe('complete');
-        expect(Object.values(state.squad.nodes).every((n) => n.status === STATUS.APPROVED)).toBe(true);
+        expect(Object.values(state.squad.nodes).every((n) => n.status === 'approved')).toBe(true);
         assertConvergedInvariants(state);
     });
 
@@ -235,7 +238,7 @@ describe('Behavioral Fuzzing (causal invariants via TimeTraveler)', () => {
         );
         const state = project(log);
         expect(state.squad.status).toBe('complete');
-        expect(state.squad.nodes['n1'].status).toBe(STATUS.APPROVED);
+        expect(state.squad.nodes['n1'].status).toBe('approved');
         expect(reviewCalls).toBe(2);
         assertConvergedInvariants(state);
     });
@@ -261,8 +264,8 @@ describe('Behavioral Fuzzing (causal invariants via TimeTraveler)', () => {
         const state = project(log);
         expect(state.squad.status).toBe('complete');
         const n1 = state.squad.nodes['n1'];
-        expect(n1.status).toBe(STATUS.FAILED);
-        expect(n1.retryCount).toBeGreaterThanOrEqual(DEFAULTS.MAX_RETRIES - 1);
+        expect(n1.status).toBe('failed');
+        expect(n1.retryCount).toBeGreaterThanOrEqual(5 - 1);
         assertConvergedInvariants(state);
     });
 });

@@ -1,11 +1,20 @@
 import React from 'react';
 import { Heading, Button, Badge, Portal, Tooltip, Icon, HStack } from '@chakra-ui/react';
 import { Settings, Wifi, WifiOff, Square } from 'lucide-react';
-import { useAppState } from '../use-app-state.js';
+import { usePathState } from '../hooks/useAtomicState.js';
+import { eventStore } from '../event-store.js';
+import { useWebSocketContext } from '../websocket-context.js';
 
-function Header({ connected, onOpenModelPool, onAbort }) {
-  const squadActive = useAppState(s => s.squad.mode && (s.squad.status === 'active' || s.squad.status === 'complete'));
+export default function Header() {
+  const { connected } = useWebSocketContext();
+  const squadActive = usePathState('squad', s => s.squad.mode && (s.squad.status === 'active' || s.squad.status === 'complete'));
+  const { send } = useWebSocketContext();
   const port = typeof window !== 'undefined' ? window.location.port : '';
+
+  const handleAbort = () => {
+    send({ type: 'abort', payload: {} });
+  };
+
   return (
     <HStack
       as="header"
@@ -28,7 +37,7 @@ function Header({ connected, onOpenModelPool, onAbort }) {
       <HStack>
         <Tooltip.Root>
           <Tooltip.Trigger asChild>
-            <Button variant="ghost" size="sm" onClick={onOpenModelPool} aria-label="Model Pool">
+            <Button variant="ghost" size="sm" onClick={() => eventStore.dispatch('ui:toggle_drawer', { open: true })} aria-label="Model Pool">
               <Icon as={Settings} boxSize={4} />
             </Button>
           </Tooltip.Trigger>
@@ -41,7 +50,7 @@ function Header({ connected, onOpenModelPool, onAbort }) {
         {squadActive && (
           <Tooltip.Root>
             <Tooltip.Trigger asChild>
-              <Button variant="ghost" size="sm" colorPalette="red" onClick={onAbort}>
+              <Button variant="ghost" size="sm" colorPalette="red" onClick={handleAbort}>
                 <Icon as={Square} boxSize={4} />
               </Button>
             </Tooltip.Trigger>
@@ -56,5 +65,3 @@ function Header({ connected, onOpenModelPool, onAbort }) {
     </HStack>
   );
 }
-
-export default Header;

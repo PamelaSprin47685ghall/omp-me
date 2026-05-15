@@ -1,23 +1,28 @@
 import React, { useState, useCallback } from 'react';
 import { Button, HStack, Textarea, Icon } from '@chakra-ui/react';
 import { SendHorizonal } from 'lucide-react';
+import { usePathState } from '../hooks/useAtomicState.js';
+import { eventStore } from '../event-store.js';
+import { useWebSocketContext } from '../websocket-context.js';
 
-export function MessageInput({ sessionId, send, onOptimisticMessage }) {
+export function MessageInput() {
   const [text, setText] = useState('');
+  const { send } = useWebSocketContext();
+  const activeSessionId = usePathState('ui', s => s.ui?.activeSessionId);
 
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
-    if (!trimmed || !sessionId) return;
+    if (!trimmed || !activeSessionId) return;
     const tempId = `opt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    onOptimisticMessage({
-      sessionId,
+    eventStore.dispatch('session:message', {
+      sessionId: activeSessionId,
       role: 'user',
       content: [{ type: 'text', text: trimmed }],
       messageId: tempId,
     });
-    send({ type: 'session:user_message', payload: { sessionId, text: trimmed, messageId: tempId } });
+    send({ type: 'session:user_message', payload: { sessionId: activeSessionId, text: trimmed, messageId: tempId } });
     setText('');
-  }, [text, sessionId, send, onOptimisticMessage]);
+  }, [text, activeSessionId, send]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }

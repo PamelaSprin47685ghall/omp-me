@@ -1,8 +1,9 @@
 import React from 'react';
 import { Center, VStack, Heading, Text, Button, Icon } from '@chakra-ui/react';
 import { Users, Settings } from 'lucide-react';
+import { eventStore } from '../event-store.js';
 
-export default function WelcomeView({ onOpenModelPool }) {
+export default function WelcomeView() {
   return (
     <Center h="full" p={8}>
       <VStack gap={8} maxW="md" textAlign="center">
@@ -18,7 +19,7 @@ export default function WelcomeView({ onOpenModelPool }) {
         <Button
           colorPalette="blue"
           size="lg"
-          onClick={onOpenModelPool}
+          onClick={() => eventStore.dispatch('ui:toggle_drawer', { open: true })}
         >
           <Icon as={Settings} boxSize={4} />
           Configure Model Pool

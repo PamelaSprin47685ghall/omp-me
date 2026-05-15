@@ -1,60 +1,16 @@
-#!/usr/bin/env bun
 /**
- * Physical real-environment simulation (standalone).
+ * Physical real-environment simulation.
  *
  * Start OMP in tmux → send /squad → poll for UI URL → run baseline + chaos tests.
- * Usage:  SQUAD_MODEL=p-openai/gpt-5.2 ./simulation/squad-physical.js
- *
- * This is NOT a bun:test file — run it directly:
- *   bun run simulation/squad-physical.js
+ * Uses bun:test primitives.
+ * Run explicitly (not picked up by default `bun test`):
+ *   SQUAD_MODEL=p-openai/gpt-5.2 bun test ./simulation.js
  */
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test';
 import path from 'path';
 import { setupBrowser, teardownBrowser } from './test/helpers/puppeteer-setup.js';
 
-let passed = 0;
-let failed = 0;
-
-function assert(ok, label) {
-    if (ok) {
-        passed++;
-        console.log(`  ✓ ${label}`);
-    } else {
-        failed++;
-        console.error(`  ✗ ${label}`);
-    }
-}
-
-async function assertThrows(fn, label) {
-    try {
-        await fn();
-        failed++;
-        console.error(`  ✗ ${label} (expected throw)`);
-    } catch {
-        passed++;
-        console.log(`  ✓ ${label}`);
-    }
-}
-
-function assertEqual(actual, expected, label) {
-    const ok = actual === expected || (Number.isNaN(actual) && Number.isNaN(expected));
-    if (ok) {
-        passed++;
-        console.log(`  ✓ ${label}`);
-    } else {
-        failed++;
-        console.error(`  ✗ ${label} — expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
-    }
-}
-
-function assertMatch(str, re, label) {
-    if (re.test(str)) {
-        passed++;
-        console.log(`  ✓ ${label}`);
-    } else {
-        failed++;
-        console.error(`  ✗ ${label} — ${JSON.stringify(str)} does not match ${re}`);
-    }
-}
+let tmuxSess, testDir, uiUrl, browser, page;
 
 function fileExists(fp) {
     return Bun.spawnSync({ cmd: ['test', '-f', fp] }).exitCode === 0;
@@ -108,13 +64,7 @@ function wsPingPong(wsUrl, count, timeoutMs) {
     });
 }
 
-async function main() {
-    let tmuxSess, testDir, uiUrl, browser, page;
-
-    console.log('\n=== Squad-Tau Physical Simulation ===\n');
-
-    // ── Setup ──────────────────────────────────────────────
-    console.log('[setup] starting');
+beforeAll(async () => {
     testDir = `/tmp/squad-physical-${Date.now()}`;
     tmuxSess = `squad-physical-${process.pid}`;
     const pluginPath = path.resolve(process.cwd(), 'index.js');
@@ -126,88 +76,80 @@ async function main() {
     Bun.spawnSync({
         cmd: ['tmux', 'new-session', '-d', '-s', tmuxSess, '-c', testDir, 'omp', ...modelArgs, '-e', pluginPath],
     });
-    console.log('[setup] tmux session created:', tmuxSess);
+    console.log('[setup] tmux session:', tmuxSess);
 
+    await pollFor(
+        () => {
+            const r = Bun.spawnSync({ cmd: ['tmux', 'capture-pane', '-t', tmuxSess, '-p', '-S', '-5'] });
+            return new TextDecoder().decode(r.stdout).includes('omp') ? true : null;
+        },
+        15000,
+        500,
+    );
+    console.log('[setup] CLI ready, sending /squad');
+
+    Bun.spawnSync({
+        cmd: [
+            'tmux',
+            'send-keys',
+            '-t',
+            tmuxSess,
+            '/squad 在当前目录写一个简单的计算器程序，支持加减乘除，用 JavaScript 实现',
+            'C-m',
+        ],
+    });
+    console.log('[setup] /squad sent, polling for URL...');
+
+    const urlMatch = await pollFor(
+        () => {
+            const r = Bun.spawnSync({ cmd: ['tmux', 'capture-pane', '-t', tmuxSess, '-p', '-S', '-20'] });
+            const m = new TextDecoder().decode(r.stdout).match(/Squad UI: (http:\/\/127\.0\.0\.1:\d+)/);
+            return m?.length > 1 ? m[1] : null;
+        },
+        30000,
+        500,
+    );
+    if (!urlMatch) throw new Error('Failed to get Squad UI URL');
+    uiUrl = urlMatch;
+
+    const launched = await setupBrowser();
+    browser = launched.browser;
+    page = launched.page;
+    console.log('[setup] URL:', uiUrl);
+}, 60000);
+
+afterAll(() => {
+    if (browser) teardownBrowser(browser).catch(() => {});
     try {
-        await pollFor(
-            () => {
-                const r = Bun.spawnSync({ cmd: ['tmux', 'capture-pane', '-t', tmuxSess, '-p', '-S', '-5'] });
-                return new TextDecoder().decode(r.stdout).includes('omp') ? true : null;
-            },
-            15000,
-            500,
-        );
-        console.log('[setup] CLI ready, sending /squad');
+        Bun.spawnSync({ cmd: ['tmux', 'kill-session', '-t', tmuxSess] });
+    } catch {}
+});
 
-        Bun.spawnSync({
-            cmd: [
-                'tmux',
-                'send-keys',
-                '-t',
-                tmuxSess,
-                '/squad 在当前目录写一个简单的计算器程序，支持加减乘除，用 JavaScript 实现',
-                'C-m',
-            ],
-        });
-        console.log('[setup] /squad sent, polling for URL...');
-
-        await pollFor(
-            () => {
-                const r = Bun.spawnSync({ cmd: ['tmux', 'capture-pane', '-t', tmuxSess, '-p', '-S', '-20'] });
-                const m = new TextDecoder().decode(r.stdout).match(/Squad UI: (http:\/\/127\.0\.0\.1:\d+)/);
-                return m ? ((uiUrl = m[1]), console.log('[setup] URL:', uiUrl), true) : null;
-            },
-            30000,
-            500,
-        );
-
-        if (!uiUrl) throw new Error('Failed to get Squad UI URL');
-
-        const launched = await setupBrowser();
-        browser = launched.browser;
-        page = launched.page;
-    } catch (err) {
-        console.error('[setup] failed:', err.message);
-        cleanup();
-        process.exit(1);
-    }
-
-    // ── BASELINE ──────────────────────────────────────────
-    console.log('\n--- Baseline ---');
-
-    try {
+describe('Squad Physical Simulation', () => {
+    test('browser mounts the app shell with title Squad-Tau', async () => {
         await page.goto(uiUrl, { waitUntil: 'domcontentloaded', timeout: 10000 });
         await page.waitForSelector('[data-app-title]', { timeout: 10000 });
         const title = await page.$eval('[data-app-title]', (el) => el.textContent);
-        assert(title === 'Squad-Tau', 'browser mounts the app shell with title Squad-Tau');
-    } catch (err) {
-        assert(false, `browser mounts the app shell: ${err.message}`);
-    }
+        expect(title).toBe('Squad-Tau');
+    }, 15000);
 
-    try {
+    test('HTTP /api/status returns 200 with correct fields', async () => {
         const resp = await fetch(`${uiUrl}/api/status`);
-        assertEqual(resp.status, 200, 'HTTP /api/status returns 200');
+        expect(resp.status).toBe(200);
         const data = await resp.json();
-        assertEqual(data.status, 'ok', 'status field is "ok"');
-        assert(typeof data.port === 'number', 'port is a number');
-    } catch (err) {
-        assert(false, `HTTP /api/status: ${err.message}`);
-    }
+        expect(data.status).toBe('ok');
+        expect(typeof data.port).toBe('number');
+    });
 
-    try {
+    test('HTTP /main.jsx returns 200 with JS content-type', async () => {
         const resp = await fetch(`${uiUrl}/main.jsx`);
-        assertEqual(resp.status, 200, 'HTTP /main.jsx returns 200');
-        assert(resp.headers.get('content-type').includes('javascript'), 'content-type includes javascript');
+        expect(resp.status).toBe(200);
+        expect(resp.headers.get('content-type')).toMatch(/javascript/);
         const text = await resp.text();
-        assert(text.includes('createRoot'), 'response contains createRoot');
-    } catch (err) {
-        assert(false, `HTTP /main.jsx: ${err.message}`);
-    }
+        expect(text).toMatch(/createRoot/);
+    });
 
-    // ── CHAOS / STRESS ────────────────────────────────────
-    console.log('\n--- Chaos / Stress ---');
-
-    try {
+    test('WS survives rapid reconnections (5×3 pongs)', async () => {
         const wsUrl = uiUrl.replace('http', 'ws') + '/ws';
         const counts = [];
         for (let i = 0; i < 5; i++) {
@@ -218,15 +160,10 @@ async function main() {
                 counts.push(0);
             }
         }
-        assert(
-            counts.every((c) => c >= 3),
-            'WS survives rapid reconnections (5×3 pongs)',
-        );
-    } catch (err) {
-        assert(false, `WS reconnect: ${err.message}`);
-    }
+        expect(counts.every((c) => c >= 3)).toBe(true);
+    }, 60000);
 
-    try {
+    test('concurrent HTTP + WS stress', async () => {
         const wsUrl = uiUrl.replace('http', 'ws') + '/ws';
         const httpStorm = Array.from({ length: 10 }, async () => {
             try {
@@ -244,22 +181,11 @@ async function main() {
         });
         const httpStatuses = await Promise.all(httpStorm);
         const wsLengths = await Promise.all(wsStorm);
-        assert(
-            httpStatuses.every((s) => s === 200),
-            'concurrent HTTP + WS: all 10 HTTP requests return 200',
-        );
-        assert(
-            wsLengths.every((c) => c >= 3),
-            'concurrent HTTP + WS: all 3 WS sessions get 3 pongs',
-        );
-    } catch (err) {
-        assert(false, `concurrent stress: ${err.message}`);
-    }
+        expect(httpStatuses.every((s) => s === 200)).toBe(true);
+        expect(wsLengths.every((c) => c >= 3)).toBe(true);
+    }, 30000);
 
-    // ── SQUAD PROGRESS ────────────────────────────────────
-    console.log('\n--- Squad Progress ---');
-
-    try {
+    test('WebSocket receives squad:init event', async () => {
         const wsUrl = uiUrl.replace('http', 'ws') + '/ws';
         const ws = new WebSocket(wsUrl);
         const init = await new Promise((resolve, reject) => {
@@ -283,15 +209,12 @@ async function main() {
                 reject(new Error('WS error'));
             };
         });
-        console.log('[test] got squad:init, mode:', init.payload.mode, 'nodes:', init.payload.nodes.length);
-        assert(init.payload && init.payload.mode, 'squad:init payload has mode');
-        assertMatch(init.payload.mode, /^[ML]$/, 'mode is M or L');
-        assert(Array.isArray(init.payload.nodes), 'nodes is an array');
-    } catch (err) {
-        assert(false, `WebSocket receives squad init: ${err.message}`);
-    }
+        expect(init.payload).toBeDefined();
+        expect(init.payload.mode).toMatch(/^[ML]$/);
+        expect(Array.isArray(init.payload.nodes)).toBe(true);
+    }, 200000);
 
-    try {
+    test('squad completes and writes .squad-complete marker', async () => {
         const markerPath = `${testDir}/.squad-complete`;
         const markerRaw = await pollFor(
             () => {
@@ -303,30 +226,8 @@ async function main() {
             5000,
         );
         const marker = JSON.parse(markerRaw);
-        console.log('[test] complete! nodes:', marker.nodes, 'duration:', (marker.durationMs / 1000).toFixed(1) + 's');
-        assert(marker.completedAt > 0, 'completedAt is positive');
-        assert(marker.durationMs > 0, 'durationMs is positive');
-        assert(marker.nodes >= 1, 'at least 1 node completed');
-    } catch (err) {
-        assert(false, `squad completion marker: ${err.message}`);
-    }
-
-    // ── Result ────────────────────────────────────────────
-    cleanup();
-
-    console.log(`\n--- Result: ${passed} passed, ${failed} failed ---\n`);
-    process.exit(failed > 0 ? 1 : 0);
-}
-
-function cleanup() {
-    if (browser) teardownBrowser(browser).catch(() => {});
-    try {
-        Bun.spawnSync({ cmd: ['tmux', 'kill-session', '-t', tmuxSess] });
-    } catch {}
-}
-
-main().catch((err) => {
-    console.error('Fatal:', err);
-    cleanup();
-    process.exit(1);
+        expect(marker.completedAt).toBeGreaterThan(0);
+        expect(marker.durationMs).toBeGreaterThan(0);
+        expect(marker.nodes).toBeGreaterThanOrEqual(1);
+    }, 620000);
 });

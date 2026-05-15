@@ -1,18 +1,17 @@
 import { describe, test, expect } from 'bun:test';
 import { reactState } from '../../server/reactor.js';
 import { Events } from '../../shared/events.js';
-import { STATUS } from '../../server/constants.js';
 import { createBaseState, setStatus, createSession } from '../helpers/state-builder.js';
 
 function approveNode(st, id) {
     setStatus(st, id, 'idle');
-    setStatus(st, id, STATUS.AUTHORING);
+    setStatus(st, id, 'authoring');
     createSession(st, id, 'authoring');
-    setStatus(st, id, STATUS.CONFIRMING);
+    setStatus(st, id, 'confirming');
     createSession(st, id, 'confirming');
-    setStatus(st, id, STATUS.REVIEWING);
+    setStatus(st, id, 'reviewing');
     createSession(st, id, 'reviewing');
-    setStatus(st, id, STATUS.APPROVED, { summary: `${id} done` });
+    setStatus(st, id, 'approved', { summary: `${id} done` });
 }
 
 describe('happy path', () => {
@@ -39,9 +38,7 @@ describe('outer review rejection', () => {
         const st = createBaseState('n1');
         approveNode(st, 'n1');
         st.squad.outerReview = { status: 'rejected', round: 1, feedback: 'rework' };
-        const a = reactState(st).find(
-            (e) => e.type === Events.SQUAD_NODE_STATE && e.payload.status === STATUS.AUTHORING,
-        );
+        const a = reactState(st).find((e) => e.type === Events.SQUAD_NODE_STATE && e.payload.status === 'authoring');
         expect(a).toBeDefined();
         expect(a.payload.retryCount).toBe(1);
     });

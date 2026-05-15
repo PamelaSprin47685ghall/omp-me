@@ -1,20 +1,19 @@
 import { describe, test, expect } from 'bun:test';
 import { reactState } from '../../server/reactor.js';
 import { Events } from '../../shared/events.js';
-import { STATUS } from '../../server/constants.js';
 import { createBaseState, setStatus, createSession, giveReturn } from '../helpers/state-builder.js';
 import { sessionIdFor } from '../../shared/events.js';
 
 function approvedState() {
     const st = createBaseState('n1');
     setStatus(st, 'n1', 'idle');
-    setStatus(st, 'n1', STATUS.AUTHORING);
+    setStatus(st, 'n1', 'authoring');
     createSession(st, 'n1', 'authoring');
-    setStatus(st, 'n1', STATUS.CONFIRMING);
+    setStatus(st, 'n1', 'confirming');
     createSession(st, 'n1', 'confirming');
-    setStatus(st, 'n1', STATUS.REVIEWING);
+    setStatus(st, 'n1', 'reviewing');
     createSession(st, 'n1', 'reviewing');
-    setStatus(st, 'n1', STATUS.APPROVED);
+    setStatus(st, 'n1', 'approved');
     return st;
 }
 

@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useEffect } from 'react';
+import React, { useEffect } from 'react';
 import {
   Alert,
   Badge,
@@ -7,37 +7,26 @@ import {
   HStack,
   VStack,
 } from '@chakra-ui/react';
-import { useAppState } from '../use-app-state.js';
+import { usePathState } from '../hooks/useAtomicState.js';
 import { eventStore } from '../event-store.js';
 import DAGView from './DAGView.jsx';
 import MessageList from './MessageList.jsx';
 import { MessageInput } from './MessageInput.jsx';
 import WelcomeView from './WelcomeView.jsx';
 
-export default function MainContent({
-  onNodeClick, onOpenModelPool, onOptimisticMessage, send,
-}) {
-  const viewMode = useAppState(s => s.ui?.viewMode || 'dag');
-  const activeSessionId = useAppState(s => s.ui?.activeSessionId);
-  const bannerDismissed = useAppState(s => s.ui?.bannerDismissed || false);
-  const prevSquadActive = useRef(false);
-  const squadActive = useAppState(s => s.squad.mode && (s.squad.status === 'active' || s.squad.status === 'complete'));
-  const nodes = useAppState(s => Object.values(s.squad.nodes || {}));
-  const sessions = useAppState(s => s.sessions || {});
-  const results = useAppState(s => s.squad.results || []);
-  const messages = useAppState(s => activeSessionId ? (s.sessions[activeSessionId]?.messages || []) : []);
-
-  useEffect(() => {
-    if (squadActive && !prevSquadActive.current && bannerDismissed) {
-      eventStore.dispatch('ui:dismiss_banner', {});
-    }
-    prevSquadActive.current = squadActive;
-  }, [squadActive, bannerDismissed]);
+export default function MainContent() {
+  const viewMode = usePathState('ui', s => s.ui?.viewMode || 'dag');
+  const activeSessionId = usePathState('ui', s => s.ui?.activeSessionId);
+  const bannerDismissed = usePathState('ui', s => s.ui?.bannerDismissed || false);
+  const squadActive = usePathState('squad', s => s.squad.mode && (s.squad.status === 'active' || s.squad.status === 'complete'));
+  const nodes = usePathState('squad', s => Object.values(s.squad.nodes || {}));
+  const sessions = usePathState('sessions', s => s.sessions || {});
+  const results = usePathState('squad', s => s.squad.results || []);
 
   let content;
 
   if (!squadActive) {
-    content = <WelcomeView onOpenModelPool={onOpenModelPool} />;
+    content = <WelcomeView />;
   } else if (viewMode === 'dag') {
     const allSuccess = results.length > 0 && results.every(r => r.status === 'approved');
     const showFailed = !bannerDismissed && nodes.some(n => n.status === 'failed' || n.status === 'blocked');
@@ -67,7 +56,7 @@ export default function MainContent({
             </Alert.Content>
           </Alert.Root>
         )}
-        <DAGView activeNodeId={null} onNodeClick={onNodeClick} />
+        <DAGView />
       </VStack>
     );
   } else {
@@ -83,14 +72,8 @@ export default function MainContent({
             <Badge>{activeSession.status}</Badge>
           </HStack>
         )}
-        <MessageList messages={messages} sessionRole={sessionRole} flex={1} minH={0} />
-        {activeSession && (
-          <MessageInput
-            sessionId={activeSessionId}
-            send={send}
-            onOptimisticMessage={onOptimisticMessage}
-          />
-        )}
+        <MessageList flex={1} minH={0} />
+        <MessageInput />
       </VStack>
     );
   }

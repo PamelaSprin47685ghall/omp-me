@@ -10,7 +10,8 @@
  *   - Config-driven concurrency from state.modelPool.maxWorkers
  */
 import { Events, sessionIdFor } from '../shared/events.js';
-import { STATUS, DEFAULTS } from './constants.js';
+
+const MAX_RETRIES = 5;
 
 export function reactState(state) {
     const actions = [];
@@ -29,8 +30,8 @@ export function reactState(state) {
     }
 
     // ── 1. Outer Review Gate ──
-    const completed = allNodes.filter((n) => n.status === STATUS.APPROVED);
-    const failed = allNodes.filter((n) => n.status === STATUS.FAILED || n.status === STATUS.BLOCKED);
+    const completed = allNodes.filter((n) => n.status === 'approved');
+    const failed = allNodes.filter((n) => n.status === 'failed' || n.status === 'blocked');
     const hasActive = allNodes.some((n) => !['approved', 'failed', 'blocked', undefined].includes(n.status));
 
     if (!hasActive && allNodes.length > 0) {
@@ -58,7 +59,7 @@ export function reactState(state) {
                             type: Events.SQUAD_NODE_STATE,
                             payload: {
                                 nodeId: node.id,
-                                status: STATUS.AUTHORING,
+                                status: 'authoring',
                                 retryCount: (node.retryCount || 0) + 1,
                                 feedback: reason,
                             },
@@ -90,10 +91,10 @@ export function reactState(state) {
             return d && ['failed', 'blocked'].includes(d.status);
         });
         if (blocking) {
-            if (node.status !== STATUS.BLOCKED) {
+            if (node.status !== 'blocked') {
                 actions.push({
                     type: Events.SQUAD_NODE_STATE,
-                    payload: { nodeId: node.id, status: STATUS.BLOCKED, summary: 'Blocked by upstream' },
+                    payload: { nodeId: node.id, status: 'blocked', summary: 'Blocked by upstream' },
                 });
             }
             continue;
@@ -101,7 +102,7 @@ export function reactState(state) {
 
         const depsMet = deps.every((id) => {
             const d = nodes[id];
-            return d && d.status === STATUS.APPROVED;
+            return d && d.status === 'approved';
         });
         if (!depsMet && node.status !== 'idle') continue;
 
@@ -110,16 +111,16 @@ export function reactState(state) {
                 if (depsMet)
                     actions.push({
                         type: Events.SQUAD_NODE_STATE,
-                        payload: { nodeId: node.id, status: STATUS.AUTHORING },
+                        payload: { nodeId: node.id, status: 'authoring' },
                     });
                 break;
-            case STATUS.AUTHORING:
+            case 'authoring':
                 handlePhase(node, 'authoring', state, actions);
                 break;
-            case STATUS.CONFIRMING:
+            case 'confirming':
                 handlePhase(node, 'confirming', state, actions);
                 break;
-            case STATUS.REVIEWING:
+            case 'reviewing':
                 handlePhase(node, 'reviewing', state, actions);
                 break;
         }
@@ -143,27 +144,27 @@ function handlePhase(node, role, state, actions) {
                         type: Events.SQUAD_NODE_STATE,
                         payload: {
                             nodeId: node.id,
-                            status: STATUS.APPROVED,
+                            status: 'approved',
                             summary: p.reason,
                             affectedFiles: p.affected_files,
                         },
                     });
                 } else {
                     const rc = (node.retryCount || 0) + 1;
-                    if (rc >= DEFAULTS.MAX_RETRIES) {
+                    if (rc >= MAX_RETRIES) {
                         actions.push({
                             type: Events.SQUAD_NODE_STATE,
-                            payload: { nodeId: node.id, status: STATUS.FAILED },
+                            payload: { nodeId: node.id, status: 'failed' },
                         });
                     } else {
                         actions.push({
                             type: Events.SQUAD_NODE_STATE,
-                            payload: { nodeId: node.id, status: STATUS.AUTHORING, retryCount: rc, feedback: p.reason },
+                            payload: { nodeId: node.id, status: 'authoring', retryCount: rc, feedback: p.reason },
                         });
                     }
                 }
             } else {
-                const next = role === 'authoring' ? STATUS.CONFIRMING : STATUS.REVIEWING;
+                const next = role === 'authoring' ? 'confirming' : 'reviewing';
                 actions.push({ type: Events.SQUAD_NODE_STATE, payload: { nodeId: node.id, status: next } });
             }
             return;

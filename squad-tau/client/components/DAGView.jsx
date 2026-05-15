@@ -2,7 +2,8 @@ import React, { useMemo, useCallback, useRef } from 'react';
 import { Center, VStack, Text, Icon } from '@chakra-ui/react';
 import { GitBranch, AlertTriangle } from 'lucide-react';
 import { renderMermaidSVG, THEMES } from 'beautiful-mermaid';
-import { useAppState } from '../use-app-state.js';
+import { usePathState } from '../hooks/useAtomicState.js';
+import { eventStore } from '../event-store.js';
 
 const STATUS_COLOR = Object.freeze({
   waiting_deps: '#6c7a89',
@@ -18,24 +19,22 @@ const STATUS_COLOR = Object.freeze({
 
 const MERMAID_THEME = THEMES['github-light'];
 
-export default function DAGView({ activeNodeId, onNodeClick }) {
-  const nodes = useAppState(s => Object.values(s.squad.nodes || {}));
-  const onClickRef = useRef(onNodeClick);
-  onClickRef.current = onNodeClick;
-  const nodeList = nodes;
+export default function DAGView() {
+  const nodes = usePathState('squad', s => Object.values(s.squad.nodes || {}));
+  const activeNodeId = usePathState('ui', s => s.ui?.activeSessionId);
 
   const svg = useMemo(() => {
-    if (!nodeList?.length) return null;
+    if (!nodes?.length) return null;
     const lines = ['graph TD'];
-    const nodeMap = new Map(nodeList.map((node) => [node.id, node]));
-    nodeList.forEach((node) => {
+    const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+    nodes.forEach((node) => {
       const shape = node.id === activeNodeId ? `(${node.id})` : `[${node.id}]`;
       const statusColor = STATUS_COLOR[node.status] || STATUS_COLOR.pending;
       lines.push(`    ${node.id}${shape}`);
       lines.push(`    style ${node.id} fill:${statusColor}22,stroke:${statusColor},stroke-width:${node.id === activeNodeId ? 3 : 2}px`);
     });
     lines.push('    linkStyle default stroke:var(--app-mermaid-line),stroke-width:2px');
-    nodeList.forEach((node) => {
+    nodes.forEach((node) => {
       (node.depends_on || []).forEach((dep) => {
         if (nodeMap.has(dep)) lines.push(`    ${dep} --> ${node.id}`);
       });
@@ -45,14 +44,19 @@ export default function DAGView({ activeNodeId, onNodeClick }) {
     } catch {
       return null;
     }
-  }, [nodeList, activeNodeId]);
+  }, [nodes, activeNodeId]);
 
   const handleClick = useCallback((event) => {
     const node = event.target.closest('[data-id]');
-    if (node) onClickRef.current?.(node.dataset.id);
+    if (node) {
+      const state = eventStore.getState();
+      const nodeId = node.dataset.id;
+      const session = Object.values(state.sessions).find((s) => s.nodeId === nodeId);
+      if (session) eventStore.dispatch('ui:select_session', { sessionId: session.sessionId });
+    }
   }, []);
 
-  if (!nodeList.length) {
+  if (!nodes.length) {
     return (
       <Center minH="300px">
         <VStack>

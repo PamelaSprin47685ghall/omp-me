@@ -1,7 +1,6 @@
 import { describe, test, expect } from 'bun:test';
 import { project } from '../../shared/projections.js';
 import { Events } from '../../shared/events.js';
-import { STATUS } from '../../server/constants.js';
 import { timeTravel, initSquad } from '../helpers/engine-simulator.js';
 
 function firstNode(state) {
@@ -19,7 +18,7 @@ describe('M mode — single node', () => {
         );
         const state = project(log);
         expect(state.squad.status).toBe('complete');
-        expect(Object.values(state.squad.nodes).every((n) => n.status === STATUS.APPROVED)).toBe(true);
+        expect(Object.values(state.squad.nodes).every((n) => n.status === 'approved')).toBe(true);
         expect(state.squad.results.length).toBe(1);
     });
 
@@ -49,18 +48,12 @@ describe('L mode — chain', () => {
         );
         const state = project(log);
         expect(state.squad.status).toBe('complete');
-        expect(Object.values(state.squad.nodes).every((n) => n.status === STATUS.APPROVED)).toBe(true);
+        expect(Object.values(state.squad.nodes).every((n) => n.status === 'approved')).toBe(true);
         const n1a = log.findIndex(
-            (e) =>
-                e.event === Events.SQUAD_NODE_STATE &&
-                e.payload.nodeId === 'n1' &&
-                e.payload.status === STATUS.AUTHORING,
+            (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'n1' && e.payload.status === 'authoring',
         );
         const n2a = log.findIndex(
-            (e) =>
-                e.event === Events.SQUAD_NODE_STATE &&
-                e.payload.nodeId === 'n2' &&
-                e.payload.status === STATUS.AUTHORING,
+            (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'n2' && e.payload.status === 'authoring',
         );
         expect(n2a).toBeGreaterThan(n1a);
     });
@@ -82,29 +75,19 @@ describe('diamond A -> B,C -> D', () => {
         );
         const state = project(log);
         expect(state.squad.status).toBe('complete');
-        expect(Object.values(state.squad.nodes).every((n) => n.status === STATUS.APPROVED)).toBe(true);
+        expect(Object.values(state.squad.nodes).every((n) => n.status === 'approved')).toBe(true);
         const aA = log.findIndex(
-            (e) =>
-                e.event === Events.SQUAD_NODE_STATE &&
-                e.payload.nodeId === 'A' &&
-                e.payload.status === STATUS.AUTHORING,
+            (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'A' && e.payload.status === 'authoring',
         );
         const bA = log.findIndex(
-            (e) =>
-                e.event === Events.SQUAD_NODE_STATE &&
-                e.payload.nodeId === 'B' &&
-                e.payload.status === STATUS.AUTHORING,
+            (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'B' && e.payload.status === 'authoring',
         );
         const dA = log.findIndex(
-            (e) =>
-                e.event === Events.SQUAD_NODE_STATE &&
-                e.payload.nodeId === 'D' &&
-                e.payload.status === STATUS.AUTHORING,
+            (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'D' && e.payload.status === 'authoring',
         );
         expect(bA).toBeGreaterThan(aA);
         const bAp = log.findIndex(
-            (e) =>
-                e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'B' && e.payload.status === STATUS.APPROVED,
+            (e) => e.event === Events.SQUAD_NODE_STATE && e.payload.nodeId === 'B' && e.payload.status === 'approved',
         );
         expect(dA).toBeGreaterThan(bAp);
     });
@@ -129,7 +112,7 @@ describe('retry', () => {
         );
         const state = project(log);
         expect(state.squad.status).toBe('complete');
-        expect(firstNode(state).status).toBe(STATUS.APPROVED);
+        expect(firstNode(state).status).toBe('approved');
         expect(calls).toBe(2);
     });
 
@@ -165,7 +148,7 @@ describe('outer review rejection cycle', () => {
         );
         const state = project(log);
         expect(state.squad.status).toBe('complete');
-        expect(state.squad.nodes['n1'].status).toBe(STATUS.APPROVED);
+        expect(state.squad.nodes['n1'].status).toBe('approved');
         expect(log.filter((e) => e.event === Events.SQUAD_OUTER_REVIEW_START).length).toBe(2);
     });
 });

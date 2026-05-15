@@ -1,5 +1,6 @@
 import React from 'react';
-import { useAppState } from '../use-app-state.js';
+import { usePathState } from '../hooks/useAtomicState.js';
+import { eventStore } from '../event-store.js';
 import {
   Button,
   Drawer,
@@ -9,13 +10,14 @@ import {
 } from '@chakra-ui/react';
 import { Settings } from 'lucide-react';
 
-export default function ModelPoolDrawer({ isOpen, onClose }) {
-  const maxWorkers = useAppState(s => s.modelPool?.maxWorkers || 3);
-  const sessions = useAppState(s => Object.values(s.sessions || {}));
+export default function ModelPoolDrawer() {
+  const isOpen = usePathState('ui', s => s.ui?.modelPoolOpen || false);
+  const maxWorkers = usePathState('modelPool', s => s.modelPool?.maxWorkers || 3);
+  const sessions = usePathState('sessions', s => Object.values(s.sessions || {}));
   const activeSessions = sessions.filter(s => s.status === 'active' || s.status === 'creating');
 
   return (
-    <Drawer.Root open={isOpen} onOpenChange={({ open }) => { if (!open) onClose(); }} placement="end" size="sm">
+    <Drawer.Root open={isOpen} onOpenChange={({ open }) => { if (!open) eventStore.dispatch('ui:toggle_drawer', { open: false }); }} placement="end" size="sm">
       <Drawer.Backdrop />
       <Drawer.Positioner>
         <Drawer.Content>

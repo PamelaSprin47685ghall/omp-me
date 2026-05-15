@@ -1,16 +1,15 @@
 import { describe, test, expect } from 'bun:test';
 import { reactState } from '../../server/reactor.js';
-import { STATUS } from '../../server/constants.js';
 import { createBaseState, setStatus, createSession } from '../helpers/state-builder.js';
 
 function approveNode(st, id) {
-    setStatus(st, id, STATUS.AUTHORING);
+    setStatus(st, id, 'authoring');
     createSession(st, id, 'authoring');
-    setStatus(st, id, STATUS.CONFIRMING);
+    setStatus(st, id, 'confirming');
     createSession(st, id, 'confirming');
-    setStatus(st, id, STATUS.REVIEWING);
+    setStatus(st, id, 'reviewing');
     createSession(st, id, 'reviewing');
-    setStatus(st, id, STATUS.APPROVED);
+    setStatus(st, id, 'approved');
 }
 
 describe('chain dependency: n1 -> n2', () => {
@@ -24,10 +23,10 @@ describe('chain dependency: n1 -> n2', () => {
         let e = reactState(st);
         expect(e.length).toBe(1);
         expect(e[0].payload.nodeId).toBe('n1');
-        expect(e[0].payload.status).toBe(STATUS.AUTHORING);
+        expect(e[0].payload.status).toBe('authoring');
         approveNode(st, 'n1');
         e = reactState(st);
-        expect(e.some((a) => a.payload.nodeId === 'n2' && a.payload.status === STATUS.AUTHORING)).toBe(true);
+        expect(e.some((a) => a.payload.nodeId === 'n2' && a.payload.status === 'authoring')).toBe(true);
     });
 
     test('n2 blocked when n1 fails', () => {
@@ -37,9 +36,9 @@ describe('chain dependency: n1 -> n2', () => {
         );
         setStatus(st, 'n1', 'idle');
         setStatus(st, 'n2', 'idle');
-        setStatus(st, 'n1', STATUS.AUTHORING);
-        setStatus(st, 'n1', STATUS.FAILED);
-        const block = reactState(st).find((e) => e.payload.nodeId === 'n2' && e.payload.status === STATUS.BLOCKED);
+        setStatus(st, 'n1', 'authoring');
+        setStatus(st, 'n1', 'failed');
+        const block = reactState(st).find((e) => e.payload.nodeId === 'n2' && e.payload.status === 'blocked');
         expect(block).toBeDefined();
     });
 
@@ -50,12 +49,12 @@ describe('chain dependency: n1 -> n2', () => {
         );
         setStatus(st, 'n1', 'idle');
         setStatus(st, 'n2', 'idle');
-        setStatus(st, 'n1', STATUS.AUTHORING);
-        setStatus(st, 'n1', STATUS.FAILED);
-        setStatus(st, 'n2', STATUS.BLOCKED);
+        setStatus(st, 'n1', 'authoring');
+        setStatus(st, 'n1', 'failed');
+        setStatus(st, 'n2', 'blocked');
         for (let i = 0; i < 3; i++) {
             expect(
-                reactState(st).filter((e) => e.payload.nodeId === 'n2' && e.payload.status === STATUS.BLOCKED).length,
+                reactState(st).filter((e) => e.payload.nodeId === 'n2' && e.payload.status === 'blocked').length,
             ).toBe(0);
         }
     });
@@ -84,10 +83,10 @@ describe('partial failure completion', () => {
         const st = createBaseState('n1', 'n2');
         setStatus(st, 'n1', 'idle');
         setStatus(st, 'n2', 'idle');
-        setStatus(st, 'n1', STATUS.AUTHORING);
-        setStatus(st, 'n1', STATUS.APPROVED, { summary: 'ok' });
-        setStatus(st, 'n2', STATUS.AUTHORING);
-        setStatus(st, 'n2', STATUS.FAILED);
+        setStatus(st, 'n1', 'authoring');
+        setStatus(st, 'n1', 'approved', { summary: 'ok' });
+        setStatus(st, 'n2', 'authoring');
+        setStatus(st, 'n2', 'failed');
         const e = reactState(st);
         expect(e.find((a) => a.type === 'squad:complete')).toBeDefined();
         expect(e.find((a) => a.type === 'squad:outer_review_start')).toBeUndefined();
