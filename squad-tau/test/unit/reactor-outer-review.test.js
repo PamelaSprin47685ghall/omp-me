@@ -6,7 +6,6 @@
 import { describe, test, expect } from 'bun:test';
 import { reactState } from '../../server/reactor.js';
 import { buildState, setStatus } from '../helpers/state-builder.js';
-import { sessionIdFor } from '../../shared/events.js';
 
 describe('outer review as regular node', () => {
     test('__or__ transitions to reviewing when deps met', () => {
@@ -54,11 +53,12 @@ describe('rejection cycle', () => {
         setStatus(st, 'n1', 'approved');
         setStatus(st, '__or__', 'rejected', { round: 1, feedback: 'rework' });
         const e = reactState(st);
-        // R5 should reset n1 to authoring and __or__ to idle
+        // R5 should reset n1 to authoring and __or__ to undefined (waits for re-approval)
         const n1Reset = e.find((a) => a.payload.nodeId === 'n1' && a.payload.status === 'authoring');
         expect(n1Reset).toBeDefined();
         expect(n1Reset.payload.epoch).toBe(1);
         const orUndef = e.find((a) => a.payload.nodeId === '__or__' && a.payload.status === undefined);
         expect(orUndef).toBeDefined();
+        expect(orUndef.payload.epoch).toBe(1);
     });
 });

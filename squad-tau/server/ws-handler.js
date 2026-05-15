@@ -1,9 +1,11 @@
 /**
  * WebSocket message routing.
  * EventLog-driven — no EventBus. Messages are appended to EventLog directly.
- * Frontend only sends: sync (catch-up), session:user_message, env:update, ping, abort.
+ * Frontend only sends: sync (catch-up), session:user_message, config:capacity_changed, ping, abort.
  * Backend only does: append to EventLog, let the reactor+engine drive everything.
  * Responses flow through fact channel (c:'f') or ephemeral channel (c:'e').
+ *
+ * No env:update escape hatch. Config changes are domain events (config:capacity_changed).
  */
 
 const STRATEGIES = {
@@ -35,13 +37,11 @@ const STRATEGIES = {
         });
         return true;
     },
-    'env:update': async ({ payload, ws }) => {
-        // env updates are not business facts — they update infrastructure config
-        // The ws.setEnv function is attached during routeMessage setup
-        if (ws.setEnv && payload && typeof payload.maxWorkers === 'number') {
-            ws.setEnv({ maxWorkers: payload.maxWorkers });
+    'config:capacity_changed': async ({ payload, eventLog }) => {
+        if (payload && typeof payload.maxWorkers === 'number') {
+            eventLog.append('config:capacity_changed', { maxWorkers: payload.maxWorkers });
         }
-        return { __envChanged: true, maxWorkers: payload?.maxWorkers };
+        return true;
     },
     ping: async ({ ws }) => {
         ws.send(JSON.stringify({ c: 'f', event: 'pong', timestamp: Date.now() }));
@@ -53,9 +53,8 @@ const STRATEGIES = {
     },
 };
 
-export async function routeMessage(msg, eventLog, ws, getState, setEnv) {
+export async function routeMessage(msg, eventLog, ws, getState) {
     if (!ws.getState && getState) ws.getState = getState;
-    if (!ws.setEnv && setEnv) ws.setEnv = setEnv;
     if (!msg || typeof msg.type !== 'string') return false;
     const strategy = STRATEGIES[msg.type];
     if (strategy) {

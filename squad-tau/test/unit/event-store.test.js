@@ -13,16 +13,16 @@ function dispatch(state, type, payload) {
     return state;
 }
 
-function createSession(state, sessionId, phase = 'worker', retryCount = 0) {
-    let s = dispatch(state, 'session:creating', { sessionId, phase, retryCount });
-    s = dispatch(s, 'session:start', { sessionId, phase, retryCount });
+function createSession(state, sessionId, phase = 'worker', epoch = 0) {
+    let s = dispatch(state, 'session:creating', { sessionId, phase, epoch });
+    s = dispatch(s, 'session:start', { sessionId, phase, epoch });
     Object.assign(state, s);
 }
 
 function createStore() {
     const store = new EventStore();
-    store.dispatch('session:creating', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    store.dispatch('session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
+    store.dispatch('session:creating', { sessionId: 's1', phase: 'worker', epoch: 0 });
+    store.dispatch('session:start', { sessionId: 's1', phase: 'worker', epoch: 0 });
     return store;
 }
 
@@ -198,7 +198,8 @@ test('tool_call:finished with error', () => {
     assert.equal(state.toolCalls['t1'].isError, true);
 });
 
-test('tool_call:started with return tracks latestReturn', () => {
+// latestReturn removed — domain facts (node:review_decided) replace it.
+test('tool_call:started no longer tracks latestReturn on session', () => {
     const state = freshState();
     createSession(state, 's1');
     dispatch(state, 'tool_call:started', {
@@ -207,7 +208,73 @@ test('tool_call:started with return tracks latestReturn', () => {
         toolId: 'ret-1',
         params: { status: 'ok', reason: 'done' },
     });
-    assert.equal(state.sessions.s1.latestReturn.status, 'ok');
+    // latestReturn no longer set
+    assert.equal(state.sessions.s1.latestReturn, undefined);
+});
+
+// ── Node domain facts ──
+
+test('node:review_decided approved sets node to approved', () => {
+    const state = getInitialState();
+    dispatch(state, 'squad:init', {
+        mode: 'M',
+        nodes: [{ id: 'n1', task: 'test', review_criteria: [], depends_on: [] }],
+        originalTask: '',
+    });
+    dispatch(state, 'squad:node_state', { nodeId: 'n1', status: 'reviewing' });
+    dispatch(state, 'node:review_decided', {
+        nodeId: 'n1',
+        sessionId: 's1',
+        approved: true,
+        summary: 'good work',
+    });
+    assert.equal(state.squad.nodes.n1.status, 'approved');
+    assert.equal(state.squad.nodes.n1.summary, 'good work');
+});
+
+test('node:review_decided rejected sets node to rejected', () => {
+    const state = getInitialState();
+    dispatch(state, 'squad:init', {
+        mode: 'M',
+        nodes: [{ id: 'n1', task: 'test', review_criteria: [], depends_on: [] }],
+        originalTask: '',
+    });
+    dispatch(state, 'squad:node_state', { nodeId: 'n1', status: 'reviewing' });
+    dispatch(state, 'node:review_decided', {
+        nodeId: 'n1',
+        sessionId: 's1',
+        approved: false,
+        summary: 'needs work',
+    });
+    assert.equal(state.squad.nodes.n1.status, 'rejected');
+    assert.equal(state.squad.nodes.n1.feedback, 'needs work');
+});
+
+test('node:work_submitted advances phase', () => {
+    const state = getInitialState();
+    dispatch(state, 'squad:init', {
+        mode: 'M',
+        nodes: [{ id: 'n1', task: 'test', review_criteria: [], depends_on: [] }],
+        originalTask: '',
+    });
+    // n1 starts in authoring (initial wavefront)
+    assert.equal(state.squad.nodes.n1.status, 'authoring');
+    dispatch(state, 'node:work_submitted', {
+        nodeId: 'n1',
+        sessionId: 's1',
+        summary: 'work done',
+        affected_files: ['test.js'],
+    });
+    assert.equal(state.squad.nodes.n1.status, 'confirming');
+    assert.equal(state.squad.nodes.n1.summary, 'work done');
+});
+
+// ── config:capacity_changed ──
+
+test('config:capacity_changed updates state.config.maxWorkers', () => {
+    const state = freshState();
+    dispatch(state, 'config:capacity_changed', { maxWorkers: 5 });
+    assert.equal(state.config.maxWorkers, 5);
 });
 
 // ── Multiple sessions are isolated ──
@@ -215,8 +282,8 @@ test('tool_call:started with return tracks latestReturn', () => {
 test('multiple sessions are isolated', () => {
     const state = freshState();
     createSession(state, 's1');
-    dispatch(state, 'session:creating', { sessionId: 's2', phase: 'reviewer', retryCount: 0 });
-    dispatch(state, 'session:start', { sessionId: 's2', phase: 'reviewer', retryCount: 0 });
+    dispatch(state, 'session:creating', { sessionId: 's2', phase: 'reviewer', epoch: 0 });
+    dispatch(state, 'session:start', { sessionId: 's2', phase: 'reviewer', epoch: 0 });
     dispatch(state, 'message:created', { messageId: 'm1', sessionId: 's1', role: 'user', staticContent: 'msg1' });
     dispatch(state, 'message:finalized', { messageId: 'm1', staticContent: 'msg1' });
     dispatch(state, 'message:created', { messageId: 'm2', sessionId: 's2', role: 'user', staticContent: 'msg2' });

@@ -1,16 +1,31 @@
 /**
- * Env Store — infrastructure configuration synced from server.
- * Not part of EventLog; updated via dedicated WebSocket messages.
- * Holds maxWorkers, model slots, and other env-level config.
+ * Env Store — powered by EventStore state.config.
+ * Config (maxWorkers) now lives in state.config via config:capacity_changed.
+ * This module is maintained as a thin adapter for backward compat;
+ * consumers should read from state.config directly.
  */
+import { eventStore } from './event-store.js';
+
 const listeners = new Set();
-let state = { maxWorkers: 3, modelSlots: [] };
+let state = { maxWorkers: 3 };
+
+function sync() {
+    const cfg = eventStore.getState().config || { maxWorkers: 3 };
+    const next = { maxWorkers: cfg.maxWorkers };
+    if (next.maxWorkers !== state.maxWorkers) {
+        state = next;
+        for (const fn of listeners) fn();
+    }
+}
+
+// Subscribe to EventStore changes
+const unsub = eventStore.subscribe(sync);
 
 export const envStore = {
     getState: () => state,
     update(patch) {
-        state = { ...state, ...patch };
-        for (const fn of listeners) fn();
+        // No longer supported — dispatch config:capacity_changed via eventStore
+        console.warn('[envStore] update() deprecated — dispatch config:capacity_changed instead');
     },
     subscribe: (fn) => {
         listeners.add(fn);

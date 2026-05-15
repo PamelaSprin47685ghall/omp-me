@@ -5,7 +5,7 @@ import { sessionIdFor } from '../../shared/events.js';
 
 function reviewReady() {
     const st = createBaseState('n1');
-    setStatus(st, 'n1', 'idle');
+    // Initial wavefront: n1 starts at 'authoring'
     setStatus(st, 'n1', 'authoring');
     createSession(st, 'n1', 'authoring');
     setStatus(st, 'n1', 'confirming');
@@ -46,9 +46,9 @@ describe('reviewer rejection', () => {
     test('approval transitions to APPROVED', () => {
         const st = reviewReady();
         giveReturn(st, sessionIdFor('n1', 'reviewing', 0), 'ok', 'good');
-        const a = reactState(st).find((e) => e.type === 'squad:node_state' && e.payload.status === 'approved');
-        expect(a).toBeDefined();
-        expect(a.payload.summary).toBe('good');
+        // node:review_decided sets node to approved directly in projections
+        expect(st.squad.nodes.n1.status).toBe('approved');
+        expect(st.squad.nodes.n1.summary).toBe('good');
     });
 });
 
@@ -58,7 +58,6 @@ describe('blocked invariants', () => {
             { id: 'n1', task: 'a', depends_on: [] },
             { id: 'n2', task: 'b', depends_on: ['n1'] },
         );
-        setStatus(st, 'n1', 'authoring');
         setStatus(st, 'n1', 'failed');
         setStatus(st, 'n2', 'blocked');
         for (let i = 0; i < 3; i++) {
@@ -72,7 +71,6 @@ describe('blocked invariants', () => {
 describe('abort handling', () => {
     test('aborted squad returns empty', () => {
         const st = createBaseState('n1');
-        setStatus(st, 'n1', 'idle');
         st.squad.status = 'aborted';
         expect(reactState(st).length).toBe(0);
     });

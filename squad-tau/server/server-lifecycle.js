@@ -3,6 +3,7 @@
  * Manages server start/stop and global references.
  * EventLog-driven — no FSM, no SessionRegistry, no ModelPool class.
  * Dual-track protocol: fact channel (c:'f') + ephemeral channel (c:'e').
+ * config:capacity_changed baked into EventLog — no separate env store/broadcast.
  */
 import { createServer } from 'http';
 import { createHttpServer } from './http-server.js';
@@ -16,6 +17,34 @@ import { setupEngine } from './engine.js';
 let _server = null;
 let _close = null;
 let _refCount = 0;
+
+// ── Event horizon: only persistent macroscopic facts reach the client ──
+
+const BROADCAST_WHITELIST = new Set([
+    'squad:init',
+    'squad:node_state',
+    'squad:complete',
+    'squad:abort',
+    'session:start',
+    'session:state',
+    'session:end',
+    'session:faulted',
+    'session:message',
+    'message:created',
+    'message:finalized',
+    'tool_call:started',
+    'tool_call:finished',
+    'node:work_submitted',
+    'node:review_decided',
+    'config:capacity_changed',
+    'connection:close',
+    'pong',
+    'error',
+]);
+
+function shouldBroadcast(eventType) {
+    return BROADCAST_WHITELIST.has(eventType);
+}
 
 function createCloseHandler(wss, rawServer, heartbeatCleanup, unsub) {
     let closing = false;
@@ -51,16 +80,9 @@ export async function startServer({ pi, skipVite = false } = {}) {
     const rawServer = createServer();
     const viteMiddlewares = await createViteDevServer({ skipVite });
     const { wss } = await createWsServer(rawServer, null, {
-        onConnection: () => {
-            // Send env snapshot on new connection
-            broadcastEnv();
-        },
+        onConnection: () => {},
         onMessage: async (msg, ws) => {
-            const result = await routeMessage(msg, eventLog, ws, engine.getState, engine.setEnv);
-            // Broadcast env changes to all clients
-            if (result?.__envChanged) {
-                broadcastEnv();
-            }
+            await routeMessage(msg, eventLog, ws, engine.getState);
         },
     });
 
@@ -73,34 +95,14 @@ export async function startServer({ pi, skipVite = false } = {}) {
         }
     }
 
-    // Env is separate from EventLog — no model_pool:snapshot pollution
-    // Wire effect handlers (PA: return facts, no EventLog access)
     const { EffectHandlers } = await import('./side-effects.js');
-    const engine = setupEngine(
-        eventLog,
-        pi,
-        { maxWorkers: config.maxWorkers || 3 },
-        EffectHandlers,
-        broadcastEphemeral,
-    );
+    const engine = setupEngine(eventLog, pi, config.maxWorkers || 3, EffectHandlers, broadcastEphemeral);
 
-    function broadcastEnv() {
-        const env = engine.getEnv();
-        const msg = JSON.stringify({
-            c: 'f',
-            event: 'squad:env',
-            payload: { maxWorkers: env.maxWorkers },
-        });
-        for (const client of wss.clients) {
-            if (client.readyState === 1) client.send(msg);
-        }
-    }
-
-    // Pipe EventLog to WebSocket clients (fact channel, c:'f')
-    // Handles both single entries and batch arrays
+    // Pipe EventLog to WebSocket clients (fact channel, c:'f') with event horizon
     const unsubLog = eventLog.subscribe((data) => {
         const list = Array.isArray(data) ? data : [data];
         for (const entry of list) {
+            if (!shouldBroadcast(entry.event)) continue;
             const msg = JSON.stringify({
                 c: 'f',
                 event: entry.event,
@@ -120,9 +122,6 @@ export async function startServer({ pi, skipVite = false } = {}) {
         unsubLog();
         engine.cleanup();
     });
-
-    // Broadcast env after setup
-    broadcastEnv();
 
     _server = { port: http.port, eventLog };
     _close = close;

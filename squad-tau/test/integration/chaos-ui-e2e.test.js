@@ -15,12 +15,16 @@ function inject(page, events) {
         const es = window.__es;
         for (const e of evts) {
             if (e.type === 'session:start') {
+                const epoch = e.payload.epoch ?? e.payload.retryCount ?? 0;
                 es.dispatch('session:creating', {
                     sessionId: e.payload.sessionId,
                     nodeId: e.payload.nodeId,
                     phase: e.payload.phase,
-                    retryCount: e.payload.retryCount || 0,
+                    epoch,
                 });
+                // Also dispatch session:start with epoch added
+                es.dispatch('session:start', { ...e.payload, epoch });
+                continue;
             }
             es.dispatch(e.type, e.payload, e.seq);
         }
@@ -68,9 +72,9 @@ describe('Chaos: UI visual correctness', () => {
                     originalTask: 'error counts',
                 },
             },
-            { type: 'squad:node_state', payload: { nodeId: 'FailA', status: 'failed', retryCount: 1 } },
-            { type: 'squad:node_state', payload: { nodeId: 'FailB', status: 'blocked', retryCount: 0 } },
-            { type: 'squad:node_state', payload: { nodeId: 'FailC', status: 'blocked', retryCount: 0 } },
+            { type: 'squad:node_state', payload: { nodeId: 'FailA', status: 'failed', epoch: 1 } },
+            { type: 'squad:node_state', payload: { nodeId: 'FailB', status: 'blocked', epoch: 0 } },
+            { type: 'squad:node_state', payload: { nodeId: 'FailC', status: 'blocked', epoch: 0 } },
         ]);
 
         const bodyText = await page.evaluate(() => document.body.innerText);
@@ -91,11 +95,11 @@ describe('Chaos: UI visual correctness', () => {
             },
             {
                 type: 'session:start',
-                payload: { sessionId: 'tree-s1', nodeId: 'TreeN', phase: 'authoring', retryCount: 1 },
+                payload: { sessionId: 'tree-s1', nodeId: 'TreeN', phase: 'authoring', epoch: 1 },
             },
             {
                 type: 'session:start',
-                payload: { sessionId: 'tree-s2', nodeId: 'TreeN', phase: 'reviewing', retryCount: 2 },
+                payload: { sessionId: 'tree-s2', nodeId: 'TreeN', phase: 'reviewing', epoch: 2 },
             },
         ]);
 
@@ -139,7 +143,7 @@ describe('Chaos: UI visual correctness', () => {
                 },
                 {
                     type: 'session:start',
-                    payload: { sessionId: `hdr-s${round}`, nodeId: `Hdr${round}`, phase: 'authoring', retryCount: 0 },
+                    payload: { sessionId: `hdr-s${round}`, nodeId: `Hdr${round}`, phase: 'authoring', epoch: 0 },
                 },
                 { type: 'squad:abort', payload: { reason: `abort ${round}` } },
             ]);

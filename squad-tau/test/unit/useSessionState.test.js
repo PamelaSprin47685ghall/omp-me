@@ -12,9 +12,9 @@ function dispatch(state, type, payload) {
     return state;
 }
 
-function createSession(state, sessionId, phase = 'worker', retryCount = 0) {
-    let s = dispatch(state, 'session:creating', { sessionId, phase, retryCount });
-    s = dispatch(s, 'session:start', { sessionId, phase, retryCount });
+function createSession(state, sessionId, phase = 'worker', epoch = 0) {
+    let s = dispatch(state, 'session:creating', { sessionId, phase, epoch });
+    s = dispatch(s, 'session:start', { sessionId, phase, epoch });
 }
 
 test('returns initial state', () => {

@@ -1,24 +1,23 @@
 /**
- * Rule-based Reactor — f(state, env) → Action[].
+ * Rule-based Reactor — f(state) → Action[].
  *
- * v8: No idle state, no config in State, epoch instead of retryCount,
- *     first-class faults (session:faulted → auto-retry/fail).
+ * v9: Domain facts (node:work_submitted, node:review_decided) replace raw
+ *     tool return plumbing. latestReturn removed. Config read from
+ *     state.config (folded from config:capacity_changed).
  *
- * State nodes only track dynamic fields. Static topology reads from
- * state.squad.planConfig (populated at squad:init).
+ *     Initial wavefront computed by squad:init projection — no slow-start.
+ *     Rejected nodes handled by dedicated rule (retry/fail).
+ *     __or__ reset goes directly to 'reviewing', never through undefined.
  */
 import { sessionIdFor } from '../shared/events.js';
 
-const PHASES_DEFAULT = ['authoring', 'confirming', 'reviewing'];
-const PHASES_OR = ['reviewing'];
 const DEFAULT_MAX_RETRIES = 5;
-
-let _maxWorkers = 3;
 
 // ── Helpers ──
 
 function cfg(state, nodeId) {
-    return state.squad.planConfig?.[nodeId] || {};
+    const c = state.squad.planConfig?.[nodeId];
+    return c || {};
 }
 
 function depsMet(s, n) {
@@ -48,65 +47,26 @@ function countLiveSessions(state) {
 }
 
 function nodePhases(nodeId) {
-    // __or__ always uses single reviewing phase
-    return nodeId === '__or__' ? PHASES_OR : PHASES_DEFAULT;
+    return nodeId === '__or__' ? ['reviewing'] : ['authoring', 'confirming', 'reviewing'];
 }
 
 function nextPhase(node) {
+    if (node.status === undefined) return nodePhases(node.id)[0];
     const phases = nodePhases(node.id);
-    if (node.status === undefined) return phases[0];
     const idx = phases.indexOf(node.status);
     return idx >= 0 ? (phases[idx + 1] ?? null) : null;
 }
 
-function isFaulted(sessionId, state) {
-    const sess = state.sessions[sessionId];
-    return sess?.status === 'faulted';
-}
+// ── Session sub-handlers ──
 
-// ── Sub-handlers ──
-
-function handleSessionReturn(state, node, sess) {
-    const p = sess.latestReturn;
-    const nextEpoch = (node.epoch || 0) + 1;
+function handleSessionCreate(state, node) {
+    const maxWorkers = state.config?.maxWorkers ?? 3;
+    if (countLiveSessions(state) >= maxWorkers) return [];
+    const role = node.status;
+    const sessionId = sessionIdFor(node.id, role, node.epoch);
     const c = cfg(state, node.id);
-
-    if (node.status === 'reviewing') {
-        if (p.status === 'ok') {
-            return [
-                ac('squad:node_state', {
-                    nodeId: node.id,
-                    status: 'approved',
-                    summary: p.reason,
-                    affectedFiles: p.affected_files,
-                }),
-            ];
-        }
-        if (c.resetOnRej) {
-            return [
-                ac('squad:node_state', {
-                    nodeId: node.id,
-                    status: 'rejected',
-                    epoch: nextEpoch,
-                    feedback: p.reason || '',
-                }),
-            ];
-        }
-        if (nextEpoch >= (c.maxRetries || DEFAULT_MAX_RETRIES)) {
-            return [ac('squad:node_state', { nodeId: node.id, status: 'failed' })];
-        }
-        return [
-            ac('squad:node_state', {
-                nodeId: node.id,
-                status: nodePhases(node.id)[0],
-                epoch: nextEpoch,
-                feedback: p.reason,
-            }),
-        ];
-    }
-
-    const next = nextPhase(node);
-    return next ? [ac('squad:node_state', { nodeId: node.id, status: next })] : [];
+    const promptPhase = c.resetOnRej ? 'outer_review' : role;
+    return [ac('session:creating', { nodeId: node.id, sessionId, phase: promptPhase, epoch: node.epoch || 0 })];
 }
 
 function handleSessionPrompt(state, node, sess) {
@@ -116,27 +76,6 @@ function handleSessionPrompt(state, node, sess) {
         return [ac('session:prompting', { nodeId: node.id, sessionId: sess.sessionId, phase: promptPhase })];
     }
     return [];
-}
-
-function handleSessionCreate(state, node) {
-    if (countLiveSessions(state) >= _maxWorkers) return [];
-    const role = node.status;
-    const sessionId = sessionIdFor(node.id, role, node.epoch);
-    const c = cfg(state, node.id);
-    const promptPhase = c.resetOnRej ? 'outer_review' : role;
-    return [ac('session:creating', { nodeId: node.id, sessionId, phase: promptPhase, epoch: node.epoch || 0 })];
-}
-
-function nodePhaseActions(state, node) {
-    const role = node.status;
-    const sessionId = sessionIdFor(node.id, role, node.epoch);
-    const sess = state.sessions[sessionId];
-
-    if (!sess) return handleSessionCreate(state, node);
-    if (sess.status === 'creating') return [];
-    if (sess.status === 'faulted') return handleSessionFaulted(state, node, sess);
-    if (sess.latestReturn) return handleSessionReturn(state, node, sess);
-    return handleSessionPrompt(state, node, sess);
 }
 
 function handleSessionFaulted(state, node, sess) {
@@ -155,6 +94,42 @@ function handleSessionFaulted(state, node, sess) {
     ];
 }
 
+function nodePhaseActions(state, node) {
+    const role = node.status;
+    const sessionId = sessionIdFor(node.id, role, node.epoch);
+    const sess = state.sessions[sessionId];
+
+    if (!sess) return handleSessionCreate(state, node);
+    if (sess.status === 'creating') return [];
+    if (sess.status === 'faulted') return handleSessionFaulted(state, node, sess);
+    return handleSessionPrompt(state, node, sess);
+}
+
+// ── Rejected node handler (retry/fail) ──
+
+function handleRejected(state, node) {
+    const nextEpoch = (node.epoch || 0) + 1;
+    const c = cfg(state, node.id);
+
+    // __or__ rejection is handled by R4 (resets workers), not here
+    if (node.id === '__or__') return [];
+
+    if (c.resetOnRej) {
+        return [ac('squad:node_state', { nodeId: node.id, status: 'rejected', epoch: node.epoch })];
+    }
+    if (nextEpoch >= (c.maxRetries || DEFAULT_MAX_RETRIES)) {
+        return [ac('squad:node_state', { nodeId: node.id, status: 'failed' })];
+    }
+    return [
+        ac('squad:node_state', {
+            nodeId: node.id,
+            status: nodePhases(node.id)[0],
+            epoch: nextEpoch,
+            feedback: node.feedback || '',
+        }),
+    ];
+}
+
 function workerStats(state) {
     const workers = Object.values(state.squad.nodes).filter((n) => {
         const c = cfg(state, n.id);
@@ -167,11 +142,11 @@ function workerStats(state) {
 }
 
 // ── Rule table ──
-// No idle state — nodes transition directly from undefined → first phase when deps met.
-// Failed deps → blocked (terminal). Faulted sessions → auto-retry.
+// Initial wavefront is computed in squad:init projection.
+// R2 handles DAG cascade (downstream nodes whose deps become met later).
 
 const RULES = [
-    // R1: failed dep → blocked (separated from undefined check for priority)
+    // R1: failed dep → blocked
     {
         when: (s, n) => hasFailedDep(s, n) && n.status !== 'blocked',
         then: (_s, n) => [ac('squad:node_state', { nodeId: n.id, status: 'blocked', summary: 'Blocked by upstream' })],
@@ -179,7 +154,7 @@ const RULES = [
         skip: (_s, n) => n.status === 'blocked',
     },
 
-    // R2: undefined + deps met → first phase (formerly R1+R3 combined)
+    // R2: undefined + deps met → first phase (DAG cascade)
     {
         when: (s, n) => n.status === undefined && depsMet(s, n),
         then: (_s, n) => {
@@ -189,19 +164,24 @@ const RULES = [
         perNode: true,
     },
 
-    // R3: active phases → manage sessions
+    // R3: rejected nodes → retry or fail
+    {
+        when: (_s, n) => n.status === 'rejected' && n.id !== '__or__',
+        then: handleRejected,
+        perNode: true,
+        skip: (_s, n) => n.status !== 'rejected',
+    },
+
+    // R4: active phases → manage sessions
     {
         when: (_s, n) => ['authoring', 'confirming', 'reviewing'].includes(n.status),
         then: (state, node) => nodePhaseActions(state, node),
         perNode: true,
     },
 
-    // R4: __or__ rejected → reset all approved workers (formerly R5)
+    // R5: __or__ rejected → reset all approved workers
     {
-        when: (s) => {
-            const or = s.squad.nodes.__or__;
-            return or?.status === 'rejected';
-        },
+        when: (s) => s.squad.nodes.__or__?.status === 'rejected',
         then: (s) => {
             const actions = [];
             const rejectedNode = s.squad.nodes.__or__;
@@ -222,17 +202,16 @@ const RULES = [
                     );
                 }
             }
+            // Set __or__ to undefined — R2 (undefined + deps met) will transition to
+            // 'reviewing' once ALL workers have been re-approved after the reset.
             actions.push(ac('squad:node_state', { nodeId: '__or__', status: undefined, epoch: nextEpoch }));
             return actions;
         },
     },
 
-    // R5: __or__ approved → squad:complete (formerly R6)
+    // R6: __or__ approved → squad:complete
     {
-        when: (s) => {
-            const or = s.squad.nodes.__or__;
-            return or?.status === 'approved' && s.squad.status !== 'complete';
-        },
+        when: (s) => s.squad.nodes.__or__?.status === 'approved' && s.squad.status !== 'complete',
         then: (s) => {
             const { workers } = workerStats(s);
             return [
@@ -243,7 +222,7 @@ const RULES = [
         },
     },
 
-    // R6: M mode — all nodes terminal → squad:complete (formerly R7)
+    // R7: M mode — all nodes terminal → squad:complete
     {
         when: (s) =>
             s.squad.mode !== 'L' &&
@@ -265,7 +244,7 @@ const RULES = [
         ],
     },
 
-    // R7: L mode without __or__ — all workers done → squad:complete (formerly R8)
+    // R8: L mode without __or__ — all workers done → squad:complete
     {
         when: (s) => s.squad.mode === 'L' && !s.squad.nodes.__or__ && workerStats(s).allDone,
         then: (s) => {
@@ -285,9 +264,8 @@ function ac(type, payload) {
 
 // ── Main reactor ──
 
-export function reactState(state, env = {}) {
+export function reactState(state) {
     if (state.squad.status !== 'active') return [];
-    _maxWorkers = env.maxWorkers || 3;
     const actions = [];
     for (const rule of RULES) {
         if (rule.perNode) {

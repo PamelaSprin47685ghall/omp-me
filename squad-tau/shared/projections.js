@@ -1,9 +1,9 @@
 /**
  * Homomorphic event projections — shared between client and server.
- * v8: Structural sharing, no config in State, no idle, epoch instead of retryCount.
- *
- * State only contains dynamic runtime fields. Topology metadata (phases, deps, limits)
- * lives in planConfig — populated once at init, consumed by Reactor.
+ * v9: Structural sharing, no latestReturn, no defensive defaults, no retryCount compat.
+ * squad:init computes initial wavefront (deps-met nodes get 'authoring' directly).
+ * Domain facts (node:work_submitted, node:review_decided) replace raw tool return plumbing.
+ * State only contains dynamic runtime fields.
  *
  * No .find() / .findIndex() — O(1) hash lookups only.
  * No fallbacks — fail fast on contract violation.
@@ -36,6 +36,7 @@ export function getInitialState() {
         sessions: {},
         messages: {},
         toolCalls: {},
+        config: { maxWorkers: 3 },
     };
 }
 
@@ -84,9 +85,8 @@ register('tool_call:started')((state, payload) => {
         st = setIn(st, ['messages', messageId], { ...msg, toolIds: [...msg.toolIds, toolId] });
     }
 
-    if (toolName === 'return' && st.sessions[sessionId]) {
-        st = setIn(st, ['sessions', sessionId], { ...st.sessions[sessionId], latestReturn: params });
-    }
+    // LatestReturn removed — domain facts (node:work_submitted, node:review_decided)
+    // are now produced by side-effects handleToolEnd instead.
 
     return st;
 });
@@ -111,10 +111,13 @@ register('squad:init')((state, payload) => {
 
     for (const n of payload.nodes || []) {
         const nodeId = n.id;
+        // Initial wavefront: nodes with no dependencies start directly in 'authoring'
+        const deps = n.depends_on || [];
+        const initialStatus = deps.length === 0 ? 'authoring' : undefined;
         nodes[nodeId] = {
             id: nodeId,
-            depends_on: n.depends_on || [],
-            status: undefined,
+            depends_on: deps,
+            status: initialStatus,
             epoch: 0,
             summary: undefined,
             feedback: undefined,
@@ -171,13 +174,7 @@ register('squad:init')((state, payload) => {
 register('squad:node_state')((state, payload) => {
     const node = state.squad.nodes[payload.nodeId];
     invariant(node, `squad:node_state references nonexistent node ${payload.nodeId}`);
-    // Normalize retryCount → epoch for backward compat
-    const normalized = { ...payload };
-    if ('retryCount' in normalized && !('epoch' in normalized)) {
-        normalized.epoch = normalized.retryCount;
-        delete normalized.retryCount;
-    }
-    const newNode = { ...node, ...normalized };
+    const newNode = { ...node, ...payload };
     return setIn(state, ['squad', 'nodes', payload.nodeId], newNode);
 });
 
@@ -189,15 +186,62 @@ register('squad:abort')((state) => {
     return { ...state, squad: { ...state.squad, status: 'aborted' } };
 });
 
+// ── Domain Facts (elevated from raw tool_call return plumbing) ──
+
+register('node:work_submitted')((state, payload) => {
+    const node = state.squad.nodes[payload.nodeId];
+    invariant(node, `node:work_submitted references nonexistent node ${payload.nodeId}`);
+    const cfg = state.squad.planConfig?.[payload.nodeId];
+    invariant(cfg, `node:work_submitted: no planConfig for ${payload.nodeId}`);
+    const phases = cfg.phases;
+    invariant(phases, `node:work_submitted: no phases in planConfig for ${payload.nodeId}`);
+    const currentIdx = phases.indexOf(node.status);
+    const nextStatus = currentIdx >= 0 && currentIdx < phases.length - 1 ? phases[currentIdx + 1] : null;
+    const newNode = {
+        ...node,
+        summary: payload.summary,
+        affectedFiles: payload.affected_files || [],
+    };
+    if (nextStatus) newNode.status = nextStatus;
+    return setIn(state, ['squad', 'nodes', payload.nodeId], newNode);
+});
+
+register('node:review_decided')((state, payload) => {
+    const node = state.squad.nodes[payload.nodeId];
+    invariant(node, `node:review_decided references nonexistent node ${payload.nodeId}`);
+    if (payload.approved) {
+        return setIn(state, ['squad', 'nodes', payload.nodeId], {
+            ...node,
+            status: 'approved',
+            summary: payload.summary,
+            affectedFiles: payload.affectedFiles || [],
+        });
+    }
+    return setIn(state, ['squad', 'nodes', payload.nodeId], {
+        ...node,
+        status: 'rejected',
+        feedback: payload.summary || '',
+        epoch: payload.epoch ?? node.epoch,
+    });
+});
+
+// ── Config Domain Facts ──
+
+register('config:capacity_changed')((state, payload) => {
+    if (!state.config) state = { ...state, config: { maxWorkers: 3 } };
+    return setIn(state, ['config', 'maxWorkers'], payload.maxWorkers);
+});
+
 // ── Session Lifecycle ──
 
 register('session:creating')((state, payload) => {
-    const epoch = payload.epoch ?? payload.retryCount ?? 0;
+    const { sessionId, nodeId, phase, epoch } = payload;
+    invariant(epoch !== undefined, 'session:creating requires epoch');
     const sess = {
-        sessionId: payload.sessionId,
-        nodeId: payload.nodeId,
-        phase: payload.phase,
-        role: payload.phase,
+        sessionId,
+        nodeId,
+        phase,
+        role: phase,
         status: 'creating',
         messageIds: [],
         epoch,
@@ -208,7 +252,8 @@ register('session:creating')((state, payload) => {
 register('session:start')((state, payload) => {
     const sess = state.sessions[payload.sessionId];
     invariant(sess, `session:start references nonexistent session ${payload.sessionId}`);
-    const epoch = payload.epoch ?? payload.retryCount ?? sess.epoch;
+    const epoch = payload.epoch;
+    invariant(epoch !== undefined, 'session:start requires epoch');
     return setIn(state, ['sessions', payload.sessionId], {
         ...sess,
         status: 'active',

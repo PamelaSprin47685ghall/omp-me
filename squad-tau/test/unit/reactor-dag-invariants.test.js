@@ -12,12 +12,20 @@ describe('chain dependency: n1 -> n2', () => {
             { id: 'n1', task: 'a', depends_on: [] },
             { id: 'n2', task: 'b', depends_on: ['n1'] },
         );
-        let e = reactState(st);
-        expect(e.length).toBe(1);
-        expect(e[0].payload.nodeId).toBe('n1');
-        expect(e[0].payload.status).toBe('authoring');
+        // n1 starts at 'authoring' (initial wavefront), n2 is undefined
+        expect(st.squad.nodes.n1.status).toBe('authoring');
+        expect(st.squad.nodes.n2.status).toBe(undefined);
+
+        // n1 already authoring → reactor produces session:creating for it
+        // n2 undefined + deps not met (n1 not approved) → no action for n2
+        const initial = reactState(st);
+        expect(initial.length).toBe(1);
+        expect(initial[0].type).toBe('session:creating');
+        expect(initial[0].payload.nodeId).toBe('n1');
+
+        // After n1 approved, n2 cascade should fire
         approveNode(st, 'n1');
-        e = reactState(st);
+        const e = reactState(st);
         expect(e.some((a) => a.payload.nodeId === 'n2' && a.payload.status === 'authoring')).toBe(true);
     });
 
@@ -26,7 +34,6 @@ describe('chain dependency: n1 -> n2', () => {
             { id: 'n1', task: 'a', depends_on: [] },
             { id: 'n2', task: 'b', depends_on: ['n1'] },
         );
-        setStatus(st, 'n1', 'authoring');
         setStatus(st, 'n1', 'failed');
         const block = reactState(st).find((e) => e.payload.nodeId === 'n2' && e.payload.status === 'blocked');
         expect(block).toBeDefined();
@@ -37,7 +44,6 @@ describe('chain dependency: n1 -> n2', () => {
             { id: 'n1', task: 'a', depends_on: [] },
             { id: 'n2', task: 'b', depends_on: ['n1'] },
         );
-        setStatus(st, 'n1', 'authoring');
         setStatus(st, 'n1', 'failed');
         setStatus(st, 'n2', 'blocked');
         for (let i = 0; i < 3; i++) {
@@ -56,7 +62,8 @@ describe('diamond: A -> B,C -> D', () => {
             { id: 'C', task: 'c', depends_on: ['A'] },
             { id: 'D', task: 'd', depends_on: ['B', 'C'] },
         );
-        expect(reactState(st)[0].payload.nodeId).toBe('A');
+        // A starts at 'authoring' (initial wavefront)
+        expect(st.squad.nodes.A.status).toBe('authoring');
         approveNode(st, 'A');
         const e = reactState(st);
         expect(e.some((a) => a.payload.nodeId === 'B')).toBe(true);
@@ -68,9 +75,7 @@ describe('diamond: A -> B,C -> D', () => {
 describe('partial failure completion', () => {
     test('mixed approved + failed emits SQUAD_COMPLETE', () => {
         const st = createBaseState('n1', 'n2');
-        setStatus(st, 'n1', 'authoring');
         setStatus(st, 'n1', 'approved', { summary: 'ok' });
-        setStatus(st, 'n2', 'authoring');
         setStatus(st, 'n2', 'failed');
         const e = reactState(st);
         expect(e.find((a) => a.type === 'squad:complete')).toBeDefined();

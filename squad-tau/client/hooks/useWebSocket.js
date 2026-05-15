@@ -11,7 +11,6 @@
 
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { eventStore } from '../event-store.js';
-import { envStore } from '../env-store.js';
 
 const BACKOFF_STEPS = [1000, 2000, 4000, 8000, 16000, 30000];
 const MAX_RECONNECT_ATTEMPTS = 50;
@@ -95,9 +94,8 @@ export function useWebSocket({ port } = {}) {
                 }
 
                 // ── Dual-track routing ──
-                const c = msg.c || 'f'; // default 'f' for backward compat
-
-                if (c === 'e') {
+                // c field is REQUIRED — no backward compat default
+                if (msg.c === 'e') {
                     // Ephemeral channel: direct DOM routing, zero EventStore
                     const { event, payload } = msg;
                     if (event === 'message:delta') {
@@ -115,15 +113,7 @@ export function useWebSocket({ port } = {}) {
                     return;
                 }
 
-                if (type === 'squad:env') {
-                    // Environment metadata — not a domain event, just update envStore
-                    if (payload.maxWorkers !== undefined) {
-                        envStore.update({ maxWorkers: payload.maxWorkers });
-                    }
-                    return;
-                }
-
-                // Everything else → EventStore
+                // Everything else → EventStore (config:capacity_changed included)
                 eventStore.dispatch(type, payload, seq);
             } catch (err) {
                 console.error('Failed to parse WebSocket message:', err);

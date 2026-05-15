@@ -128,18 +128,13 @@ describe('OMP RPC E2E', () => {
             expect(state.squad.nodes['node1'].status).toBe('approved');
             expect(state.squad.nodes['node2'].status).toBe('approved');
 
-            // Ordering invariant: node1 starts before node2
-            const n1Authoring = log.findIndex(
-                (e) =>
-                    e.event === 'squad:node_state' && e.payload.nodeId === 'node1' && e.payload.status === 'authoring',
-            );
-            const n2Authoring = log.findIndex(
-                (e) =>
-                    e.event === 'squad:node_state' && e.payload.nodeId === 'node2' && e.payload.status === 'authoring',
-            );
-            expect(n1Authoring).not.toBe(-1);
-            expect(n2Authoring).not.toBe(-1);
-            expect(n2Authoring).toBeGreaterThan(n1Authoring);
+            // Ordering invariant: node1 progresses before node2
+            // Phase transitions via node:work_submitted (not squad:node_state)
+            const n1Work = log.findIndex((e) => e.event === 'node:work_submitted' && e.payload.nodeId === 'node1');
+            const n2Work = log.findIndex((e) => e.event === 'node:work_submitted' && e.payload.nodeId === 'node2');
+            expect(n1Work).not.toBe(-1);
+            expect(n2Work).not.toBe(-1);
+            expect(n2Work).toBeGreaterThan(n1Work);
 
             // Both nodes produced a final result
             expect(state.squad.nodes['node1'].summary).toBeDefined();

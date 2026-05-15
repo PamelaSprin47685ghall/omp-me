@@ -1,12 +1,14 @@
 /**
- * Engine Simulator (v8) — synchronous time-travel using real pipeline.
+ * Engine Simulator (v9) — synchronous time-travel using real pipeline.
  *
  * Uses real EventLog + real reactState + mock EffectHandlers.
  * Handlers return facts instead of appending (PA pattern).
  * Engine appends returned facts after handler resolution.
+ *
+ * Mock handlers now produce domain facts (node:work_submitted, node:review_decided)
+ * instead of raw tool_call:started, matching the real side-effects translation.
  */
 import { reactState } from '../../server/reactor.js';
-import { applyEvent } from '../../shared/projections.js';
 import { project } from '../../shared/projections.js';
 import { EventLog } from '../../server/event-log.js';
 
@@ -22,19 +24,63 @@ export function timeTravel(initialEvents, promptBehavior = () => ({ status: 'ok'
     const eventLog = new EventLog();
     const getState = () => project(eventLog.log);
 
-    // Mock EffectHandlers: return facts (PA pattern)
-    // Mock EffectHandlers: synchronous (return facts directly, no async)
+    // Mock EffectHandlers
     const effectHandlers = {
-        'session:creating': ({ sessionId, nodeId, phase, epoch = 0, retryCount }) => ({
-            type: 'session:start',
-            payload: { sessionId, nodeId, phase, epoch: epoch ?? retryCount ?? 0 },
-        }),
-        'session:prompting': ({ sessionId, phase, nodeId }) => {
+        'session:creating': (payload) => {
+            const epoch = payload.epoch;
+            return [
+                {
+                    type: 'session:start',
+                    payload: { sessionId: payload.sessionId, nodeId: payload.nodeId, phase: payload.phase, epoch },
+                },
+            ];
+        },
+        'session:prompting': (payload) => {
+            const { sessionId, phase, nodeId } = payload;
             const result = promptBehavior({ sessionId, phase, nodeId });
-            return {
+            const state = getState();
+            const node = state.squad.nodes[nodeId];
+            const epoch = node?.epoch ?? 0;
+            const facts = [];
+            const toolIdx = eventLog.length;
+
+            // Record the tool call (same idx for both started and finished)
+            facts.push({
                 type: 'tool_call:started',
-                payload: { sessionId, toolName: 'return', toolId: `call-${eventLog.length}`, params: result },
-            };
+                payload: { sessionId, toolName: 'return', toolId: `call-${toolIdx}`, params: result },
+            });
+            facts.push({
+                type: 'tool_call:finished',
+                payload: { toolId: `call-${toolIdx}`, result: result, isError: false },
+            });
+
+            // Translate to domain facts (as real side-effects handleToolEnd does)
+            if (phase === 'reviewing' || phase === 'outer_review') {
+                facts.push({
+                    type: 'node:review_decided',
+                    payload: {
+                        nodeId,
+                        sessionId,
+                        approved: result.status === 'ok',
+                        summary: result.reason || '',
+                        affected_files: result.affected_files || [],
+                        epoch,
+                    },
+                });
+            } else if (phase === 'authoring' || phase === 'confirming') {
+                facts.push({
+                    type: 'node:work_submitted',
+                    payload: {
+                        nodeId,
+                        sessionId,
+                        summary: result.reason || '',
+                        affected_files: result.affected_files || [],
+                        epoch,
+                    },
+                });
+            }
+
+            return facts;
         },
     };
 

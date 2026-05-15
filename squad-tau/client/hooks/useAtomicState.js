@@ -1,7 +1,6 @@
 import { useSyncExternalStore, useCallback } from 'react';
 import { eventStore } from '../event-store.js';
 import { uiStore } from '../ui-store.js';
-import { envStore } from '../env-store.js';
 
 const EMPTY_ARRAY = [];
 const EMPTY_OBJECT = {};
@@ -9,7 +8,6 @@ const EMPTY_OBJECT = {};
 // Bound subscribe functions — avoid `this` loss when passed as callbacks
 const sub = (cb) => eventStore.subscribe(cb);
 const subUi = (cb) => uiStore.subscribe(cb);
-const subEnv = (cb) => envStore.subscribe(cb);
 
 /**
  * Subscribe to domain state with structural sharing.
@@ -92,12 +90,13 @@ export function useUiState(selector) {
 }
 
 /**
- * Subscribe to environment configuration (server-infrastructure metadata).
+ * Subscribe to environment configuration (now in state.config).
+ * Convenience wrapper — reads maxWorkers from EventStore's config tree.
  */
 export function useEnv(selector) {
     return useSyncExternalStore(
-        subEnv,
-        () => selector(envStore.getState()),
+        sub,
+        () => selector(eventStore.getState().config || { maxWorkers: 3 }),
         () => selector({ maxWorkers: 3 }),
     );
 }

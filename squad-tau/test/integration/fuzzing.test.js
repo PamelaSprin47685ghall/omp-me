@@ -65,14 +65,14 @@ describe('Structural Fuzzing (crash resistance)', () => {
                             sessionId: `s-${randInt(0, 999)}`,
                             nodeId: `n${randInt(0, 20)}`,
                             phase: pick(['authoring', 'reviewing']),
-                            retryCount: 0,
+                            epoch: 0,
                         };
                     case 'session:start':
                         return {
                             sessionId: `s-${randInt(0, 999)}`,
                             nodeId: `n${randInt(0, 20)}`,
                             phase: pick(['authoring', 'reviewing']),
-                            retryCount: 0,
+                            epoch: 0,
                             model: undefined,
                         };
                     case 'session:state':

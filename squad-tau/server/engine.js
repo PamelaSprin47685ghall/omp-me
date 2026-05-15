@@ -1,23 +1,24 @@
 /**
- * Squad-Tau Engine (v6 — PA + Trampoline).
+ * Squad-Tau Engine (v9 — PA + Trampoline, config in state).
  *
- * Convergence loop: f(State, Env) → Action[] → append → repeat until stable.
+ * Convergence loop: f(State) → Action[] → append → repeat until stable.
  * After convergence, fires effect handlers for transitional facts.
  * Handlers return facts which Engine appends — SideEffects never touch EventLog.
  * Unhandled handler errors → session:faulted (first-class faults).
+ *
+ * Config (maxWorkers) lives in state.config, seeded by config:capacity_changed.
+ * No separate env object, no setEnv/getEnv escape hatch.
  */
 import { reactState } from './reactor.js';
 import { applyEvent, getInitialState } from '../shared/projections.js';
 import { buildPrompt } from './prompt-builder.js';
 
-export function setupEngine(eventLog, pi, initialEnv = {}, effectHandlers = {}, broadcastEphemeral = null) {
+export function setupEngine(eventLog, pi, initialMaxWorkers = 3, effectHandlers = {}, broadcastEphemeral = null) {
     let state = getInitialState();
-    let env = { maxWorkers: 3, ...initialEnv };
     let pendingTick = false;
 
-    function setEnv(patch) {
-        env = { ...env, ...patch };
-    }
+    // Seed config as a domain event
+    state = applyEvent(state, 'config:capacity_changed', { maxWorkers: initialMaxWorkers });
 
     // Fold incoming events into state
     const unsubLog = eventLog.subscribe((data) => {
@@ -88,7 +89,7 @@ export function setupEngine(eventLog, pi, initialEnv = {}, effectHandlers = {}, 
         const batch = [];
 
         while (true) {
-            const actions = reactState(convergenceState, env);
+            const actions = reactState(convergenceState);
             if (actions.length === 0) break;
             for (const action of actions) {
                 convergenceState = applyEvent(convergenceState, action.type, action.payload);
@@ -116,8 +117,6 @@ export function setupEngine(eventLog, pi, initialEnv = {}, effectHandlers = {}, 
             unsubLog();
         },
         getState,
-        setEnv,
-        getEnv: () => env,
         absorb,
     };
 }

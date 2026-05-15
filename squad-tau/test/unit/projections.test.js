@@ -14,8 +14,8 @@ function dispatch(state, type, payload) {
 
 test('Regression: assistant message with parentId should append, not overwrite parent', () => {
     let state = freshState();
-    dispatch(state, 'session:creating', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    dispatch(state, 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
+    dispatch(state, 'session:creating', { sessionId: 's1', phase: 'worker', epoch: 0 });
+    dispatch(state, 'session:start', { sessionId: 's1', phase: 'worker', epoch: 0 });
 
     // User message: created + finalized with content
     dispatch(state, 'message:created', {
@@ -50,8 +50,8 @@ test('Regression: assistant message with parentId should append, not overwrite p
 
 test('Regression: duplicate messageId should be deduplicated via message:created + message:finalized', () => {
     let state = freshState();
-    dispatch(state, 'session:creating', { sessionId: 's1', phase: 'worker', retryCount: 0 });
-    dispatch(state, 'session:start', { sessionId: 's1', phase: 'worker', retryCount: 0 });
+    dispatch(state, 'session:creating', { sessionId: 's1', phase: 'worker', epoch: 0 });
+    dispatch(state, 'session:start', { sessionId: 's1', phase: 'worker', epoch: 0 });
 
     // Create message once
     dispatch(state, 'message:created', {

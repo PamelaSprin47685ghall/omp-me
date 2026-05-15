@@ -42,12 +42,12 @@ export function buildState(overrides = {}) {
 
     if (overrides.sessions) {
         for (const [sid, s] of Object.entries(overrides.sessions)) {
-            const retryCount = s.retryCount || 0;
+            const epoch = s.epoch ?? s.retryCount ?? 0;
             const phase = s.phase || 'authoring';
             const nodeId = s.nodeId || '__or__';
 
-            state = applyEvent(state, 'session:creating', { sessionId: sid, nodeId, phase, retryCount });
-            state = applyEvent(state, 'session:start', { sessionId: sid, nodeId, phase, retryCount, model: s.model });
+            state = applyEvent(state, 'session:creating', { sessionId: sid, nodeId, phase, epoch });
+            state = applyEvent(state, 'session:start', { sessionId: sid, nodeId, phase, epoch, model: s.model });
 
             if (s.status && s.status !== 'active') {
                 state = applyEvent(state, 'session:state', { sessionId: sid, phase: s.status });
@@ -69,12 +69,23 @@ export function buildState(overrides = {}) {
                 }
             }
 
-            if (s.latestReturn) {
-                state = applyEvent(state, 'tool_call:started', {
+            // latestReturn no longer stored — use domain facts instead
+            if (s.reviewDecided) {
+                state = applyEvent(state, 'node:review_decided', {
+                    nodeId,
                     sessionId: sid,
-                    toolName: 'return',
-                    toolId: `call-${sid}`,
-                    params: s.latestReturn,
+                    approved: s.reviewDecided.approved,
+                    summary: s.reviewDecided.summary || '',
+                    epoch,
+                });
+            }
+            if (s.workSubmitted) {
+                state = applyEvent(state, 'node:work_submitted', {
+                    nodeId,
+                    sessionId: sid,
+                    summary: s.workSubmitted.summary || '',
+                    affected_files: s.workSubmitted.affected_files || [],
+                    epoch,
                 });
             }
         }
@@ -115,11 +126,37 @@ export function createSession(state, nodeId, phase) {
 }
 
 export function giveReturn(state, sessionId, status, reason) {
-    const newState = applyEvent(state, 'tool_call:started', {
+    const toolId = `call-${Date.now()}`;
+    let s = applyEvent(state, 'tool_call:started', {
         sessionId,
         toolName: 'return',
-        toolId: `call-${Date.now()}`,
+        toolId,
         params: { status, reason, affected_files: [] },
     });
-    Object.assign(state, newState);
+
+    // Extract phase from sessionId (format: nodeId::phase::v{epoch})
+    const parts = sessionId.split('::');
+    const phase = parts[1] || '';
+    const nodeId = parts[0] || '';
+
+    if (phase === 'reviewing') {
+        s = applyEvent(s, 'node:review_decided', {
+            nodeId,
+            sessionId,
+            approved: status === 'ok',
+            summary: reason || '',
+            affected_files: [],
+            epoch: state.squad.nodes[nodeId]?.epoch ?? 0,
+        });
+    } else if (phase === 'authoring' || phase === 'confirming') {
+        s = applyEvent(s, 'node:work_submitted', {
+            nodeId,
+            sessionId,
+            summary: reason || '',
+            affected_files: [],
+            epoch: state.squad.nodes[nodeId]?.epoch ?? 0,
+        });
+    }
+
+    Object.assign(state, s);
 }

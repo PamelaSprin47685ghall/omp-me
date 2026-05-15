@@ -48,7 +48,6 @@ describe('concurrency gating', () => {
 
     test('does NOT emit SESSION_CREATING at limit', () => {
         const st = createBaseState('n1', 'n2', 'n3', 'n4');
-        const env = { maxWorkers: 3 };
         setStatus(st, 'n1', 'authoring');
         setStatus(st, 'n2', 'authoring');
         setStatus(st, 'n3', 'authoring');
@@ -56,7 +55,7 @@ describe('concurrency gating', () => {
         createSession(st, 'n2', 'authoring');
         createSession(st, 'n3', 'authoring');
         createSession(st, 'n3', 'authoring');
-        const events = reactState(st, env);
+        const events = reactState(st);
         expect(events.filter((e) => e.type === 'session:creating' && e.payload.nodeId === 'n4').length).toBe(0);
     });
 });

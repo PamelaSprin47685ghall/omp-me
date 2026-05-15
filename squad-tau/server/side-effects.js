@@ -41,7 +41,7 @@ register('session:creating')(async (payload, { pi, getState, eventLog, broadcast
     if (actualSessionId !== sessionId) sessionStore.set(sessionId, sessionStore.get(actualSessionId));
 
     // Subscribe to session events for streaming — these append intermediate facts
-    subscribeToSessionEvents(session, eventLog, sessionId, broadcast);
+    subscribeToSessionEvents(session, eventLog, sessionId, broadcast, getState);
 
     return {
         type: 'session:start',
@@ -119,9 +119,9 @@ const SessionEventHandlers = {
 
 const seenMessages = new Map(); // sessionId → Set<messageId>
 
-function subscribeToSessionEvents(session, eventLog, sessionId, broadcast) {
+function subscribeToSessionEvents(session, eventLog, sessionId, broadcast, getState) {
     if (!seenMessages.has(sessionId)) seenMessages.set(sessionId, new Set());
-    const ctx = { eventLog, sessionId, broadcast };
+    const ctx = { eventLog, sessionId, broadcast, getState };
     return session.subscribe((event) => {
         try {
             const handler = SessionEventHandlers[event.type];
@@ -165,12 +165,47 @@ function handleToolStart(event, { eventLog, sessionId }) {
     });
 }
 
-function handleToolEnd(event, { eventLog, sessionId }) {
+function handleToolEnd(event, { eventLog, sessionId, getState }) {
     eventLog.append('tool_call:finished', {
         toolId: event.toolId,
         result: event.result,
         isError: event.isError ?? false,
     });
+
+    // Domain fact elevation: translate return tool into high-level domain facts
+    if (event.toolName === 'return' && getState) {
+        const state = getState();
+        const session = state.sessions[sessionId];
+        if (!session || !session.nodeId) return;
+        const { nodeId, phase, epoch } = session;
+        const node = state.squad.nodes[nodeId];
+        if (!node) return;
+
+        // Params were stored by tool_call:started projection
+        const tcs = Object.values(state.toolCalls);
+        const tc = tcs.find((t) => t.toolId === event.toolId && t.sessionId === sessionId);
+        if (!tc) return;
+        const params = tc.params || {};
+
+        if (phase === 'authoring' || phase === 'confirming') {
+            eventLog.append('node:work_submitted', {
+                nodeId,
+                sessionId,
+                summary: params.reason || '',
+                affected_files: params.affected_files || [],
+                epoch: epoch ?? node.epoch ?? 0,
+            });
+        } else if (phase === 'reviewing' || phase === 'outer_review') {
+            eventLog.append('node:review_decided', {
+                nodeId,
+                sessionId,
+                approved: params.status === 'ok',
+                summary: params.reason || '',
+                affected_files: params.affected_files || [],
+                epoch: epoch ?? node.epoch ?? 0,
+            });
+        }
+    }
 }
 
 function handleMessageEnd(event, { eventLog, sessionId }) {
