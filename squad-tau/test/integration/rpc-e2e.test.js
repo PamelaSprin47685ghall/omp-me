@@ -72,7 +72,8 @@ describe('OMP RPC E2E', () => {
 
             // 2. processDelegate with real EventLog + TOML files
             const eventLog = new EventLog();
-            const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-mock-m-'));
+            fs.mkdirSync(path.join(process.cwd(), '.omp', 'squad', 'plans'), { recursive: true });
+            const tmpDir = fs.mkdtempSync(path.join(process.cwd(), '.omp', 'squad', 'plans', 'rpc-mock-'));
             try {
                 fs.writeFileSync(
                     path.join(tmpDir, 'n1.toml'),

@@ -58,16 +58,16 @@ function MessageItemComponent({ messageId, sessionRole }) {
 /**
  * Renders assistant message content with interleaved text and tool call blocks.
  *
- * For finalized messages with contentBlocks: iterates blocks in order,
- * rendering text blocks as <agent-message> segments and tool blocks as <ToolCall>.
- * This preserves the exact causal chain the LLM produced.
- *
- * For streaming (non-finalized) messages: renders a single <agent-message>
- * for all text (receives streaming deltas) with tool calls below.
+ * Unifies streaming and finalized rendering around the `blocks` array.
+ * During streaming, `message:created` seeds an initial text block;
+ * `tool_call:started` appends tool + subsequent text block,
+ * producing interleaved [text, tool, text, ...] structure.
+ * `message:delta` is routed to the LAST matching <agent-message>
+ * by prefix, so suffixes seamlessly receive post-tool text.
  */
 function InterleavedBlocks({ meta, agentRef, sessionRole }) {
-  // Finalized with structured content blocks → interleave
-  if (meta.status === 'finalized' && Array.isArray(meta.blocks) && meta.blocks.length > 0) {
+  // Blocks present → interleave across all phases (streaming and finalized)
+  if (Array.isArray(meta.blocks) && meta.blocks.length > 0) {
     return (
       <>
         {meta.blocks.map((block, idx) => {
@@ -95,27 +95,7 @@ function InterleavedBlocks({ meta, agentRef, sessionRole }) {
     );
   }
 
-  // Finalized but no content blocks — existing behavior
-  if (meta.status === 'finalized') {
-    return (
-      <>
-        <agent-message
-          ref={agentRef}
-          message-id={meta.messageId}
-          role={meta.role}
-        />
-        {meta.toolIds?.length > 0 && (
-          <Box mt={2}>
-            {meta.toolIds.map((tid) => (
-              <ToolCall key={tid} toolId={tid} />
-            ))}
-          </Box>
-        )}
-      </>
-    );
-  }
-
-  // Streaming — single agent-message, tools below
+  // Fallback: no blocks (legacy/edge case — user messages or pre-migration)
   return (
     <>
       <agent-message

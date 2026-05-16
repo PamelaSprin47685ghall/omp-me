@@ -14,6 +14,8 @@
 import { buildPrompt } from './prompt-builder.js';
 import { returnTool, acceptTool, rejectTool } from './lifecycle-tools.js';
 
+const MAX_NUDGE = 5;
+
 const sessionStore = new Map();
 
 export async function getCodingAgentModule() {
@@ -72,8 +74,36 @@ register('session:prompting')(async (payload, { pi, getState, eventLog, broadcas
         text = buildPrompt(phase, state, node, eventLog);
     }
 
-    if (text) {
-        await entry.session.prompt(text);
+    if (!text) return;
+
+    // Nudge loop: re-prompt if LLM fails to call the required tool
+    let nudgeCount = 0;
+    while (nudgeCount <= MAX_NUDGE) {
+        const prompt =
+            nudgeCount === 0
+                ? text
+                : 'ERROR: You must call the required tool (return/accept/reject) to submit your work. Do not just chat. Call the tool now.';
+        await entry.session.prompt(prompt);
+
+        // After prompt resolves, check if LLM progressed the state
+        const curState = getState();
+        const node = curState.squad.nodes[nodeId];
+        if (!node || node.status !== phase) break;
+
+        // Session ended naturally
+        const sess = curState.sessions[sessionId];
+        if (!sess || sess.status === 'completed' || sess.status === 'error' || sess.status === 'aborted') break;
+
+        nudgeCount++;
+    }
+
+    if (nudgeCount > MAX_NUDGE) {
+        eventLog.append('session:faulted', {
+            sessionId,
+            nodeId,
+            reason: 'max_nudge_exceeded',
+            message: `LLM did not call required tool after ${MAX_NUDGE + 1} attempts`,
+        });
     }
 });
 
@@ -112,18 +142,33 @@ register('squad:phase_changed')(async (payload, { eventLog, getState, pi }) => {
     }
 });
 
-register('squad:force_replan_prompt')(async (payload, { pi }) => {
-    if (!pi || typeof pi.sendMessage !== 'function') return;
+register('squad:force_replan_prompt')(async (payload, { pi, getState, eventLog }) => {
+    if (!getState || !eventLog) return;
+    const state = getState();
+    const mainSessionId = state.squad.mainSessionId;
+    if (!mainSessionId) return;
+
+    const { SessionManager } = await getCodingAgentModule();
+    const session = await SessionManager.open(mainSessionId);
     const feedback = payload.feedback || 'No feedback provided';
     const msg = `[Squad-Tau Architect Awakening — Re-prompt]\n\nYour outer review was rejected:\n\n${feedback}\n\nPlease analyze the feedback, revise your plan, and call \`squad_delegate\` again.`;
-    pi.sendMessage(
-        {
-            customType: 'squad-revision-force',
-            content: msg,
-            display: false,
-        },
-        { triggerTurn: true },
-    );
+
+    const ARCHITECT_NUDGE = 3;
+    let nudgeCount = 0;
+    while (nudgeCount <= ARCHITECT_NUDGE) {
+        const prompt =
+            nudgeCount === 0 ? msg : 'ERROR: You must call squad_delegate to submit your revised plan. Call it now.';
+        await session.prompt(prompt);
+
+        const curState = getState();
+        if (curState.squad.phase !== 'revising') break;
+
+        nudgeCount++;
+    }
+
+    if (nudgeCount > ARCHITECT_NUDGE) {
+        eventLog.append('squad:abort', { reason: 'Orchestrator failed to replan after max nudges' });
+    }
 });
 
 register('squad:complete')(() => {

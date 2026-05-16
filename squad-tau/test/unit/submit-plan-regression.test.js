@@ -1,14 +1,21 @@
 import { describe, test, expect } from 'bun:test';
 import fs from 'fs';
 import path from 'path';
-import os from 'os';
 
 function writeToml(dir, name, content) {
     fs.writeFileSync(path.join(dir, name), content, 'utf8');
 }
 
 function tmpPlanDir() {
-    return fs.mkdtempSync(path.join(os.tmpdir(), 'squad-regression-'));
+    const plansDir = path.join(
+        process.cwd(),
+        '.omp',
+        'squad',
+        'plans',
+        `test-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    );
+    fs.mkdirSync(plansDir, { recursive: true });
+    return plansDir;
 }
 
 // ── Regression: validation before EventLog (REPAIR.md §2.1 + submit-plan.js reorder) ──

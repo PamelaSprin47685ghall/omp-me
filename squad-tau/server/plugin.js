@@ -41,7 +41,11 @@ const CLASSIFICATION_PROMPT = [
     '- Specific, checkable assertions — not vague qualities like "good code"',
     '- At least 3 distinct criteria covering correctness, completeness, and edge cases',
     '',
-    'Write the plan as .toml files under .omp/squad/plans/<task-slug>/, then call `squad_delegate` with the absolute dir path. Use `planDir(name)` in persistence.js.',
+    '### Path discipline (ABSOLUTE REQUIREMENT)',
+    '- You may use any tool (write_file, bash heredoc, etc.) to create .toml plan files.',
+    '- ALL plan files MUST be written to the absolute path `<cwd>/.omp/squad/plans/<task-slug>/` directory.',
+    '- When calling `squad_delegate`, the `plan_dir` parameter MUST be that **exact absolute path**.',
+    '- Relative paths will be REJECTED with an error. You must retry with the correct absolute path.',
 ].join('\n');
 
 let _squadActive = false;

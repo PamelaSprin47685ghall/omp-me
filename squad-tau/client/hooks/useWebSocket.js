@@ -18,17 +18,25 @@ const MAX_RECONNECT_ATTEMPTS = 50;
 const PING_INTERVAL = 30000;
 
 function routeDelta(payload) {
-    const el = document.querySelector(`agent-message[message-id="${payload.messageId}"]`);
-    if (el) {
-        el.appendChunk(payload.delta?.text || '', payload.delta?.type || 'text');
+    // Prefix match: find the LAST <agent-message> whose message-id starts with payload.messageId.
+    // During interleaved streaming, tool calls create suffix blocks (messageId_after_toolId)
+    // that receive subsequent deltas — the last element is always the current text segment.
+    const els = document.querySelectorAll(`agent-message[message-id^="${payload.messageId}"]`);
+    if (els.length > 0) {
+        els[els.length - 1].appendChunk(payload.delta?.text || '', payload.delta?.type || 'text');
     } else {
         pushEarlyBuffer(payload.messageId, payload.delta?.text || '', payload.delta?.type || 'text');
     }
 }
 
 function routeStreamEnd(payload) {
-    const el = document.querySelector(`agent-message[message-id="${payload.messageId}"]`);
-    if (el) el.finalize(payload.staticContent || '');
+    // Finalize ALL text segment elements for this message
+    const els = document.querySelectorAll(`agent-message[message-id^="${payload.messageId}"]`);
+    for (const el of els) {
+        const mid = el.getAttribute('message-id');
+        // Primary element (exact match) gets staticContent; suffix blocks finalize with existing text
+        el.finalize(mid === payload.messageId ? payload.staticContent || '' : undefined);
+    }
     deleteStreamBuffer(payload.messageId);
 }
 

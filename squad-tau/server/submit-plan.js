@@ -64,8 +64,25 @@ function parseTomlNode(plan_dir, file) {
 export async function processDelegate(params, options = {}) {
     const mainSessionId = options.mainSessionId || null;
 
+    // ── Absolute path gate ──
+    // LLM MUST provide an absolute path under .omp/squad/plans/
+    const planDir = params.plan_dir;
+    if (!path.isAbsolute(planDir)) {
+        throw new Error(
+            '`plan_dir` must be an absolute path. You must use the full absolute path, ' +
+                'e.g. /home/user/project/.omp/squad/plans/my-task/. Retry with the correct absolute path.',
+        );
+    }
+    const allowedPrefix = path.resolve(process.cwd(), '.omp', 'squad', 'plans');
+    if (!path.resolve(planDir).startsWith(allowedPrefix)) {
+        throw new Error(
+            '`plan_dir` must be located under .omp/squad/plans/. ' +
+                'You attempted to use a path outside the allowed directory. Retry with a correct path.',
+        );
+    }
+
     // Validate first — catches cycles/missing deps before requiring EventLog
-    const { nodes, mode } = readNodesFromDir(params.plan_dir);
+    const { nodes, mode } = readNodesFromDir(planDir);
     const validation = validatePlan({ mode, nodes });
     if (!validation.valid) {
         throw new Error(`Invalid plan: ${validation.errors.join('; ')}`);

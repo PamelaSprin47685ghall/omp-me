@@ -170,7 +170,8 @@ describe('squad_delegate tool AgentToolResult compliance', () => {
         const tool = pi.tools.find((t) => t.name === 'squad_delegate');
 
         // Create two nodes with a mutual dependency (cycle)
-        const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'squad-oapi-cycle-'));
+        fs.mkdirSync(path.join(process.cwd(), '.omp', 'squad', 'plans'), { recursive: true });
+        const tmpDir = fs.mkdtempSync(path.join(process.cwd(), '.omp', 'squad', 'plans', 'oapi-cycle-'));
         try {
             fs.writeFileSync(
                 path.join(tmpDir, 'n1.toml'),
@@ -539,7 +540,11 @@ describe('session:prompting handler await regression', () => {
                 nodeId: 'n1',
                 promptText: 'test prompt text',
             },
-            { broadcast: null },
+            {
+                broadcast: null,
+                getState: () => ({ squad: { nodes: {} }, sessions: {} }),
+                eventLog: { append: () => {} },
+            },
         );
 
         // Give microtasks a chance to run
@@ -628,31 +633,22 @@ describe('squad:phase_changed handler contract regression', () => {
         expect(result).toBeUndefined();
     });
 
-    test('squad:force_replan_prompt sends revision-force message', async () => {
-        let sentMsg = null;
-        let sentOpts = null;
-        const pi = {
-            sendMessage: (msg, opts) => {
-                sentMsg = msg;
-                sentOpts = opts;
-            },
-        };
-
-        const handler = EffectHandlers['squad:force_replan_prompt'];
-        expect(handler).toBeDefined();
-        await handler({ feedback: 'needs rework' }, { pi });
-
-        expect(sentMsg).not.toBeNull();
-        expect(sentMsg.customType).toBe('squad-revision-force');
-        expect(sentMsg.display).toBe(false);
-        expect(sentOpts.triggerTurn).toBe(true);
-        expect(sentMsg.content).toContain('needs rework');
-        expect(sentMsg.content).toContain('squad_delegate');
-    });
-
-    test('squad:force_replan_prompt returns void when pi has no sendMessage', async () => {
+    test('squad:force_replan_prompt returns void when getState not provided', async () => {
         const handler = EffectHandlers['squad:force_replan_prompt'];
         const result = await handler({ feedback: 'test' }, { pi: {} });
+        expect(result).toBeUndefined();
+    });
+
+    test('squad:force_replan_prompt returns void when mainSessionId is null', async () => {
+        const handler = EffectHandlers['squad:force_replan_prompt'];
+        const result = await handler(
+            { feedback: 'test' },
+            {
+                pi: {},
+                getState: () => ({ squad: { mainSessionId: null } }),
+                eventLog: { append: () => {} },
+            },
+        );
         expect(result).toBeUndefined();
     });
 });

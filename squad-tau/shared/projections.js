@@ -66,7 +66,7 @@ register('message:created')((state, payload) => {
         staticContent,
         toolIds: [],
         contentBlocks: null,
-        blocks: [],
+        blocks: role === 'assistant' ? [{ type: 'text', id: messageId }] : [],
     };
     const newMessages = { ...state.messages, [messageId]: msg };
     const newSession = { ...session, messageIds: [...session.messageIds, messageId] };
@@ -81,13 +81,23 @@ register('message:finalized')((state, payload) => {
     const newMsg = { ...msg, status: 'finalized' };
     if (payload.staticContent !== undefined) newMsg.staticContent = payload.staticContent;
     if (payload.contentBlocks !== undefined) newMsg.contentBlocks = payload.contentBlocks;
-    // Derive blocks array from contentBlocks when present (preserves text↔tool ordering)
+    // Derive blocks array from contentBlocks when present (preserves text↔tool ordering).
+    // Uses the same ID scheme as the streaming phase (tool_call:started projection)
+    // so React elements maintain identity across the streaming→finalized transition.
     if (Array.isArray(payload.contentBlocks)) {
-        newMsg.blocks = payload.contentBlocks.map((b, i) => {
-            if (b.type === 'text') return { type: 'text', id: `${payload.messageId}_t${i}` };
-            if (b.type === 'tool_use') return { type: 'tool', id: b.id, toolName: b.name };
-            return { type: b.type, id: b.id || `${payload.messageId}_b${i}` };
-        });
+        newMsg.blocks = [];
+        let lastToolId = null;
+        for (const b of payload.contentBlocks) {
+            if (b.type === 'text') {
+                const id = lastToolId ? `${payload.messageId}_after_${lastToolId}` : payload.messageId;
+                newMsg.blocks.push({ type: 'text', id });
+            } else if (b.type === 'tool_use') {
+                newMsg.blocks.push({ type: 'tool', id: b.id, toolName: b.name });
+                lastToolId = b.id;
+            } else {
+                newMsg.blocks.push({ type: b.type, id: b.id || `${payload.messageId}_b${newMsg.blocks.length}` });
+            }
+        }
     }
     return setIn(state, ['messages', payload.messageId], newMsg);
 });
@@ -109,7 +119,16 @@ register('tool_call:started')((state, payload) => {
 
     if (messageId && st.messages[messageId]) {
         const msg = st.messages[messageId];
-        st = setIn(st, ['messages', messageId], { ...msg, toolIds: [...msg.toolIds, toolId] });
+        const newBlocks = [
+            ...msg.blocks,
+            { type: 'tool', id: toolId, toolName },
+            { type: 'text', id: `${messageId}_after_${toolId}` },
+        ];
+        st = setIn(st, ['messages', messageId], {
+            ...msg,
+            toolIds: [...msg.toolIds, toolId],
+            blocks: newBlocks,
+        });
     }
 
     // LatestReturn removed — domain facts (node:work_submitted, node:review_decided)

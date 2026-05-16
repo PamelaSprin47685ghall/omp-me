@@ -23,9 +23,12 @@ function inject(page, events) {
 
         for (const e of evts) {
             // Streaming deltas → direct DOM routing (no EventStore dispatch)
+            // Uses prefix matching to route post-tool deltas to suffix text blocks
             if (e.type === 'message:delta') {
-                const el = document.querySelector(`agent-message[message-id="${e.payload.messageId}"]`);
-                if (el) el.appendChunk(e.payload.delta?.text || '', e.payload.delta?.type || 'text');
+                const els = document.querySelectorAll(`agent-message[message-id^="${e.payload.messageId}"]`);
+                if (els.length > 0) {
+                    els[els.length - 1].appendChunk(e.payload.delta?.text || '', e.payload.delta?.type || 'text');
+                }
                 await new Promise((r) => setTimeout(r, 0));
                 continue;
             }
@@ -474,5 +477,92 @@ describe('UI Full Flow', () => {
         await inject(page, [{ type: 'squad:abort', payload: { reason: 'test' } }]);
         await page.waitForFunction(() => document.body.innerText.includes('Welcome to Squad-Tau'), { timeout: T });
         await capture(page, '16-abort-welcome');
+    }, 15000);
+
+    test('17 interleaved streaming causality', async () => {
+        // Reset to fresh state
+        await reset(page);
+
+        // Seed a session to host the interleaved message
+        await inject(page, [
+            {
+                type: 'squad:init',
+                payload: {
+                    mode: 'M',
+                    nodes: [{ id: 'interleave-node', task: 'test', review_criteria: ['ok'] }],
+                    originalTask: 'interleave',
+                },
+            },
+            {
+                type: 'session:start',
+                payload: { sessionId: 's-interleave', nodeId: 'interleave-node', phase: 'authoring', epoch: 0 },
+            },
+        ]);
+
+        // Switch to the session view
+        await clickSidebarNode(page, 'R1 authoring');
+        await page.waitForSelector('textarea', { timeout: T });
+
+        // Inject events in strict causality order:
+        // 1. message:created → seeds blocks: [{type:'text', id:'m-interleave'}]
+        // 2. message:delta "First thought..." → routed to primary agent-message
+        // 3. tool_call:started → appends tool + text suffix blocks
+        // 4. message:delta "Second thought..." → routed to suffix agent-message
+        await inject(page, [
+            {
+                type: 'message:created',
+                payload: { messageId: 'm-interleave', sessionId: 's-interleave', role: 'assistant' },
+            },
+            {
+                type: 'message:delta',
+                payload: {
+                    sessionId: 's-interleave',
+                    messageId: 'm-interleave',
+                    delta: { type: 'text', text: 'First thought...' },
+                },
+            },
+            {
+                type: 'tool_call:started',
+                payload: {
+                    sessionId: 's-interleave',
+                    toolName: 'read',
+                    toolId: 'tool-interleave',
+                    params: { path: 'test/file.js' },
+                    messageId: 'm-interleave',
+                },
+            },
+            {
+                type: 'message:delta',
+                payload: {
+                    sessionId: 's-interleave',
+                    messageId: 'm-interleave',
+                    delta: { type: 'text', text: 'Second thought...' },
+                },
+            },
+        ]);
+
+        // Wait for tool card to render
+        await page.waitForSelector('[role="button"]', { timeout: T });
+        await page.waitForFunction(
+            () =>
+                document.body.innerText.includes('First thought') && document.body.innerText.includes('Second thought'),
+            { timeout: T },
+        );
+
+        // Core assertion: the rendered body must have the causal order:
+        // "First thought..." → tool card params (test/file.js) → "Second thought..."
+        // We verify this by comparing their positions in the body HTML.
+        // Using 'test/file.js' instead of 'read' to avoid matching unintended text.
+        const orderOk = await page.evaluate(() => {
+            const html = document.body.innerHTML;
+            const first = html.indexOf('First thought...');
+            const tool = html.indexOf('test/file.js');
+            const second = html.indexOf('Second thought...');
+            if (first === -1 || tool === -1 || second === -1) return 'missing-elements';
+            return first < tool && tool < second ? 'ok' : 'wrong-order';
+        });
+        expect(orderOk).toBe('ok');
+
+        await capture(page, '17-interleaved-causality');
     }, 15000);
 });
