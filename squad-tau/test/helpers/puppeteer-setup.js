@@ -8,10 +8,29 @@
  * 4. Natural timing — RAF for stream flush, isIdle for projection completion.
  */
 import puppeteer from 'puppeteer';
+import { existsSync } from 'fs';
+
+const CANDIDATES = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+    '/usr/bin/chromium-browser',
+    '/snap/bin/chromium',
+].filter(Boolean);
+
+function findChrome() {
+    for (const p of CANDIDATES) {
+        if (existsSync(p)) return p;
+    }
+    return undefined;
+}
 
 export async function setupBrowser() {
+    const executablePath = findChrome();
     const browser = await puppeteer.launch({
         headless: true,
+        executablePath,
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
     });
     const page = await browser.newPage();

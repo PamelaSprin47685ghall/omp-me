@@ -12,7 +12,7 @@ function reviewCriteriaBlock(plan) {
 
 function upstreamBlock(state, node, plan) {
     const upstream = (node.depends_on || [])
-        .map((id) => ({ node: state.squad.nodes[id], plan: state.squad.planConfig?.[id] }))
+        .map((id) => ({ node: state.nodes[id], plan: state.squad.planConfig?.[id] }))
         .filter((x) => x.node)
         .map(({ node: n, plan: p }) => {
             const files = n.affectedFiles?.length ? ` (Files: ${n.affectedFiles.join(', ')})` : '';
@@ -160,7 +160,7 @@ ${historyBlock(rounds) ? `### Iteration History\n${historyBlock(rounds)}` : ''}
     },
 
     outer_review: (state) => {
-        const results = Object.values(state.squad.nodes)
+        const results = Object.values(state.nodes)
             .map((n) => {
                 const p = state.squad.planConfig?.[n.id];
                 if (p?.resetOnRej) return null; // skip __or__
@@ -182,6 +182,8 @@ ${results.join('\n') || '（无节点）'}
 - 不满足：调用 reject({ reason: "..." }) 附详细修改意见`;
     },
 };
+
+export { foldNodeHistory };
 
 export function buildPrompt(phase, state, node, eventLog) {
     const plan = state.squad.planConfig?.[node.id] || {};

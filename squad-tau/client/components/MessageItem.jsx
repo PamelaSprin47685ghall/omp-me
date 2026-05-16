@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box } from '@chakra-ui/react';
 import { useMessageState } from '../hooks/useAtomicState.js';
+import ToolCall from './ToolCall.jsx';
 import '../components/stream-sink.js';
 
 const ROLE_BG = { user: 'blue.subtle', authoring: 'green.subtle', confirming: 'green.subtle', reviewing: 'orange.subtle', outer_review: 'bg.subtle' };
@@ -48,14 +49,11 @@ function MessageItemComponent({ messageId, sessionRole }) {
 
 function InterleavedBlocks({ message, sessionRole }) {
   const blocks = message.blocks;
-  if (!Array.isArray(blocks) || blocks.length === 0) {
-    // Fallback: single text block
-    return <stream-sink urn={message.messageId} />;
-  }
+  const toolIds = message.toolIds;
 
   return (
     <>
-      {blocks.map((block) => {
+      {blocks?.map((block) => {
         if (block.type === 'text') {
           return (
             <Box key={block.id} display="inline">
@@ -63,11 +61,11 @@ function InterleavedBlocks({ message, sessionRole }) {
             </Box>
           );
         }
-        if (block.type === 'tool') {
-          return <div key={block.id}> {/* ToolCall placeholder — tool calls rendered externally */} </div>;
-        }
         return null;
       })}
+      {toolIds?.map((toolId) => (
+        <ToolCall key={toolId} toolId={toolId} />
+      ))}
     </>
   );
 }

@@ -44,9 +44,28 @@ export function setupEngine(eventLog, pi, maxWorkers, effectHandlers = {}, broad
         broadcastEphemeral('connection:close', { reason: 'server_shutdown' });
     });
 
-    // Register custom effect handlers passed in
+    // Register custom effect handlers passed in — wrap with deps
     for (const [type, handler] of Object.entries(effectHandlers)) {
-        router.on(type, handler);
+        router.on(type, (payload, append) => {
+            const deps = {
+                pi,
+                getState: () => project(eventLog.getLog()),
+                eventLog,
+                broadcast: broadcastEphemeral,
+                append,
+            };
+            const result = handler(payload, deps);
+            if (result && typeof result.then === 'function') {
+                // async handler — fire-and-forget, propagate returned facts
+                result
+                    .then((resolved) => {
+                        if (resolved && resolved.type) append(resolved.type, resolved.payload);
+                    })
+                    .catch((err) => console.error('[SideEffect]', type, err));
+            } else if (result && result.type) {
+                append(result.type, result.payload);
+            }
+        });
     }
 
     const engine = new PulseEngine(eventLog, router);

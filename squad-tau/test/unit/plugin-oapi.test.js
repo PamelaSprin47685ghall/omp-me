@@ -131,7 +131,7 @@ describe('SideEffect Handler Await & Session Regressions', () => {
     beforeEach(() => _clearTestSession());
     afterEach(() => _clearTestSession());
 
-    test('session:prompting awaits session.prompt() before resolving', async () => {
+    test('session:pending_prompt awaits session.prompt() before resolving', async () => {
         let promptCalled = false;
         let promptResolve;
         const promptPromise = new Promise((r) => {
@@ -148,10 +148,10 @@ describe('SideEffect Handler Await & Session Regressions', () => {
             status: 'active',
         });
 
-        const handlerPromise = EffectHandlers['session:prompting'](
-            { sessionId: 's1', phase: 'authoring', nodeId: 'n1', promptText: 'test' },
+        const handlerPromise = EffectHandlers['session:pending_prompt'](
+            { sessionId: 's1', text: 'test' },
             {
-                broadcast: null,
+                broadcast: () => {},
                 getState: () => ({ squad: { nodes: {} }, sessions: {} }),
                 eventLog: { append: () => {} },
             },

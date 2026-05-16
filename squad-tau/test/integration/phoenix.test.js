@@ -1,18 +1,28 @@
+/**
+ * Phoenix — Crash Immunity via Zero-State Bootstrapping.
+ *
+ * Cold start axiom: load NDJSON truth source → create EventLog → fold state.
+ * Before the final entry is folded, the Engine stays silent — zero facts produced.
+ * After bootstrap completes, the brain (Reactor) takes over synchronously.
+ *
+ * No saveSnapshot(), no periodic checkpoint. State is computed exclusively
+ * by replaying the EventLog through pure Projections.
+ */
 import { describe, it } from 'bun:test';
 import assert from 'node:assert/strict';
-import { bootstrap } from '../../server/bootstrap.js';
+import { EventLog } from '../../server/event-log.js';
 import { project, getInitialState } from '../../shared/projections.js';
 import { reactState } from '../../server/reactor.js';
 
-describe('Phoenix Bootstrap — Crash Immunity', () => {
-    it('bootstraps from empty entries to absolute zero state', () => {
-        const { eventLog, state } = bootstrap([]);
+describe('Phoenix — Crash Immunity (Zero-State Bootstrapping)', () => {
+    it('empty entries produce absolute zero state', () => {
+        const eventLog = new EventLog([]);
+        const state = project(eventLog.getLog());
         assert.equal(eventLog.length, 0);
         assert.deepEqual(state, getInitialState());
     });
 
     it('produces identical state from serialised EventLog entries', () => {
-        // Build 50 facts representing a complex squad lifecycle
         const entries = [];
         entries.push({
             event: 'squad:init',
@@ -98,7 +108,7 @@ describe('Phoenix Bootstrap — Crash Immunity', () => {
             payload: { nodeId: 'n1', status: 'approved', sessionId: 'urn:squad:session:n1:v0:p2' },
         });
 
-        // n2 lifecycle (now unlocked)
+        // n2 lifecycle
         entries.push({
             event: 'session:pending_creation',
             payload: { sessionId: 'urn:squad:session:n2:v0:p0', nodeId: 'n2', phase: 'authoring', epoch: 0 },
@@ -160,12 +170,10 @@ describe('Phoenix Bootstrap — Crash Immunity', () => {
 
         // Bootstrap from these entries
         const originalState = project(entries);
-        const { eventLog, state: rehydratedState } = bootstrap(entries);
+        const eventLog = new EventLog(entries);
+        const rehydratedState = project(eventLog.getLog());
 
-        // The serialised entries should produce identical final state
         assert.deepEqual(rehydratedState, originalState, 'rehydrated state must deep-equal original projected state');
-
-        // Log length must match entry count
         assert.equal(eventLog.length, entries.length);
     });
 
@@ -194,19 +202,17 @@ describe('Phoenix Bootstrap — Crash Immunity', () => {
             payload: { sessionId: 'urn:squad:session:n1:v0:p0', reason: 'completed' },
         });
 
-        // Serialise to NDJSON strings (as persistence.js does)
         const ndjsonLines = entries.map((e) => JSON.stringify(e));
         const parsedBack = ndjsonLines.map((line) => JSON.parse(line));
 
         const originalState = project(entries);
-        const { state: rehydratedState } = bootstrap(parsedBack);
+        const eventLog = new EventLog(parsedBack);
+        const rehydratedState = project(eventLog.getLog());
 
-        // NDJSON serialisation (stringify + parse) must produce identical state
         assert.deepEqual(rehydratedState, originalState, 'NDJSON round-trip must preserve state identity');
     });
 
     it('cold-start invariant: reactor produces identical actions after crash → rehydrate', () => {
-        // Simulate a full lifecycle: init → sessions → complete
         const entries = [
             { event: 'squad:init', payload: { nodes: [{ id: 'n1', depends_on: [] }], mode: 'M' } },
             {
@@ -225,22 +231,17 @@ describe('Phoenix Bootstrap — Crash Immunity', () => {
             { event: 'squad:complete', payload: { results: [{ id: 'n1', status: 'approved' }] } },
         ];
 
-        // Before crash: project + reactor
         const preState = project(entries);
         const preActions = reactState(preState);
 
-        // Crash! Write NDJSON, reload, bootstrap
         const ndjson = entries.map((e) => JSON.stringify(e));
-        const { state: postState } = bootstrap(ndjson.map((line) => JSON.parse(line)));
-
-        // After crash: same project + same reactor
+        const parsedBack = ndjson.map((line) => JSON.parse(line));
+        const eventLog = new EventLog(parsedBack);
+        const postState = project(eventLog.getLog());
         const postActions = reactState(postState);
 
-        // Assert: both state and actions are identical
         assert.deepEqual(postState, preState, 'bootstrap must produce identical state after crash');
         assert.deepEqual(postActions, preActions, 'reactor must produce identical actions after crash → rehydrate');
-
-        // squad:complete → zero reactor actions (quiescent state)
         assert.equal(preActions.length, 0, 'completed squad must produce zero reactor actions');
     });
 
@@ -268,7 +269,8 @@ describe('Phoenix Bootstrap — Crash Immunity', () => {
         });
         entries.push({ event: 'squad:complete', payload: { results: [{ id: 'n1', status: 'approved' }] } });
 
-        const { state } = bootstrap(entries);
+        const eventLog = new EventLog(entries);
+        const state = project(eventLog.getLog());
         assert.equal(state.squad.status, 'complete');
         assert.equal(state.nodes.n1.status, 'approved');
         assert.equal(state.runtime.sessions['urn:squad:session:n1:v0:p0'].status, 'ended');

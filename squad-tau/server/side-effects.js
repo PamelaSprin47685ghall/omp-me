@@ -128,15 +128,42 @@ export async function handleToolEnd(callResult, { eventLog, sessionId, getState 
  */
 export const EffectHandlers = {
     /**
-     * session:prompting — await the OMP session.prompt() call.
-     * Looks up the session in _sessionStore (test DI), calls prompt(),
-     * and blocks until the LLM responds.
+     * session:pending_creation — generate initial prompt and start session.
+     * Uses buildPrompt to construct the task-specific prompt, emits
+     * session:start and session:message to deliver the prompt text.
+     * The prompt is then picked up by R8 (STEER) → session:pending_prompt
+     * → the session.prompt() call.
      */
-    'session:prompting': async (payload, deps) => {
-        const { sessionId, promptText } = payload;
+    'session:pending_creation': async (payload, deps) => {
+        const { sessionId, nodeId, phase, epoch } = payload;
+        if (!sessionId || !nodeId) return;
+        const state = deps.getState?.();
+        if (!state) return;
+        const node = state.nodes?.[nodeId];
+        if (!node) return;
+        const { buildPrompt } = await import('./prompt-builder.js');
+        const prompt = buildPrompt(phase || 'authoring', state, node, deps.eventLog);
+        deps.append('session:start', { sessionId, nodeId, epoch, phase: phase || 'authoring', model: 'auto' });
+        deps.append('session:message', {
+            sessionId,
+            role: 'user',
+            content: [{ type: 'text', text: prompt }],
+        });
+    },
+
+    /**
+     * session:pending_prompt — deliver prompt text to the OMP session.
+     * Broadcasts the event (for WebSocket clients) and calls session.prompt().
+     */
+    'session:pending_prompt': async (payload, deps) => {
+        const { sessionId, text } = payload;
+        if (!sessionId) return;
+        // Broadcast to WebSocket clients
+        if (deps.broadcast) deps.broadcast('session:pending_prompt', payload);
+        // Deliver to the OMP session
         const entry = _sessionStore.get(sessionId);
         if (!entry || entry.status !== 'active') return;
-        await entry.session.prompt(promptText);
+        await entry.session.prompt(text);
     },
 
     /**
