@@ -57,7 +57,17 @@ register('message:created')((state, payload) => {
     const session = state.sessions[sessionId];
     invariant(session, `message:created references nonexistent session ${sessionId}`);
 
-    const msg = { messageId, sessionId, role, status: 'created', parentId, staticContent, toolIds: [] };
+    const msg = {
+        messageId,
+        sessionId,
+        role,
+        status: 'created',
+        parentId,
+        staticContent,
+        toolIds: [],
+        contentBlocks: null,
+        blocks: [],
+    };
     const newMessages = { ...state.messages, [messageId]: msg };
     const newSession = { ...session, messageIds: [...session.messageIds, messageId] };
     const newSessions = { ...state.sessions, [sessionId]: newSession };
@@ -70,6 +80,15 @@ register('message:finalized')((state, payload) => {
     if (msg.status === 'finalized' && msg.staticContent === payload.staticContent) return state;
     const newMsg = { ...msg, status: 'finalized' };
     if (payload.staticContent !== undefined) newMsg.staticContent = payload.staticContent;
+    if (payload.contentBlocks !== undefined) newMsg.contentBlocks = payload.contentBlocks;
+    // Derive blocks array from contentBlocks when present (preserves text↔tool ordering)
+    if (Array.isArray(payload.contentBlocks)) {
+        newMsg.blocks = payload.contentBlocks.map((b, i) => {
+            if (b.type === 'text') return { type: 'text', id: `${payload.messageId}_t${i}` };
+            if (b.type === 'tool_use') return { type: 'tool', id: b.id, toolName: b.name };
+            return { type: b.type, id: b.id || `${payload.messageId}_b${i}` };
+        });
+    }
     return setIn(state, ['messages', payload.messageId], newMsg);
 });
 

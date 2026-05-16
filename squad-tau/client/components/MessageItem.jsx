@@ -1,5 +1,5 @@
-import React, { useRef, useEffect } from 'react';
-import { Box } from '@chakra-ui/react';
+import React, { useRef, useEffect, useMemo } from 'react';
+import { Box, Text } from '@chakra-ui/react';
 import ToolCall from './ToolCall.jsx';
 import { useMessageState } from '../hooks/useAtomicState.js';
 
@@ -7,14 +7,13 @@ const ROLE_BG = { user: 'blue.subtle', authoring: 'green.subtle', confirming: 'g
 const ROLE_FG = { user: 'blue.fg', authoring: 'green.fg', confirming: 'green.fg', reviewing: 'orange.fg', outer_review: 'fg' };
 
 /**
- * MessageItem — pure topology shell.
+ * MessageItem — renders either:
+ *   1. Static user message
+ *   2. Assistant message with interleaved text blocks and tool calls
  *
- * Renders either:
- *   1. Static user message (from state.messages[id].staticContent)
- *   2. Immortal <agent-message> custom element (for streaming or finalized assistant messages)
- *
- * ZERO content in state tree. ZERO streaming awareness in React.
- * The <agent-message> element manages its own lifecycle.
+ * During streaming (non-finalized): single <agent-message> + tool calls below.
+ * After finalization: interleave text blocks and <ToolCall> components
+ * according to message.contentBlocks order, preserving causal chain.
  */
 function MessageItemComponent({ messageId, sessionRole }) {
   const meta = useMessageState(messageId);
@@ -44,26 +43,94 @@ function MessageItemComponent({ messageId, sessionRole }) {
       data-user-msg={isUser ? '' : undefined}
     >
       {isUser ? (
-        // Static user message — rendered directly from state
         meta.staticContent || ''
       ) : (
-        // Immortal native box — handles streaming + finalized internally
-        <>
-          <agent-message 
-            ref={agentRef}
-            message-id={meta.messageId} 
-            role={meta.role}
-          />
-          {meta.toolIds?.length > 0 && (
-            <Box mt={2}>
-              {meta.toolIds.map((tid) => (
-                <ToolCall key={tid} toolId={tid} />
-              ))}
-            </Box>
-          )}
-        </>
+        <InterleavedBlocks
+          meta={meta}
+          agentRef={agentRef}
+          sessionRole={sessionRole}
+        />
       )}
     </Box>
+  );
+}
+
+/**
+ * Renders assistant message content with interleaved text and tool call blocks.
+ *
+ * For finalized messages with contentBlocks: iterates blocks in order,
+ * rendering text blocks as <agent-message> segments and tool blocks as <ToolCall>.
+ * This preserves the exact causal chain the LLM produced.
+ *
+ * For streaming (non-finalized) messages: renders a single <agent-message>
+ * for all text (receives streaming deltas) with tool calls below.
+ */
+function InterleavedBlocks({ meta, agentRef, sessionRole }) {
+  // Finalized with structured content blocks → interleave
+  if (meta.status === 'finalized' && Array.isArray(meta.blocks) && meta.blocks.length > 0) {
+    return (
+      <>
+        {meta.blocks.map((block, idx) => {
+          if (block.type === 'text') {
+            return (
+              <Box key={block.id} mb={meta.blocks.length > 1 && idx < meta.blocks.length - 1 ? 2 : 0}>
+                <agent-message
+                  ref={idx === 0 ? agentRef : undefined}
+                  message-id={block.id}
+                  role={meta.role}
+                />
+              </Box>
+            );
+          }
+          if (block.type === 'tool') {
+            return (
+              <Box key={block.id} my={1}>
+                <ToolCall toolId={block.id} />
+              </Box>
+            );
+          }
+          return null;
+        })}
+      </>
+    );
+  }
+
+  // Finalized but no content blocks — existing behavior
+  if (meta.status === 'finalized') {
+    return (
+      <>
+        <agent-message
+          ref={agentRef}
+          message-id={meta.messageId}
+          role={meta.role}
+        />
+        {meta.toolIds?.length > 0 && (
+          <Box mt={2}>
+            {meta.toolIds.map((tid) => (
+              <ToolCall key={tid} toolId={tid} />
+            ))}
+          </Box>
+        )}
+      </>
+    );
+  }
+
+  // Streaming — single agent-message, tools below
+  return (
+    <>
+      <agent-message
+        ref={agentRef}
+        message-id={meta.messageId}
+        role={meta.role}
+      />
+      {meta.toolIds?.length > 0 && (
+        <Box mt={2}>
+          {meta.toolIds.map((tid) => (
+            <ToolCall key={tid} toolId={tid} />
+          ))}
+        </Box>
+      )}
+    </>
   );
 }
 

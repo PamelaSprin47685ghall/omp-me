@@ -152,10 +152,11 @@ ${historyBlock(rounds) ? `### Iteration History\n${historyBlock(rounds)}` : ''}
 - 目标完整性 — 是否完整满足需求？是否偷工减料？是否以初步完成为借口逃避工作？
 
 ### Instruction
-评审结束时，必须调用名为 return 的工具提交结果：
-- 参数 status: "ok" (通过) 或 "error" (驳回)
-- 参数 reason: 详细的修改意见或通过理由
-不要用纯文本写 return(...) 的假代码。只有真正的工具调用才有效。`;
+评审结束时，必须调用名为 accept 或 reject 的工具提交结果：
+- accept reason: 通过理由和说明
+- reject reason: 详细的驳回意见，说明问题所在和改进方向
+- affected_files: 需要修改的文件列表（可选）
+不要用纯文本写 accept(...)/reject(...) 的假代码。只有真正的工具调用才有效。`;
     },
 
     outer_review: (state) => {
@@ -177,8 +178,8 @@ ${results.join('\n') || '（无节点）'}
 
 ### Instruction
 聚合结果是否满足原始任务？
-- 满足：return({ status: "ok", reason: "..." })
-- 不满足：return({ status: "error", reason: "..." }) 附详细修改意见`;
+- 满足：调用 accept({ reason: "..." })
+- 不满足：调用 reject({ reason: "..." }) 附详细修改意见`;
     },
 };
 

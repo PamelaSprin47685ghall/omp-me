@@ -67,7 +67,7 @@ function createCloseHandler(wss, rawServer, heartbeatCleanup, unsub, ndjsonWrite
         for (const client of wss.clients) client.send(closeMsg);
         heartbeatCleanup();
         unsub();
-        ndjsonWriter.close();
+        await ndjsonWriter.close();
         for (const client of wss.clients) client.terminate();
         wss.close();
         if (typeof rawServer.closeAllConnections === 'function') rawServer.closeAllConnections();

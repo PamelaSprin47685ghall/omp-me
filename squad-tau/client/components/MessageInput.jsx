@@ -5,7 +5,9 @@ import { useUiState } from '../hooks/useAtomicState.js';
 import { eventStore } from '../event-store.js';
 import { useWebSocketContext } from '../websocket-context.js';
 
-let _msgIdCounter = 0;
+function uniqueId() {
+  return `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
 
 export function MessageInput() {
   const [text, setText] = useState('');
@@ -15,7 +17,7 @@ export function MessageInput() {
   const handleSend = useCallback(() => {
     const trimmed = text.trim();
     if (!trimmed || !activeSessionId) return;
-    const tempId = `usr_${++_msgIdCounter}`;
+    const tempId = `usr_${uniqueId()}`;
 
     // Create message entity in EventStore for React rendering
     eventStore.dispatch('message:created', {

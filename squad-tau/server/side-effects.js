@@ -12,7 +12,7 @@
  * the ephemeral channel — never touches EventLog.
  */
 import { buildPrompt } from './prompt-builder.js';
-import { returnTool } from './lifecycle-tools.js';
+import { returnTool, acceptTool, rejectTool } from './lifecycle-tools.js';
 
 const sessionStore = new Map();
 
@@ -32,8 +32,10 @@ register('session:creating')(async (payload, { pi, getState, eventLog, broadcast
     const { nodeId, sessionId, phase, epoch = 0 } = payload;
     const state = getState();
     const { SessionManager } = await getCodingAgentModule();
+    const isReviewer = phase === 'reviewing' || phase === 'outer_review';
+    const customTools = isReviewer ? [acceptTool, rejectTool] : [returnTool];
     const options = buildSessionOptions(pi, phase);
-    const sessionOpts = { ...options, sessionManager: SessionManager.create(options.cwd), customTools: [returnTool] };
+    const sessionOpts = { ...options, sessionManager: SessionManager.create(options.cwd), customTools };
 
     const { session } = await pi.pi.createAgentSession(sessionOpts);
     const actualSessionId = session.sessionFile;
@@ -75,12 +77,10 @@ register('session:prompting')(async (payload, { pi, getState, eventLog, broadcas
     }
 });
 
-let _msgCounter = 0;
-
 register('session:message')(async (payload, context) => {
     if (payload.role !== 'user') return;
     const { eventLog } = context;
-    const messageId = payload.messageId || `usr_${++_msgCounter}`;
+    const messageId = payload.messageId || `usr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     return [
         { type: 'message:created', payload: { messageId, sessionId: payload.sessionId, role: 'user' } },
         { type: 'message:finalized', payload: { messageId, staticContent: extractText(payload.content) } },
@@ -149,13 +149,14 @@ function buildSessionOptions(pi, phase) {
 
     const isReviewer = phase === 'reviewing' || phase === 'outer_review';
     if (isReviewer) {
-        // Reviewer sessions: read-only tools + return
-        options.toolNames = ['read', 'search', 'find', 'lsp', 'bash', 'return'];
+        // Reviewer sessions: read-only investigation tools + approve/reject
+        options.toolNames = ['read', 'search', 'find', 'lsp', 'bash'];
     } else {
-        // Worker sessions: inherit parent tools (minus squad_delegate), ensure return
+        // Worker sessions: inherit parent tools (minus squad_delegate)
         const activeTools = pi?.getActiveTools?.()?.filter((t) => t !== 'squad_delegate') ?? [];
-        if (activeTools.length > 0)
-            options.toolNames = activeTools.includes('return') ? activeTools : [...activeTools, 'return'];
+        if (activeTools.length > 0) {
+            options.toolNames = activeTools.filter((t) => t !== 'return');
+        }
     }
     return options;
 }
@@ -212,6 +213,7 @@ function handleToolStart(event, { eventLog, sessionId }) {
     eventLog.append('tool_call:started', {
         toolId: event.toolCallId,
         sessionId,
+        messageId: event.message?.id || '',
         toolName: event.toolName,
         params: event.args,
     });
@@ -224,8 +226,10 @@ function handleToolEnd(event, { eventLog, sessionId, getState }) {
         isError: event.isError ?? false,
     });
 
-    // Domain fact elevation: translate return tool into high-level domain facts
-    if (event.toolName === 'return' && getState) {
+    // Domain fact elevation: translate return/approve/reject tools into high-level domain facts
+    const reviewToolNames = ['accept', 'reject'];
+    const isReviewTool = reviewToolNames.includes(event.toolName);
+    if ((event.toolName === 'return' || isReviewTool) && getState) {
         const state = getState();
         const session = state.sessions[sessionId];
         if (!session || !session.nodeId) return;
@@ -247,10 +251,12 @@ function handleToolEnd(event, { eventLog, sessionId, getState }) {
                 epoch: epoch ?? node.epoch ?? 0,
             });
         } else if (phase === 'reviewing' || phase === 'outer_review') {
+            // accept tool → status:'ok', reject tool → status:'error'
+            const toolStatus = isReviewTool ? (event.toolName === 'accept' ? 'ok' : 'error') : params.status || '';
             eventLog.append('node:review_decided', {
                 nodeId,
                 sessionId,
-                approved: params.status === 'ok',
+                approved: toolStatus === 'ok',
                 summary: params.reason || '',
                 affected_files: params.affected_files || [],
                 epoch: epoch ?? node.epoch ?? 0,
@@ -263,9 +269,11 @@ function handleToolEnd(event, { eventLog, sessionId, getState }) {
 }
 
 function handleMessageEnd(event, { eventLog, sessionId }) {
+    const contentBlocks = Array.isArray(event.message?.content) ? event.message.content : null;
     eventLog.append('message:finalized', {
         messageId: event.message.id,
         staticContent: extractText(event.message.content),
+        contentBlocks,
     });
 }
 

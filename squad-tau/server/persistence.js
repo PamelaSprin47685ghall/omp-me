@@ -10,6 +10,11 @@
  *
  * Plan files (.toml) are stored under .omp/squad/plans/<task>/ to survive
  * process restarts — fully persistent from plan definition to execution trace.
+ *
+ * ── Performance ──
+ * Uses fs.createWriteStream() instead of fs.writeSync() to avoid blocking
+ * Node's event loop during EventLog bursts. The write stream buffers
+ * entries and flushes asynchronously.
  */
 import fs from 'fs';
 import path from 'path';
@@ -47,25 +52,22 @@ export function loadFromNDJSON() {
 export function createNDJSONWriter() {
     ensureDirs();
 
-    let fd;
-    try {
-        fd = fs.openSync(PERSIST_PATH, 'a');
-    } catch {
-        return { write: () => {}, close: () => {} };
-    }
+    const stream = fs.createWriteStream(PERSIST_PATH, { flags: 'a' });
+    // Suppress unhandled errors on the write stream
+    stream.on('error', () => {});
 
     function write(data) {
         const list = Array.isArray(data) ? data : [data];
         for (const entry of list) {
             const line = JSON.stringify(entry) + '\n';
-            fs.writeSync(fd, line);
+            stream.write(line);
         }
     }
 
     function close() {
-        try {
-            fs.closeSync(fd);
-        } catch {}
+        return new Promise((resolve) => {
+            stream.end(resolve);
+        });
     }
 
     return { write, close };

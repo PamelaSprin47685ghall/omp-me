@@ -33,7 +33,7 @@ const STRATEGIES = {
             sessionId,
             role: 'user',
             content: [{ type: 'text', text }],
-            messageId: messageId || `usr_${eventLog.currentTick()}`,
+            messageId: messageId || `usr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         });
         return true;
     },

@@ -436,23 +436,24 @@ describe('buildSessionOptions filter regression', () => {
         expect(opts.toolNames).toContain('read');
     });
 
-    test('adds return tool when not in active tools (worker)', () => {
+    test('return tool is not in toolNames (passed via customTools) (worker)', () => {
         const pi = {
             getThinkingLevel: () => undefined,
             getActiveTools: () => ['read', 'write'],
         };
         const opts = _getWorkerSessionOptions(pi, 'authoring');
-        expect(opts.toolNames).toContain('return');
+        expect(opts.toolNames).not.toContain('return');
+        expect(opts.toolNames).toEqual(['read', 'write']);
     });
 
-    test('does not duplicate return when already present (worker)', () => {
+    test('return is filtered from toolNames when already present', () => {
         const pi = {
             getThinkingLevel: () => undefined,
             getActiveTools: () => ['read', 'write', 'return'],
         };
         const opts = _getWorkerSessionOptions(pi, 'authoring');
-        const count = opts.toolNames.filter((t) => t === 'return').length;
-        expect(count).toBe(1);
+        expect(opts.toolNames).not.toContain('return');
+        expect(opts.toolNames).toEqual(['read', 'write']);
     });
 
     test('carries forward thinkingLevel from parent session', () => {
@@ -465,26 +466,28 @@ describe('buildSessionOptions filter regression', () => {
     });
 
     // Reviewer phase tests
-    test('reviewing phase gets restricted tool set', () => {
+    test('reviewing phase gets restricted tool set (return excluded → customTools)', () => {
         const pi = {
             getThinkingLevel: () => undefined,
             getActiveTools: () => ['read', 'write', 'edit', 'bash'],
         };
         const opts = _getWorkerSessionOptions(pi, 'reviewing');
-        expect(opts.toolNames).toEqual(['read', 'search', 'find', 'lsp', 'bash', 'return']);
+        expect(opts.toolNames).toEqual(['read', 'search', 'find', 'lsp', 'bash']);
         expect(opts.toolNames).not.toContain('write');
         expect(opts.toolNames).not.toContain('edit');
+        expect(opts.toolNames).not.toContain('return');
     });
 
-    test('outer_review phase gets restricted tool set', () => {
+    test('outer_review phase gets restricted tool set (approve/reject via customTools)', () => {
         const pi = {
             getThinkingLevel: () => undefined,
             getActiveTools: () => ['read', 'write', 'edit', 'bash'],
         };
         const opts = _getWorkerSessionOptions(pi, 'outer_review');
-        expect(opts.toolNames).toEqual(['read', 'search', 'find', 'lsp', 'bash', 'return']);
+        expect(opts.toolNames).toEqual(['read', 'search', 'find', 'lsp', 'bash']);
         expect(opts.toolNames).not.toContain('write');
         expect(opts.toolNames).not.toContain('edit');
+        expect(opts.toolNames).not.toContain('return');
     });
 
     test('confirming phase still gets full worker tools', () => {

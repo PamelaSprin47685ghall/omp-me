@@ -21,13 +21,25 @@ const MERMAID_THEME = THEMES['github-light'];
 
 export default function DAGView() {
   const nodeMap = usePathState('squad', s => s.squad.nodes || {});
-  const nodes = useMemo(() => Object.values(nodeMap), [nodeMap]);
   const activeNodeId = useUiState(s => s.activeSessionId);
 
+  // Stable dependency: only id, depends_on, and status affect the DAG topology.
+  // summary, retryCount, feedback, affectedFiles are excluded to avoid
+  // expensive mermaid re-renders on every node update.
+  const dagKey = useMemo(() => {
+    const nodes = Object.values(nodeMap);
+    if (!nodes.length) return null;
+    return nodes
+      .map((n) => `${n.id}:${n.status}:${(n.depends_on || []).slice().sort().join(',')}`)
+      .sort()
+      .join('|');
+  }, [nodeMap]);
+
   const svg = useMemo(() => {
-    if (!nodes?.length) return null;
+    if (!dagKey) return null;
+    const nodes = Object.values(nodeMap);
     const lines = ['graph TD'];
-    const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+    const nm = new Map(nodes.map((node) => [node.id, node]));
     nodes.forEach((node) => {
       const shape = node.id === activeNodeId ? `(${node.id})` : `[${node.id}]`;
       const statusColor = STATUS_COLOR[node.status] || STATUS_COLOR.pending;
@@ -37,7 +49,7 @@ export default function DAGView() {
     lines.push('    linkStyle default stroke:var(--app-mermaid-line),stroke-width:2px');
     nodes.forEach((node) => {
       (node.depends_on || []).forEach((dep) => {
-        if (nodeMap.has(dep)) lines.push(`    ${dep} --> ${node.id}`);
+        if (nm.has(dep)) lines.push(`    ${dep} --> ${node.id}`);
       });
     });
     try {
@@ -45,7 +57,9 @@ export default function DAGView() {
     } catch {
       return null;
     }
-  }, [nodes, activeNodeId]);
+    // dagKey is the stable topology fingerprint; activeNodeId triggers highlight changes
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dagKey, activeNodeId, nodeMap]);
 
   const handleClick = useCallback((event) => {
     const node = event.target.closest('[data-id]');
@@ -57,7 +71,7 @@ export default function DAGView() {
     }
   }, []);
 
-  if (!nodes.length) {
+  if (!dagKey) {
     return (
       <Center minH="300px">
         <VStack>

@@ -41,7 +41,7 @@ const CLASSIFICATION_PROMPT = [
     '- Specific, checkable assertions — not vague qualities like "good code"',
     '- At least 3 distinct criteria covering correctness, completeness, and edge cases',
     '',
-    'Write the plan as .toml files in a temp directory, then call `squad_delegate` with the absolute directory path before ending your turn.',
+    'Write the plan as .toml files under .omp/squad/plans/<task-slug>/, then call `squad_delegate` with the absolute dir path. Use `planDir(name)` in persistence.js.',
 ].join('\n');
 
 let _squadActive = false;

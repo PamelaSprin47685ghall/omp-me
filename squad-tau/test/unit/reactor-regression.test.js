@@ -211,27 +211,29 @@ describe('countLiveSessions regression — physical-reality semantics', () => {
 
 // ── Regression: returnTool registration (REPAIR.md §2.2) ──
 describe('returnTool registration regression', () => {
-    test('buildWorkerSessionOptions includes return in toolNames', async () => {
+    test('buildWorkerSessionOptions excludes return from toolNames (passed via customTools)', async () => {
         const { _getWorkerSessionOptions } = await import('../../server/side-effects.js');
         const pi = {
             getThinkingLevel: () => undefined,
             getActiveTools: () => ['squad_delegate', 'some_tool'],
         };
         const opts = _getWorkerSessionOptions(pi);
-        expect(opts.toolNames).toContain('return');
+        // return is now passed as customTools, not toolNames
+        expect(opts.toolNames).not.toContain('return');
+        expect(opts.toolNames).toContain('some_tool');
     });
 
-    test('buildWorkerSessionOptions adds return when not in activeTools', async () => {
-        // When active tools exist but don't include 'return', it's added
+    test('buildWorkerSessionOptions preserves active tools minus squad_delegate and return', async () => {
         const { _getWorkerSessionOptions } = await import('../../server/side-effects.js');
         const pi = {
             getThinkingLevel: () => undefined,
             getActiveTools: () => ['squad_delegate', 'search'],
         };
         const opts = _getWorkerSessionOptions(pi);
-        expect(opts.toolNames).toContain('return');
+        // return filtered out from toolNames (passed as customTools)
+        expect(opts.toolNames).not.toContain('return');
         expect(opts.toolNames).toContain('search');
-        expect(opts.toolNames.length).toBe(2); // search + return (squad_delegate filtered)
+        expect(opts.toolNames.length).toBe(1); // only search (squad_delegate + return filtered)
     });
 
     test('buildWorkerSessionOptions no toolNames when no active tools remain', async () => {
