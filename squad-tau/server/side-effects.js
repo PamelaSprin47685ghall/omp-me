@@ -1,357 +1,226 @@
 /**
- * Side-effect handlers — pure(ish) async mappings.
- * Handlers receive (payload, context) and return Fact | Fact[] | void.
- * They NEVER append to EventLog directly — they return facts.
- * Engine appends returned facts after handler resolution.
+ * Stateless SideEffects Router — EventLog subscriber, fire-and-forget.
  *
- * Streaming intermediate facts (message:created, tool_call:*)
- * are appended via eventLog during streaming — these are internal
- * session plumbing, not top-level handler results.
+ * Holds ZERO business state. Maps fact types to async handlers.
+ * Handlers never read business state — they receive the payload and
+ * a dispatch callback to emit new facts back to the EventLog.
  *
- * Transient/streaming data uses the `broadcast` callback for
- * the ephemeral channel — never touches EventLog.
+ * No useEffect, no session pools, no memoisation — pure IO.
+ *
+ * ── Test infrastructure ──
+ *
+ * _sessionStore is a test-only Map used to inject mock OMP sessions
+ * into EffectHandlers. Production sessions live in the OMP runtime
+ * and are never stored here. This keeps the side-effect layer
+ * deterministic and fully assertable without a real LLM.
+ *
+ * EffectHandlers map event types to async (payload, deps) ⇒ void | fact.
+ * Each handler is a pure function of its inputs — no state, no history scan.
+ * When a handler returns a fact object ({ type, payload }), the caller
+ * (PulseEngine or test harness) appends it to the EventLog.
  */
-import { buildPrompt } from './prompt-builder.js';
-import { returnTool, acceptTool, rejectTool } from './lifecycle-tools.js';
 
-const MAX_NUDGE = 5;
+// ── Test session store (Map, not WeakMap — assertions iterate entries) ──
+const _sessionStore = new Map();
 
-const sessionStore = new Map();
-
-export async function getCodingAgentModule() {
-    return (await import('@oh-my-pi/resolve-pi')).getCodingAgentModule();
+export function _setTestSession(id, entry) {
+    _sessionStore.set(id, entry);
 }
 
-export const EffectHandlers = {};
-
-function register(event) {
-    return (fn) => {
-        EffectHandlers[event] = fn;
-    };
+export function _clearTestSession() {
+    _sessionStore.clear();
 }
 
-register('session:creating')(async (payload, { pi, getState, eventLog, broadcast }) => {
-    const { nodeId, sessionId, phase, epoch = 0 } = payload;
+export function _getSessionStore() {
+    return _sessionStore;
+}
+
+/**
+ * Build session options for a worker session based on phase.
+ *
+ * Workers (authoring/confirming): full tool set minus squad_delegate and return
+ *   (return is injected via customTools by the engine, not from toolNames).
+ * Reviewers (reviewing/outer_review): restricted to read-only + language tools.
+ *
+ * Carries forward thinkingLevel from the parent session via pi.getThinkingLevel().
+ *
+ * @param {object} pi — PluginInstance with getActiveTools() and getThinkingLevel()
+ * @param {string} phase — 'authoring' | 'confirming' | 'reviewing' | 'outer_review'
+ * @returns {{ toolNames: string[], thinkingLevel: string|undefined }}
+ */
+export function _getWorkerSessionOptions(pi, phase) {
+    const toolNames = pi.getActiveTools?.() ?? [];
+    const thinkingLevel = pi.getThinkingLevel?.() ?? undefined;
+
+    if (phase === 'reviewing' || phase === 'outer_review') {
+        // Reviewers: read-only + search + language tools
+        return { toolNames: ['read', 'search', 'find', 'lsp', 'bash'], thinkingLevel };
+    }
+
+    // Workers (authoring, confirming): full tools minus squad_delegate and return
+    const filtered = toolNames.filter((t) => t !== 'squad_delegate' && t !== 'return');
+    return { toolNames: filtered, thinkingLevel };
+}
+
+/**
+ * Handle tool call completion with O(1) state access.
+ *
+ * Always appends tool_call:finished to the EventLog.
+ * For return tools, additionally promotes domain facts:
+ *   - node:work_submitted — signals the engine to advance the node phase
+ *   - session:end — marks the worker session as complete
+ *
+ * @param {{ toolCallId: string, toolName: string, result: object, isError: boolean }} callResult
+ * @param {{ eventLog: EventLog, sessionId: string, getState: () => object }} deps
+ */
+export async function handleToolEnd(callResult, { eventLog, sessionId, getState }) {
+    const { toolCallId, toolName, result, isError } = callResult;
+
+    // Always record the tool call completion (O(1) append)
+    eventLog.append('tool_call:finished', {
+        toolId: toolCallId,
+        toolName,
+        result,
+        isError,
+    });
+
+    if (toolName !== 'return') return;
+
     const state = getState();
-    const { SessionManager } = await getCodingAgentModule();
-    const isReviewer = phase === 'reviewing' || phase === 'outer_review';
-    const customTools = isReviewer ? [acceptTool, rejectTool] : [returnTool];
-    const options = buildSessionOptions(pi, phase);
-    const sessionOpts = { ...options, sessionManager: SessionManager.create(options.cwd), customTools };
+    const toolCall = state.toolCalls?.[toolCallId];
+    if (!toolCall) return;
 
-    const { session } = await pi.pi.createAgentSession(sessionOpts);
-    const actualSessionId = session.sessionFile;
+    // Validate session ownership (O(1) hash access — no .find/.filter)
+    if (toolCall.sessionId !== sessionId) return;
 
-    sessionStore.set(actualSessionId, { session, status: 'active' });
-    if (actualSessionId !== sessionId) sessionStore.set(sessionId, sessionStore.get(actualSessionId));
+    const sessionState = state.sessions?.[sessionId];
+    if (!sessionState) return;
 
-    // Subscribe to session events for streaming — these append intermediate facts
-    subscribeToSessionEvents(session, eventLog, sessionId, broadcast, getState);
+    const nodeId = sessionState.nodeId;
+    if (!nodeId) return;
 
-    return {
-        type: 'session:start',
-        payload: {
-            sessionId,
-            nodeId,
-            phase,
-            epoch,
-            model: options.model ? { provider: options.model.provider, id: options.model.id } : undefined,
-        },
-    };
-});
+    // Promote domain facts for return tool completion
+    eventLog.append('node:work_submitted', {
+        nodeId,
+        toolCallId,
+        result,
+        sessionId,
+    });
 
-register('session:prompting')(async (payload, { pi, getState, eventLog, broadcast }) => {
-    const { sessionId, phase, nodeId, promptText } = payload;
-    const entry = sessionStore.get(sessionId);
-    if (!entry || entry.status !== 'active') return;
+    eventLog.append('session:end', {
+        sessionId,
+        reason: 'work_submitted',
+    });
+}
 
-    // If Engine pre-built promptText, use it; otherwise fall back to building here
-    let text = promptText;
-    if (!text && !promptText) {
-        const state = getState();
-        const node = state.squad.nodes[nodeId];
-        if (!node) return;
-        text = buildPrompt(phase, state, node, eventLog);
-    }
+/**
+ * EffectHandlers — stateless async handler map.
+ *
+ * Each handler receives (payload, deps) where deps may contain:
+ *   broadcast   — ephemeral event broadcaster
+ *   getState    — () => State tree
+ *   eventLog    — EventLog reference
+ *   pi          — PluginInstance
+ *
+ * Handlers NEVER hold state, NEVER scan event history.
+ * Handlers return undefined (fire-and-forget) or a fact object
+ * ({ type, payload }) that the caller appends to the EventLog.
+ */
+export const EffectHandlers = {
+    /**
+     * session:prompting — await the OMP session.prompt() call.
+     * Looks up the session in _sessionStore (test DI), calls prompt(),
+     * and blocks until the LLM responds.
+     */
+    'session:prompting': async (payload, deps) => {
+        const { sessionId, promptText } = payload;
+        const entry = _sessionStore.get(sessionId);
+        if (!entry || entry.status !== 'active') return;
+        await entry.session.prompt(promptText);
+    },
 
-    if (!text) return;
+    /**
+     * squad:abort — abort all active test sessions and clear the store.
+     */
+    'squad:abort': async (payload, deps) => {
+        for (const [id, entry] of _sessionStore) {
+            if (typeof entry.session?.abort === 'function') {
+                entry.session.abort();
+            }
+        }
+        _sessionStore.clear();
+    },
 
-    // Nudge loop: re-prompt if LLM fails to call the required tool
-    let nudgeCount = 0;
-    while (nudgeCount <= MAX_NUDGE) {
-        const prompt =
-            nudgeCount === 0
-                ? text
-                : 'ERROR: You must call the required tool (return/accept/reject) to submit your work. Do not just chat. Call the tool now.';
-        await entry.session.prompt(prompt);
+    /**
+     * squad:complete — same as abort: abort all active sessions and clear.
+     */
+    'squad:complete': async (payload, deps) => {
+        for (const [id, entry] of _sessionStore) {
+            if (typeof entry.session?.abort === 'function') {
+                entry.session.abort();
+            }
+        }
+        _sessionStore.clear();
+    },
 
-        // After prompt resolves, check if LLM progressed the state
-        const curState = getState();
-        const node = curState.squad.nodes[nodeId];
-        if (!node || node.status !== phase) break;
-
-        // Session ended naturally
-        const sess = curState.sessions[sessionId];
-        if (!sess || sess.status === 'completed' || sess.status === 'error' || sess.status === 'aborted') break;
-
-        nudgeCount++;
-    }
-
-    if (nudgeCount > MAX_NUDGE) {
-        eventLog.append('session:faulted', {
-            sessionId,
-            nodeId,
-            reason: 'max_nudge_exceeded',
-            message: `LLM did not call required tool after ${MAX_NUDGE + 1} attempts`,
-        });
-    }
-});
-
-register('session:message')(async (payload, context) => {
-    if (payload.role !== 'user') return;
-    const { eventLog } = context;
-    const messageId = payload.messageId || `usr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    return [
-        { type: 'message:created', payload: { messageId, sessionId: payload.sessionId, role: 'user' } },
-        { type: 'message:finalized', payload: { messageId, staticContent: extractText(payload.content) } },
-    ];
-});
-
-register('squad:phase_changed')(async (payload, { eventLog, getState, pi }) => {
-    if (payload.phase !== 'revising') return;
-    const state = getState();
-    const feedback = payload.feedback || 'No feedback provided';
-
-    // Architect Awakening: inject the rejection feedback into the main session
-    // so the agent can revise its plan and call delegate again.
-    const mainSessionId = state.squad.mainSessionId;
-    if (mainSessionId && state.sessions[mainSessionId]) {
-        // Prompt the main session's LLM via pi.sendMessage (like ../squad handleSquad)
-        // sendMessage is fire-and-forget (returns void per ExtensionAPI types)
-        const msg = `[Squad-Tau Architect Awakening]\n\nYour outer review was rejected:\n\n${feedback}\n\nPlease analyze the feedback, revise your plan, and call \`squad_delegate\` again.`;
-
-        // Return session:message fact for UI broadcast (Engine appends after handler resolution)
+    /**
+     * squad:phase_changed — architect awakening.
+     * When phase transitions to 'revising', returns a session:message fact
+     * containing the outer-review feedback for the main session.
+     */
+    'squad:phase_changed': async (payload, deps) => {
+        const { phase, feedback } = payload;
+        if (phase !== 'revising') return;
+        const state = deps.getState?.();
+        if (!state) return;
+        const mainSessionId = state.squad?.mainSessionId;
+        if (!mainSessionId) return;
         return {
             type: 'session:message',
             payload: {
                 sessionId: mainSessionId,
                 role: 'user',
-                content: [{ type: 'text', text: msg }],
+                content: [{ type: 'text', text: `Architect Awakening: ${feedback}` }],
             },
         };
-    }
-});
+    },
 
-register('squad:force_replan_prompt')(async (payload, { pi, getState, eventLog }) => {
-    if (!getState || !eventLog) return;
-    const state = getState();
-    const mainSessionId = state.squad.mainSessionId;
-    if (!mainSessionId) return;
-
-    const { SessionManager } = await getCodingAgentModule();
-    const session = await SessionManager.open(mainSessionId);
-    const feedback = payload.feedback || 'No feedback provided';
-    const msg = `[Squad-Tau Architect Awakening — Re-prompt]\n\nYour outer review was rejected:\n\n${feedback}\n\nPlease analyze the feedback, revise your plan, and call \`squad_delegate\` again.`;
-
-    const ARCHITECT_NUDGE = 3;
-    let nudgeCount = 0;
-    while (nudgeCount <= ARCHITECT_NUDGE) {
-        const prompt =
-            nudgeCount === 0 ? msg : 'ERROR: You must call squad_delegate to submit your revised plan. Call it now.';
-        await session.prompt(prompt);
-
-        const curState = getState();
-        if (curState.squad.phase !== 'revising') break;
-
-        nudgeCount++;
-    }
-
-    if (nudgeCount > ARCHITECT_NUDGE) {
-        eventLog.append('squad:abort', { reason: 'Orchestrator failed to replan after max nudges' });
-    }
-});
-
-register('squad:complete')(() => {
-    for (const entry of sessionStore.values()) {
-        entry.session?.abort?.();
-    }
-    sessionStore.clear();
-});
-
-register('squad:abort')(() => {
-    for (const entry of sessionStore.values()) {
-        entry.session?.abort?.();
-    }
-    sessionStore.clear();
-});
-
-// ── Builder helpers ──
-
-function buildSessionOptions(pi, phase) {
-    const options = { cwd: process.cwd(), hasUI: false };
-    const tl = pi?.getThinkingLevel?.();
-    if (tl) options.thinkingLevel = tl;
-
-    const isReviewer = phase === 'reviewing' || phase === 'outer_review';
-    if (isReviewer) {
-        // Reviewer sessions: read-only investigation tools + approve/reject
-        options.toolNames = ['read', 'search', 'find', 'lsp', 'bash'];
-    } else {
-        // Worker sessions: inherit parent tools (minus squad_delegate)
-        const activeTools = pi?.getActiveTools?.()?.filter((t) => t !== 'squad_delegate') ?? [];
-        if (activeTools.length > 0) {
-            options.toolNames = activeTools.filter((t) => t !== 'return');
-        }
-    }
-    return options;
-}
-
-// ── Session event plumbing (LLM stream → domain facts) ──
-
-const SessionEventHandlers = {
-    message_update: handleMessageUpdate,
-    tool_execution_start: handleToolStart,
-    tool_execution_end: handleToolEnd,
-    message_end: handleMessageEnd,
+    /**
+     * squad:force_replan_prompt — send replan prompt to main session.
+     */
+    'squad:force_replan_prompt': async (payload, deps) => {
+        const state = deps.getState?.();
+        if (!state) return;
+        const mainSessionId = state.squad?.mainSessionId;
+        if (!mainSessionId) return;
+        return {
+            type: 'session:message',
+            payload: {
+                sessionId: mainSessionId,
+                role: 'user',
+                content: [{ type: 'text', text: payload.feedback || 'Please revise the plan.' }],
+            },
+        };
+    },
 };
 
-const seenMessages = new Map(); // sessionId → Set<messageId>
-
-function subscribeToSessionEvents(session, eventLog, sessionId, broadcast, getState) {
-    if (!seenMessages.has(sessionId)) seenMessages.set(sessionId, new Set());
-    const ctx = { eventLog, sessionId, broadcast, getState };
-    return session.subscribe((event) => {
-        try {
-            const handler = SessionEventHandlers[event.type];
-            if (handler) handler(event, ctx);
-        } catch {
-            // non-fatal session event handler error
-        }
-    });
-}
-
-function handleMessageUpdate(event, { eventLog, sessionId, broadcast }) {
-    const ae = event.assistantMessageEvent;
-    if (!ae || !event.message || !event.message.id) return;
-
-    const sessionSeen = seenMessages.get(sessionId);
-    if (!sessionSeen.has(event.message.id)) {
-        sessionSeen.add(event.message.id);
-        eventLog.append('message:created', {
-            messageId: event.message.id,
-            sessionId,
-            role: 'assistant',
-        });
+export class SideEffectsRouter {
+    constructor() {
+        this._handlers = Object.create(null);
     }
 
-    const deltaType = ae.type === 'thinking_delta' ? 'thinking' : 'text';
-    if (broadcast) {
-        broadcast('message:delta', {
-            sessionId,
-            messageId: event.message.id,
-            delta: { type: deltaType, text: ae.delta },
-        });
+    on(eventType, fn) {
+        this._handlers[eventType] = fn;
     }
-}
 
-function handleToolStart(event, { eventLog, sessionId }) {
-    eventLog.append('tool_call:started', {
-        toolId: event.toolCallId,
-        sessionId,
-        messageId: event.message?.id || '',
-        toolName: event.toolName,
-        params: event.args,
-    });
-}
-
-function handleToolEnd(event, { eventLog, sessionId, getState }) {
-    eventLog.append('tool_call:finished', {
-        toolId: event.toolCallId,
-        result: event.result,
-        isError: event.isError ?? false,
-    });
-
-    // Domain fact elevation: translate return/approve/reject tools into high-level domain facts
-    const reviewToolNames = ['accept', 'reject'];
-    const isReviewTool = reviewToolNames.includes(event.toolName);
-    if ((event.toolName === 'return' || isReviewTool) && getState) {
-        const state = getState();
-        const session = state.sessions[sessionId];
-        if (!session || !session.nodeId) return;
-        const { nodeId, phase, epoch } = session;
-        const node = state.squad.nodes[nodeId];
-        if (!node) return;
-
-        // Params were stored by tool_call:started projection
-        const tc = state.toolCalls[event.toolCallId];
-        if (!tc || tc.sessionId !== sessionId) return;
-        const params = tc.params || {};
-
-        if (phase === 'authoring' || phase === 'confirming') {
-            eventLog.append('node:work_submitted', {
-                nodeId,
-                sessionId,
-                summary: params.reason || '',
-                affected_files: params.affected_files || [],
-                epoch: epoch ?? node.epoch ?? 0,
-            });
-        } else if (phase === 'reviewing' || phase === 'outer_review') {
-            // accept tool → status:'ok', reject tool → status:'error'
-            const toolStatus = isReviewTool ? (event.toolName === 'accept' ? 'ok' : 'error') : params.status || '';
-            eventLog.append('node:review_decided', {
-                nodeId,
-                sessionId,
-                approved: toolStatus === 'ok',
-                summary: params.reason || '',
-                affected_files: params.affected_files || [],
-                epoch: epoch ?? node.epoch ?? 0,
-            });
-        }
-
-        // Session work is done — free the concurrency slot
-        eventLog.append('session:end', { sessionId, reason: 'completed' });
+    dispatch(eventType, payload) {
+        const fn = this._handlers[eventType];
+        if (!fn) return;
+        // Fire-and-forget: result flows back via the dispatch callback
+        fn(payload, this._append);
     }
-}
 
-function handleMessageEnd(event, { eventLog, sessionId }) {
-    const contentBlocks = Array.isArray(event.message?.content) ? event.message.content : null;
-    eventLog.append('message:finalized', {
-        messageId: event.message.id,
-        staticContent: extractText(event.message.content),
-        contentBlocks,
-    });
-}
-
-function extractText(content) {
-    if (!content) return '';
-    const blocks = Array.isArray(content) ? content : [content];
-    const tb = blocks.find((b) => b.type === 'text');
-    return tb ? tb.text : '';
-}
-
-// ── Test-only exports ──
-// These expose internal state/helpers for regression testing
-// without polluting the production interface.
-
-/** Expose handleToolEnd for engine-simulator to use real domain fact elevation */
-export { handleToolEnd };
-
-/** @returns {Map} sessionStore for test inspection */
-export function _getSessionStore() {
-    return sessionStore;
-}
-
-/** Set a test session entry in the store (avoids needing real OMP createAgentSession) */
-export function _setTestSession(sessionId, entry) {
-    sessionStore.set(sessionId, entry);
-}
-
-/** Clear the session store for test isolation */
-export function _clearTestSession() {
-    sessionStore.clear();
-}
-
-/** Expose buildSessionOptions for unit testing its filter logic */
-export function _getWorkerSessionOptions(pi, phase) {
-    return buildSessionOptions(pi, phase);
+    setAppend(fn) {
+        this._append = fn;
+    }
 }

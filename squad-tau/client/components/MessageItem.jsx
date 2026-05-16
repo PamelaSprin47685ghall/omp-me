@@ -1,7 +1,7 @@
-import React, { useRef, useEffect, useMemo } from 'react';
-import { Box, Text } from '@chakra-ui/react';
-import ToolCall from './ToolCall.jsx';
+import React from 'react';
+import { Box } from '@chakra-ui/react';
 import { useMessageState } from '../hooks/useAtomicState.js';
+import '../components/stream-sink.js';
 
 const ROLE_BG = { user: 'blue.subtle', authoring: 'green.subtle', confirming: 'green.subtle', reviewing: 'orange.subtle', outer_review: 'bg.subtle' };
 const ROLE_FG = { user: 'blue.fg', authoring: 'green.fg', confirming: 'green.fg', reviewing: 'orange.fg', outer_review: 'fg' };
@@ -11,23 +11,18 @@ const ROLE_FG = { user: 'blue.fg', authoring: 'green.fg', confirming: 'green.fg'
  *   1. Static user message
  *   2. Assistant message with interleaved text blocks and tool calls
  *
- * During streaming (non-finalized): single <agent-message> + tool calls below.
- * After finalization: interleave text blocks and <ToolCall> components
- * according to message.contentBlocks order, preserving causal chain.
+ * The `message:start` fact creates a skeleton entry (status: 'streaming').
+ * React renders <stream-sink> as a placeholder shell.
+ * StreamRouter writes tokens directly into the TextNode inside <stream-sink>.
+ * When `message:finalized` arrives, React re-renders to update the status.
+ *
+ * Flow tokens NEVER touch React. StreamRouter → TextNode.appendData → DOM.
  */
 function MessageItemComponent({ messageId, sessionRole }) {
-  const meta = useMessageState(messageId);
-  const agentRef = useRef(null);
+  const message = useMessageState(messageId);
+  if (!message || !message.messageId) return null;
 
-  useEffect(() => {
-    if (meta?.status === 'finalized' && meta.staticContent && agentRef.current) {
-      agentRef.current.finalize(meta.staticContent);
-    }
-  }, [meta?.status, meta?.staticContent]);
-
-  if (!meta || !meta.messageId) return null;
-
-  const isUser = meta.role === 'user';
+  const isUser = message.role === 'user';
   const bg = isUser ? 'blue.subtle' : (ROLE_BG[sessionRole] || ROLE_BG.outer_review);
   const fg = isUser ? 'blue.fg' : (ROLE_FG[sessionRole] || ROLE_FG.outer_review);
 
@@ -43,73 +38,36 @@ function MessageItemComponent({ messageId, sessionRole }) {
       data-user-msg={isUser ? '' : undefined}
     >
       {isUser ? (
-        meta.staticContent || ''
+        message.staticContent || ''
       ) : (
-        <InterleavedBlocks
-          meta={meta}
-          agentRef={agentRef}
-          sessionRole={sessionRole}
-        />
+        <InterleavedBlocks message={message} sessionRole={sessionRole} />
       )}
     </Box>
   );
 }
 
-/**
- * Renders assistant message content with interleaved text and tool call blocks.
- *
- * Unifies streaming and finalized rendering around the `blocks` array.
- * During streaming, `message:created` seeds an initial text block;
- * `tool_call:started` appends tool + subsequent text block,
- * producing interleaved [text, tool, text, ...] structure.
- * `message:delta` is routed to the LAST matching <agent-message>
- * by prefix, so suffixes seamlessly receive post-tool text.
- */
-function InterleavedBlocks({ meta, agentRef, sessionRole }) {
-  // Blocks present → interleave across all phases (streaming and finalized)
-  if (Array.isArray(meta.blocks) && meta.blocks.length > 0) {
-    return (
-      <>
-        {meta.blocks.map((block, idx) => {
-          if (block.type === 'text') {
-            return (
-              <Box key={block.id} mb={meta.blocks.length > 1 && idx < meta.blocks.length - 1 ? 2 : 0}>
-                <agent-message
-                  ref={idx === 0 ? agentRef : undefined}
-                  message-id={block.id}
-                  role={meta.role}
-                />
-              </Box>
-            );
-          }
-          if (block.type === 'tool') {
-            return (
-              <Box key={block.id} my={1}>
-                <ToolCall toolId={block.id} />
-              </Box>
-            );
-          }
-          return null;
-        })}
-      </>
-    );
+function InterleavedBlocks({ message, sessionRole }) {
+  const blocks = message.blocks;
+  if (!Array.isArray(blocks) || blocks.length === 0) {
+    // Fallback: single text block
+    return <stream-sink urn={message.messageId} />;
   }
 
-  // Fallback: no blocks (legacy/edge case — user messages or pre-migration)
   return (
     <>
-      <agent-message
-        ref={agentRef}
-        message-id={meta.messageId}
-        role={meta.role}
-      />
-      {meta.toolIds?.length > 0 && (
-        <Box mt={2}>
-          {meta.toolIds.map((tid) => (
-            <ToolCall key={tid} toolId={tid} />
-          ))}
-        </Box>
-      )}
+      {blocks.map((block) => {
+        if (block.type === 'text') {
+          return (
+            <Box key={block.id} display="inline">
+              <stream-sink urn={block.id} />
+            </Box>
+          );
+        }
+        if (block.type === 'tool') {
+          return <div key={block.id}> {/* ToolCall placeholder — tool calls rendered externally */} </div>;
+        }
+        return null;
+      })}
     </>
   );
 }

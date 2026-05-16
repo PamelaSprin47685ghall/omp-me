@@ -1,44 +1,68 @@
 /**
- * WebSocket hook — edge gateway for Squad-Tau.
+ * Edge Gatekeeper — dual-track WebSocket routing.
  *
- * Dual-track protocol:
- *   c:'f' (fact channel) → EventStore (domain truth)
- *   c:'e' (ephemeral channel) → direct DOM CustomElement routing
+ *   c:'f' (fact)     → EventStore (domain truth → React updates)
+ *   c:'e' (ephemeral)→ StreamRouter (direct DOM, bypasses React)
  *
- * Ephemeral events have no seq and never touch EventStore.
- * Fact events carry seq and are foldable into the domain state tree.
+ * On the first ephemeral delta for a messageId, a `message:start`
+ * skeleton fact is emitted to EventStore, giving React a placeholder
+ * to render before any tokens arrive.
  */
-
 import { useEffect, useRef, useCallback, useState } from 'react';
 import { eventStore } from '../event-store.js';
-import { pushEarlyBuffer, deleteStreamBuffer } from '../components/agent-message.js';
+import { streamRouter } from '../stream-router.js';
 
 const BACKOFF_STEPS = [1000, 2000, 4000, 8000, 16000, 30000];
 const MAX_RECONNECT_ATTEMPTS = 50;
 const PING_INTERVAL = 30000;
 
-function routeDelta(payload) {
-    // Prefix match: find the LAST <agent-message> whose message-id starts with payload.messageId.
-    // During interleaved streaming, tool calls create suffix blocks (messageId_after_toolId)
-    // that receive subsequent deltas — the last element is always the current text segment.
-    const els = document.querySelectorAll(`agent-message[message-id^="${payload.messageId}"]`);
-    if (els.length > 0) {
-        els[els.length - 1].appendChunk(payload.delta?.text || '', payload.delta?.type || 'text');
-    } else {
-        pushEarlyBuffer(payload.messageId, payload.delta?.text || '', payload.delta?.type || 'text');
+// Tracks which messageIds have had their skeleton emitted
+export const _skeletonSent = new Set();
+
+/**
+ * Route an ephemeral (delta) message — pure side-effect function.
+ * Emits skeleton `message:start` on first delta, then routes text to StreamRouter.
+ */
+export function routeEphemeral(event, payload) {
+    if (event === 'message:delta') {
+        if (payload.messageId && !_skeletonSent.has(payload.messageId)) {
+            _skeletonSent.add(payload.messageId);
+            eventStore.dispatch('message:start', {
+                messageId: payload.messageId,
+                sessionId: payload.sessionId || '',
+            });
+        }
+        if (payload.delta && payload.delta.text) {
+            streamRouter.dispatch(payload.messageId, payload.delta.text);
+        }
     }
 }
 
-function routeStreamEnd(payload) {
-    // Finalize ALL text segment elements for this message
-    const els = document.querySelectorAll(`agent-message[message-id^="${payload.messageId}"]`);
-    for (const el of els) {
-        const mid = el.getAttribute('message-id');
-        // Primary element (exact match) gets staticContent; suffix blocks finalize with existing text
-        el.finalize(mid === payload.messageId ? payload.staticContent || '' : undefined);
-    }
-    deleteStreamBuffer(payload.messageId);
+/**
+ * Route a fact message to EventStore.
+ */
+export function routeFact(type, payload, seq) {
+    eventStore.dispatch(type, payload, seq);
 }
+
+/**
+ * Route any parsed message through the dual-track system.
+ * Testable entry point for the gatekeeper.
+ */
+export function routeMessage(msg) {
+    if (msg.event === 'pong') return;
+
+    // ── Ephemeral channel — bypasses EventStore ──
+    if (msg.c === 'e') {
+        routeEphemeral(msg.event, msg.payload);
+        return;
+    }
+
+    // ── Fact channel — EventStore only ──
+    routeFact(msg.event, msg.payload, msg.seq);
+}
+
+// ── React Hook ──
 
 export function useWebSocket({ port } = {}) {
     const resolvedPort = port ?? window.location.port;
@@ -99,38 +123,9 @@ export function useWebSocket({ port } = {}) {
 
         ws.onmessage = (event) => {
             try {
-                const msg = JSON.parse(event.data);
-
-                // Pong response (no channel — legacy)
-                if (msg.event === 'pong') {
-                    lastPongRef.current = true;
-                    return;
-                }
-
-                // ── Dual-track routing ──
-                // c field is REQUIRED — no backward compat default
-                if (msg.c === 'e') {
-                    // Ephemeral channel: direct DOM routing, zero EventStore
-                    const { event, payload } = msg;
-                    if (event === 'message:delta') {
-                        routeDelta(payload);
-                    }
-                    return;
-                }
-
-                // Fact channel: biz logic
-                const { event: type, payload, seq } = msg;
-
-                if (type === 'message:finalized') {
-                    eventStore.dispatch(type, payload, seq);
-                    routeStreamEnd(payload);
-                    return;
-                }
-
-                // Everything else → EventStore (config:capacity_changed included)
-                eventStore.dispatch(type, payload, seq);
+                routeMessage(JSON.parse(event.data));
             } catch {
-                // malformed message, skip
+                /* malformed */
             }
         };
 
@@ -140,11 +135,7 @@ export function useWebSocket({ port } = {}) {
             setConnected(false);
             clearInterval(pingIntervalRef.current);
             pingIntervalRef.current = null;
-
-            if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
-                return;
-            }
-
+            if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) return;
             reconnectAttemptsRef.current++;
             const delay = BACKOFF_STEPS[backoffIndexRef.current];
             if (backoffIndexRef.current < BACKOFF_STEPS.length - 1) backoffIndexRef.current++;

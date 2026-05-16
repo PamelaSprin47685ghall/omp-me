@@ -20,7 +20,7 @@ const STATUS_COLOR = Object.freeze({
 const MERMAID_THEME = THEMES['github-light'];
 
 export default function DAGView() {
-  const nodeMap = usePathState('squad', s => s.squad.nodes || {});
+  const nodeMap = usePathState('squad', s => s.nodes || {});
   const activeNodeId = useUiState(s => s.activeSessionId);
 
   // Stable dependency: only id, depends_on, and status affect the DAG topology.

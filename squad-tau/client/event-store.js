@@ -15,12 +15,23 @@ class EventStore {
         this.cursor = 0;
         this.listeners = new Set();
         this.state = getInitialState();
+        this._busyCount = 0;
     }
 
     dispatch(type, payload, seq) {
-        if (seq != null) this.cursor = Math.max(this.cursor, seq + 1);
-        this.state = applyEvent(this.state, type, payload);
+        this._busyCount++;
+        try {
+            if (seq != null) this.cursor = Math.max(this.cursor, seq + 1);
+            this.state = applyEvent(this.state, type, payload);
+        } finally {
+            this._busyCount--;
+        }
         for (const l of this.listeners) l();
+    }
+
+    /** True when all dispatches have been applied (no busy work pending). */
+    isIdle() {
+        return this._busyCount === 0;
     }
 
     subscribe(listener) {

@@ -1,115 +1,82 @@
 /**
- * Global Event Log (Append-Only) for Event Sourcing.
- * The absolute source of truth — pure business facts only.
- * No transient events, no infrastructure metadata.
- * Every entry has a monotonic id, a virtual tick (engine cycle), event type, and payload.
+ * Pure EventLog — the absolute metric of space-time in Squad-Tau.
  *
- * Virtual Tick: replaces Date.now() with a monotonic counter that increments
- * per append. Single-appends advance tick by 1; batch-appends advance tick by 1
- * (all entries in a batch share the same tick — they derive from the same engine pulse).
+ * Every entry carries:
+ *  - id:    global monotonically increasing index within the log array.
+ *  - tick:  virtual clock; advances once per append (batch entries share one tick).
+ *  - event: the fact type (e.g. 'session:start').
+ *  - payload: structured data for the fact.
  *
- * No Date.now() — the system is fully deterministic. EventLog replay on any machine
- * produces byte-identical state trees.
- *
- * ── ARCHITECTURAL INVARIANT ──
- * EventLog.append() and EventLog.appendBatch() MUST remain synchronous.
- * The engine's convergence loop (reactState → applyEvent → append) depends on
- * synchronous append to guarantee causal ordering: node state transitions and
- * session lifecycle events (session:end) are folded in the same microtask.
- * Asynchronous append would create a window where countLiveSessions sees stale
- * state, potentially overshooting maxWorkers.
- *
- * Disk I/O (NDJSON persistence) is a SUBSCRIBER, not part of append().
- * Never add async/await to append or appendBatch.
+ * No Date.now(), no Math.random(), no file I/O — pure deterministic append.
+ * Listeners are notified synchronously on every append/appendBatch.
  */
 export class EventLog {
-    /**
-     * @param {Array} initialEntries — pre-existing entries to hydrate from (e.g. .ndjson replay)
-     */
     constructor(initialEntries = []) {
-        this.log = [...initialEntries];
-        this._tick = initialEntries.length;
-        this.listeners = new Set();
-    }
-
-    /**
-     * Current virtual tick (monotonic, 0-based).
-     */
-    currentTick() {
-        return this._tick;
-    }
-
-    /**
-     * Build an entry skeleton. id is assigned lazily in append/appendBatch.
-     * tick is the current virtual clock value at the start of this append cycle.
-     */
-    _makeEntry(event, payload) {
-        return {
-            id: -1,
-            tick: this._tick,
-            event,
-            payload,
-        };
-    }
-
-    /**
-     * Append a single event to the log.
-     * Advances tick by 1. Notifies all listeners immediately.
-     */
-    append(event, payload) {
-        const entry = this._makeEntry(event, payload);
-        entry.id = this.log.length;
-        this._tick++;
-        this.log.push(entry);
-        for (const listener of this.listeners) {
-            listener(entry);
+        this._log = [];
+        this._nextId = 0;
+        this._nextTick = 0;
+        this._listeners = new Set();
+        // Hydrate from persisted entries (replay)
+        for (const e of initialEntries) {
+            this._log.push({ ...e });
+            if (e.id >= this._nextId) this._nextId = e.id + 1;
+            if (e.tick >= this._nextTick) this._nextTick = e.tick + 1;
         }
-        return entry;
-    }
-
-    /**
-     * Append multiple entries in one atomic batch.
-     * All entries get sequential ids but share the same tick value
-     * (they were all produced by the same engine pulse).
-     * Tick advances by 1 after the batch. Listeners notified once with the array.
-     * @param {Array} entries — pre-built entry objects (id will be fixed up)
-     */
-    appendBatch(entries) {
-        if (entries.length === 0) return;
-        for (const e of entries) {
-            e.id = this.log.length;
-            e.tick = this._tick;
-            this.log.push(e);
-        }
-        this._tick++;
-        for (const listener of this.listeners) {
-            listener(entries);
-        }
-    }
-
-    /**
-     * Subscribe to new entries.
-     * Listener receives either a single entry or an Array (from appendBatch).
-     * @param {Function} listener
-     * @returns {Function} unsubscribe function
-     */
-    subscribe(listener) {
-        this.listeners.add(listener);
-        return () => this.listeners.delete(listener);
-    }
-
-    getSince(cursor) {
-        const index = parseInt(cursor, 10);
-        if (isNaN(index)) return this.log;
-        return this.log.slice(index);
-    }
-
-    reset() {
-        this.log = [];
-        this._tick = 0;
     }
 
     get length() {
-        return this.log.length;
+        return this._log.length;
+    }
+
+    get log() {
+        return this._log;
+    }
+
+    getLog() {
+        return this._log;
+    }
+
+    get currentTick() {
+        return this._nextTick;
+    }
+
+    getSince(cursor = 0) {
+        return this._log.slice(cursor);
+    }
+
+    append(event, payload) {
+        const entry = {
+            id: this._nextId++,
+            tick: this._nextTick++,
+            event,
+            payload,
+        };
+        this._log.push(entry);
+        for (const fn of this._listeners) fn(entry);
+        return entry;
+    }
+
+    appendBatch(entries) {
+        if (!entries.length) return;
+        const tick = this._nextTick;
+        const batch = [];
+        for (const e of entries) {
+            const entry = { id: this._nextId++, tick, event: e.event, payload: e.payload };
+            this._log.push(entry);
+            batch.push(entry);
+        }
+        this._nextTick++;
+        for (const fn of this._listeners) fn(batch);
+    }
+
+    subscribe(fn) {
+        this._listeners.add(fn);
+        return () => this._listeners.delete(fn);
+    }
+
+    reset() {
+        this._log.length = 0;
+        this._nextId = 0;
+        this._nextTick = 0;
     }
 }

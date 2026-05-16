@@ -11,7 +11,7 @@ export default function MessageList() {
   const messageIds = useSessionMessageIds(activeSessionId);
   const sessionRole = usePathState('messages', s => {
     if (!activeSessionId) return 'user';
-    return s.sessions[activeSessionId]?.phase || 'user';
+    return (s.runtime?.sessions?.[activeSessionId]?.phase) || 'user';
   });
 
   const containerRef = useRef(null);

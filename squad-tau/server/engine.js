@@ -1,132 +1,123 @@
 /**
- * Squad-Tau Engine (v9 — PA + Trampoline, config in state).
+ * PulseEngine — Trampoline convergence loop.
  *
- * Convergence loop: f(State) → Action[] → append → repeat until stable.
- * After convergence, fires effect handlers for transitional facts.
- * Handlers return facts which Engine appends — SideEffects never touch EventLog.
- * Unhandled handler errors → session:faulted (first-class faults).
+ * On each pulse: fold EventLog → run reactor until quiescent → atomic commit.
+ * Subscribes to EventLog for auto-pulse via queueMicrotask coalescing.
  *
- * Config (maxWorkers) lives in state.config, seeded by config:capacity_changed.
- * No separate env object, no setEnv/getEnv escape hatch.
- *
- * Zero-State Bootstrapping: constructor folds any pre-existing EventLog
- * entries (from .ndjson rehydration) into the initial state before
- * subscribing to new entries. This gives process-crash immunity.
+ * No Date.now(), no async in the convergence path.
  */
 import { reactState } from './reactor.js';
-import { applyEvent, getInitialState } from '../shared/projections.js';
-import { buildPrompt } from './prompt-builder.js';
+import { applyEvent, project } from '../shared/projections.js';
+import { SideEffectsRouter } from './side-effects.js';
 
-export function setupEngine(eventLog, pi, initialMaxWorkers = 3, effectHandlers = {}, broadcastEphemeral = null) {
-    let state = getInitialState();
+/**
+ * Create a wired PulseEngine with side-effects pre-registered.
+ * Wires session lifecycle and shutdown handlers.
+ *
+ * @param {EventLog} eventLog
+ * @param {object} pi - PluginInstance from OMP
+ * @param {number} maxWorkers
+ * @param {object} effectHandlers - Optional extra handlers keyed by event type
+ * @param {function} broadcastEphemeral - broadcast function for stream events
+ * @returns {PulseEngine}
+ */
+export function setupEngine(eventLog, pi, maxWorkers, effectHandlers = {}, broadcastEphemeral) {
+    const router = new SideEffectsRouter();
 
-    // Fold any pre-existing entries (e.g. from .ndjson rehydration)
-    for (const entry of eventLog.log) {
-        state = applyEvent(state, entry.event, entry.payload);
-    }
-
-    // Seed config as a domain event (only if not already set from rehydration)
-    if (!state.config?.maxWorkers) {
-        state = applyEvent(state, 'config:capacity_changed', { maxWorkers: initialMaxWorkers });
-    }
-
-    let pendingTick = false;
-
-    // Fold incoming events into state
-    const unsubLog = eventLog.subscribe((data) => {
-        const list = Array.isArray(data) ? data : [data];
-        for (const entry of list) {
-            state = applyEvent(state, entry.event, entry.payload);
-        }
-        if (!pendingTick) {
-            pendingTick = true;
-            setImmediate(tick);
-        }
+    // Wire the append callback so side effects can emit facts
+    router.setAppend((event, payload) => {
+        eventLog.append(event, payload);
     });
 
-    const getState = () => state;
+    // Register default session prompt side-effect
+    router.on('session:pending_prompt', (payload) => {
+        if (!payload || !payload.sessionId) return;
+        broadcastEphemeral('session:pending_prompt', payload);
+    });
 
-    // ── Effect processing ──
-    function processEffects(batch) {
-        for (const entry of batch) {
-            const handler = effectHandlers[entry.event];
-            if (!handler) continue;
+    // Register shutdown side-effect — dispose sessions on squad:abort or connection:close
+    router.on('squad:abort', () => {
+        broadcastEphemeral('squad:abort', { reason: 'server_shutdown' });
+    });
 
-            let payload = entry.payload;
+    router.on('connection:close', () => {
+        broadcastEphemeral('connection:close', { reason: 'server_shutdown' });
+    });
 
-            // Pre-build prompt text for session:prompting
-            if (entry.event === 'session:prompting' && payload) {
-                try {
-                    const node = state.squad.nodes[payload.nodeId];
-                    if (node) {
-                        const promptText = buildPrompt(payload.phase, state, node, eventLog);
-                        payload = { ...payload, promptText };
-                    }
-                } catch {
-                    // buildPrompt failure is non-fatal; engine continues
+    // Register custom effect handlers passed in
+    for (const [type, handler] of Object.entries(effectHandlers)) {
+        router.on(type, handler);
+    }
+
+    const engine = new PulseEngine(eventLog, router);
+
+    // Store refs for cleanup
+    engine._router = router;
+
+    return engine;
+}
+
+export class PulseEngine {
+    constructor(eventLog, effectRouter) {
+        this._eventLog = eventLog;
+        this._effectRouter = effectRouter;
+        this._pending = false;
+        this._scheduled = false;
+
+        // Subscribe to EventLog → schedule pulse on every change
+        this._unsub = eventLog.subscribe(() => {
+            if (!this._scheduled) {
+                this._scheduled = true;
+                queueMicrotask(() => this._drain());
+            }
+        });
+    }
+
+    // External trigger: run one full convergence round, return the batch
+    pulse() {
+        return this._converge();
+    }
+
+    _drain() {
+        this._scheduled = false;
+        if (this._pending) return;
+        this._pending = true;
+        try {
+            const batch = this._converge();
+            if (batch.length > 0 && this._effectRouter) {
+                for (const f of batch) {
+                    this._effectRouter.dispatch(f.event, f.payload);
                 }
             }
-
-            // Fire handler (async, fire-and-forget)
-            handler(payload, { pi, getState, eventLog, broadcast: broadcastEphemeral })
-                .then((result) => {
-                    if (!result) return;
-                    const facts = Array.isArray(result) ? result : [result];
-                    for (const f of facts) {
-                        eventLog.append(f.type, f.payload);
-                    }
-                })
-                .catch((err) => {
-                    const sid = payload?.sessionId;
-                    if (sid) {
-                        eventLog.append('session:faulted', {
-                            sessionId: sid,
-                            nodeId: payload?.nodeId,
-                            reason: 'handler_error',
-                            message: err?.message || String(err),
-                        });
-                    }
-                });
+        } finally {
+            this._pending = false;
+            // If new events were appended during effect dispatch, schedule another pulse
+            if (this._scheduled) {
+                queueMicrotask(() => this._drain());
+            }
         }
     }
 
-    // ── Trampoline tick ──
-    function tick() {
-        pendingTick = false;
-        if (state.squad.status !== 'active') return;
-
-        let convergenceState = state;
+    _converge() {
+        let state = project(this._eventLog.getLog());
         const batch = [];
 
         while (true) {
-            const actions = reactState(convergenceState);
-            if (actions.length === 0) break;
-            for (const action of actions) {
-                convergenceState = applyEvent(convergenceState, action.type, action.payload);
-                batch.push(eventLog._makeEntry(action.type, action.payload));
+            const facts = reactState(state);
+            if (facts.length === 0) break;
+            for (const f of facts) {
+                state = applyEvent(state, f.event, f.payload);
+                batch.push(f);
             }
         }
 
-        if (batch.length === 0) return;
-
-        // Atomic emission: all converged facts in one batch
-        eventLog.appendBatch(batch);
-
-        // After convergence, process side-effect handlers for transitional facts
-        processEffects(batch);
+        if (batch.length > 0) {
+            this._eventLog.appendBatch(batch);
+        }
+        return batch;
     }
 
-    // ── External input entry point ──
-    function absorb(type, payload) {
-        const entry = eventLog._makeEntry(type, payload);
-        eventLog.appendBatch([entry]);
+    destroy() {
+        this._unsub();
     }
-
-    return {
-        cleanup: () => {
-            unsubLog();
-        },
-        getState,
-        absorb,
-    };
 }

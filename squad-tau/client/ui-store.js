@@ -1,40 +1,25 @@
 /**
- * UI Store — pure viewport state.
- * Physically separated from domain EventStore.
- * Zero business logic, zero EventLog dependency.
+ * UI Store — all UI state flows through EventStore as facts.
+ *
+ * No useState for viewport state. Components subscribe via useSyncExternalStore.
+ * The UI domain is a separate slice in the state tree, folded by the
+ * same projections engine as the domain state (referential transparency).
+ *
+ * Convention: UI facts are prefixed `ui:` and live in `state.ui`.
  */
-const listeners = new Set();
-let state = {
-    viewMode: 'dag',
-    activeSessionId: null,
-    drawerOpen: false,
-    bannerDismissed: false,
-};
+import { eventStore } from './event-store.js';
 
 export const uiStore = {
-    getState: () => state,
-    dispatch(type, payload) {
-        const nextState = { ...state };
-        switch (type) {
-            case 'ui:select_session':
-                nextState.activeSessionId = payload.sessionId;
-                nextState.viewMode = 'session';
-                break;
-            case 'ui:set_view_mode':
-                nextState.viewMode = payload.viewMode;
-                break;
-            case 'ui:toggle_drawer':
-                nextState.drawerOpen = payload.open;
-                break;
-            case 'ui:dismiss_banner':
-                nextState.bannerDismissed = true;
-                break;
-        }
-        state = nextState;
-        for (const fn of listeners) fn();
+    getState() {
+        const s = eventStore.getState();
+        return s.ui || {};
     },
-    subscribe: (fn) => {
-        listeners.add(fn);
-        return () => listeners.delete(fn);
+
+    dispatch(type, payload) {
+        eventStore.dispatch(type, payload);
+    },
+
+    subscribe(fn) {
+        return eventStore.subscribe(fn);
     },
 };

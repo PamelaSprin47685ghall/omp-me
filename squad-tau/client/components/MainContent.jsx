@@ -7,7 +7,7 @@ import {
   HStack,
   VStack,
 } from '@chakra-ui/react';
-import { usePathState, useUiState } from '../hooks/useAtomicState.js';
+import { usePathState, useUiState, useSessions } from '../hooks/useAtomicState.js';
 import { uiStore } from '../ui-store.js';
 import DAGView from './DAGView.jsx';
 import MessageList from './MessageList.jsx';
@@ -19,9 +19,9 @@ export default function MainContent() {
   const activeSessionId = useUiState(s => s.activeSessionId);
   const bannerDismissed = useUiState(s => s.bannerDismissed || false);
   const squadActive = usePathState('squad', s => s.squad.status === 'active' || s.squad.status === 'complete');
-  const nodeMap = usePathState('squad', s => s.squad.nodes || {});
+  const nodeMap = usePathState('squad', s => s.nodes || {});
   const nodes = Object.values(nodeMap);
-  const sessions = usePathState('sessions', s => s.sessions || {});
+  const sessions = useSessions();
   const results = usePathState('squad', s => s.squad.results || []);
 
   let content;

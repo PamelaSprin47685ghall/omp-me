@@ -1,5 +1,5 @@
 import React from 'react';
-import { usePathState, useUiState, useEnv } from '../hooks/useAtomicState.js';
+import { usePathState, useUiState, useEnv, useSessions } from '../hooks/useAtomicState.js';
 import { uiStore } from '../ui-store.js';
 import { useWebSocketContext } from '../websocket-context.js';
 import {
@@ -14,7 +14,7 @@ import {
 export default function RuntimeDrawer() {
   const isOpen = useUiState(s => s.drawerOpen || false);
   const maxWorkers = useEnv(s => s.maxWorkers ?? 3);
-  const sessionMap = usePathState('sessions', s => s.sessions || {});
+  const sessionMap = useSessions();
   const sessions = Object.values(sessionMap);
   const activeSessions = sessions.filter(s => s.status === 'active' || s.status === 'creating');
   const { send } = useWebSocketContext();

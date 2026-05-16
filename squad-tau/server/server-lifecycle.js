@@ -53,18 +53,35 @@ function shouldBroadcast(eventType) {
     return BROADCAST_WHITELIST.has(eventType);
 }
 
-function createCloseHandler(wss, rawServer, heartbeatCleanup, unsub, ndjsonWriter) {
+function createCloseHandler(wss, rawServer, heartbeatCleanup, unsub, ndjsonWriter, eventLog, engine) {
     let closing = false;
     return async () => {
         if (closing) return;
         closing = true;
+
+        // ── Step 1: Append shutdown tombstone to EventLog ──
+        // This fact is persisted in the NDJSON mirror and triggers side-effects
+        // (session disposal, broadcast). The engine auto-pulses and drains
+        // side-effects synchronously via queueMicrotask.
+        eventLog.append('connection:close', { reason: 'server_stop' });
+
+        // ── Step 2: Let engine pulse drain side-effects ──
+        // Since side-effects are fire-and-forget (EventLog subscriber), we
+        // synchronously run a pulse to converge any emerging facts and drain.
+        if (engine && typeof engine.pulse === 'function') {
+            engine.pulse();
+        }
+
+        // ── Step 3: Broadcast tombstone to WebSocket clients ──
         const closeMsg = JSON.stringify({
             c: 'f',
             event: 'connection:close',
             payload: { reason: 'server_stop' },
-            timestamp: 0,
+            timestamp: eventLog.currentTick,
         });
         for (const client of wss.clients) client.send(closeMsg);
+
+        // ── Step 4: Cleanup ──
         heartbeatCleanup();
         unsub();
         await ndjsonWriter.close();
@@ -146,9 +163,11 @@ export async function startServer({ pi, skipVite = false } = {}) {
         () => {
             unsubLog();
             unsubPersist();
-            engine.cleanup();
+            engine.destroy();
         },
         ndjsonWriter,
+        eventLog,
+        engine,
     );
 
     _server = { port: http.port, eventLog };

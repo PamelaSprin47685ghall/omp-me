@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useCallback } from 'react';
 import { VStack, HStack, Text, Icon, Box, Collapsible } from '@chakra-ui/react';
 import { CheckCircle, XCircle, Clock, RefreshCw, Ban, Circle, Network } from 'lucide-react';
-import { usePathState, useUiState } from '../hooks/useAtomicState.js';
+import { usePathState, useUiState, useSessions } from '../hooks/useAtomicState.js';
 import { uiStore } from '../ui-store.js';
 
 const STATUS_ICONS = { approved: CheckCircle, rejected: XCircle, pending: Clock, active: RefreshCw, authoring: RefreshCw, confirming: RefreshCw, reviewing: RefreshCw, failed: Ban, blocked: Ban };
@@ -70,7 +70,7 @@ function NodeGroup({ nodeId, sessions }) {
   );
   const [expanded, setExpanded] = useState(true);
   const activeSessionId = useUiState(s => s.activeSessionId);
-  const node = usePathState('squad', s => s.squad.nodes[nodeId]);
+  const node = usePathState('squad', s => s.nodes?.[nodeId]);
   const label = node?.label || node?.id || nodeId;
 
   return (
@@ -100,8 +100,8 @@ function NodeGroup({ nodeId, sessions }) {
 }
 
 export default function Sidebar() {
-  const nodeMap = usePathState('squad', s => s.squad.nodes || {});
-  const sessionMap = usePathState('sessions', s => s.sessions || {});
+  const nodeMap = usePathState('squad', s => s.nodes || {});
+  const sessionMap = useSessions();
   const nodes = Object.values(nodeMap);
   const sessions = Object.values(sessionMap);
   const viewMode = useUiState(s => s.viewMode || 'dag');

@@ -31,22 +31,22 @@ function identity(v) {
  * Subscribe to the squad nodes map (stable reference via structural sharing).
  */
 export function useNodes() {
-    return usePathState('squad', (s) => s.squad.nodes || EMPTY_OBJECT);
+    return usePathState('nodes', (s) => s.nodes || EMPTY_OBJECT);
 }
 
 export function useSessions() {
-    return usePathState('sessions', (s) => s.sessions || EMPTY_OBJECT);
+    return usePathState('sessions', (s) => s.runtime?.sessions || EMPTY_OBJECT);
 }
 
 export function useResults() {
-    return usePathState('squad', (s) => s.squad.results || EMPTY_ARRAY);
+    return usePathState('results', (s) => s.squad?.results || EMPTY_ARRAY);
 }
 
 /**
- * Subscribe to a single node in the squad nodes map.
+ * Subscribe to a single node.
  */
 export function useNodeState(nodeId) {
-    return useSyncExternalStore(sub, () => eventStore.getState().squad.nodes[nodeId]);
+    return useSyncExternalStore(sub, () => eventStore.getState().nodes?.[nodeId]);
 }
 
 /**
@@ -67,7 +67,7 @@ export function useToolCallState(toolId) {
  * Subscribe to a single session entity by sessionId.
  */
 export function useSessionState(sessionId) {
-    return useSyncExternalStore(sub, () => eventStore.getState().sessions[sessionId] || EMPTY_OBJECT);
+    return useSyncExternalStore(sub, () => eventStore.getState().runtime?.sessions?.[sessionId] || EMPTY_OBJECT);
 }
 
 /**

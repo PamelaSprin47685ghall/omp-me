@@ -44,7 +44,7 @@ const STRATEGIES = {
         return true;
     },
     ping: async ({ ws, eventLog }) => {
-        ws.send(JSON.stringify({ c: 'f', event: 'pong', timestamp: eventLog.currentTick() }));
+        ws.send(JSON.stringify({ c: 'f', event: 'pong', timestamp: eventLog.currentTick }));
         return true;
     },
     abort: async ({ payload, eventLog }) => {
