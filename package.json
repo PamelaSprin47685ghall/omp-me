@@ -1,56 +1,12 @@
 {
-  "name": "oh-my-pi-plugins",
+  "name": "kunwei",
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun run test:squad && bun run test:tau && bun run test:deep-think && bun run test:s2u && bun run test:head && bun run test:search",
-    "test:squad": "PORT=0 bun test squad-tau/test/unit/ squad-tau/test/integration/",
-    "test:squad:e2e": "PORT=0 bun test squad-tau/test/e2e/",
-    "test:squad:all": "PORT=0 bun test squad-tau/test/",
-    "test:tau": "bun test oh-tau-mirror/",
-    "test:deep-think": "bun test deep-think/",
-    "test:s2u": "bun test degrade/",
-    "test:head": "bun test block-head-tail/",
-    "test:search": "bun test ollama-search/",
-    "prepare": "simple-git-hooks",
-    "format": "bun x prettier --write \"**/*.{js,mjs}\"",
-    "format:check": "bun x prettier --check \"**/*.{js,mjs}\""
-  },
-  "alias": {
-    "@earendil-works/pi-ai": "@mariozechner/pi-ai",
-    "@earendil-works/pi-coding-agent": "@mariozechner/pi-coding-agent",
-    "@earendil-works/pi-tui": "@mariozechner/pi-tui"
+    "test": "bun test test/"
   },
   "dependencies": {
-    "@chakra-ui/react": "^3.35.0",
-    "@emotion/react": "^11.14.0",
-    "@juicesharp/rpiv-advisor": "^1.7.0",
-    "@mariozechner/pi-ai": "file:shim-packages/pi-ai",
-    "@mariozechner/pi-coding-agent": "file:shim-packages/pi-coding-agent",
-    "@mariozechner/pi-tui": "file:shim-packages/pi-tui",
-    "@oh-my-pi/resolve-pi": "file:shim-packages/pi-resolve",
-    "@sinclair/typebox": "^0.34.49",
-    "@vitejs/plugin-react": "^6.0.2",
-    "beautiful-mermaid": "^1.1.3",
-    "lucide-react": "^1.16.0",
-    "marked": "^18.0.3",
-    "pi-rtk-optimizer": "^0.7.1",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "tau-mirror": "^1.0.7",
-    "typebox": "file:shim-packages/typebox",
-    "vite": "^8.0.13",
-    "ws": "^8.20.1"
-  },
-  "devDependencies": {
-    "lint-staged": "^15.5.2",
-    "puppeteer": "^24.43.1",
-    "simple-git-hooks": "^2.13.1"
-  },
-  "lint-staged": {
-    "*.{js,mjs}": "bun x prettier --write"
-  },
-  "simple-git-hooks": {
-    "pre-commit": "npx lint-staged"
+    "@ff-labs/fff-node": "^0.8.4",
+    "@kreuzberg/tree-sitter-language-pack-wasm": "^1.8.1"
   }
 }
