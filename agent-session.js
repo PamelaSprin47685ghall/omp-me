@@ -45,5 +45,5 @@ export function readAssistantText(sessionManager) {
             if (part?.type === 'text' && part.text) chunks.push(part.text);
         }
     }
-    return chunks.join('\n\n') || '(no output)';
+    return chunks.length > 0 ? chunks.join('\n\n') : null;
 }

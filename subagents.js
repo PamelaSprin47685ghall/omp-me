@@ -1,4 +1,4 @@
-import fs from 'node:fs';
+import fs from 'node:fs/promises';
 import path from 'node:path';
 
 const EDITOR_PROMPT = [
@@ -78,15 +78,14 @@ export function registerSubagentTools(pi, helpers) {
             files: pi.typebox.Array(pi.typebox.String({ description: 'File path to include as context.' })),
         }),
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-            const parts = [];
-            for (const file of params.files || []) {
+            const parts = await Promise.all((params.files || []).map(async (file) => {
                 const fullPath = path.resolve(ctx.cwd, file);
                 try {
-                    parts.push(`=== ${file} ===\n\n${fs.readFileSync(fullPath, 'utf-8')}`);
+                    return `=== ${file} ===\n\n${await fs.readFile(fullPath, 'utf-8')}`;
                 } catch {
-                    parts.push(`=== ${file} ===\n\n(unable to read)`);
+                    return `=== ${file} ===\n\n(unable to read)`;
                 }
-            }
+            }));
             parts.push(`Question:\n${params.intent}`);
             return {
                 content: [{

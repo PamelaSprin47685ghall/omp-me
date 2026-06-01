@@ -15,6 +15,8 @@ const RUNNER_NUDGE = [
     'Use runner_wait to collect more output or runner_abort to stop it before concluding.',
 ].join(' ');
 
+export { LOOP_NUDGE, RUNNER_NUDGE, TODO_NUDGE };
+
 const TERMINAL_TODO_STATUSES = new Set(['completed', 'abandoned']);
 
 function flattenTodoTasks(phases) {
@@ -26,21 +28,22 @@ function hasOpenTodos(sessionManager) {
     return tasks.some((task) => !TERMINAL_TODO_STATUSES.has(task.status));
 }
 
-function lastAssistantText(sessionManager) {
-    const entries = sessionManager.getEntries?.() || [];
-    for (let index = entries.length - 1; index >= 0; index -= 1) {
+function collectAssistantText(entries, startIndex) {
+    const chunks = [];
+    for (let index = startIndex; index < entries.length; index += 1) {
         const entry = entries[index];
         if (entry?.type !== 'message') continue;
         if (entry.message?.role !== 'assistant') continue;
-        const parts = entry.message?.content || [];
-        const texts = parts.filter((part) => part?.type === 'text' && part.text).map((part) => part.text);
-        if (texts.length > 0) return texts.join('\n');
+        for (const part of entry.message?.content || []) {
+            if (part?.type === 'text' && part.text) chunks.push(part.text);
+        }
     }
-    return '';
+    return chunks.join('\n');
 }
 
-function alreadySkipped(sessionManager, marker) {
-    return lastAssistantText(sessionManager).includes(marker);
+function alreadySkippedSince(sessionManager, marker, sinceIndex) {
+    const entries = sessionManager.getEntries?.() || [];
+    return collectAssistantText(entries, sinceIndex).includes(marker);
 }
 
 export function createNudgeState() {
@@ -48,6 +51,7 @@ export function createNudgeState() {
         lastTodoReminderAt: new Map(),
         lastLoopReminderAt: new Map(),
         lastRunnerReminderAt: new Map(),
+        lastNudgeEntryIndex: new Map(),
     };
 }
 
@@ -58,9 +62,18 @@ function shouldThrottle(map, sessionId, now, ms = 5000) {
     return false;
 }
 
+function recordNudgeSent(state, sessionId, entryCount) {
+    state.lastNudgeEntryIndex.set(sessionId, entryCount);
+}
+
+function currentEntryCount(sessionManager) {
+    return sessionManager.getEntries?.()?.length ?? 0;
+}
+
 export function handleTodoNudge(pi, state, sessionId, sessionManager) {
     if (!hasOpenTodos(sessionManager)) return;
-    if (alreadySkipped(sessionManager, '<skip-todo-check />')) return;
+    const entryCount = currentEntryCount(sessionManager);
+    if (alreadySkippedSince(sessionManager, '<skip-todo-check />', state.lastNudgeEntryIndex.get(sessionId) ?? 0)) return;
     const now = Date.now();
     if (shouldThrottle(state.lastTodoReminderAt, sessionId, now)) return;
     pi.sendMessage({
@@ -68,12 +81,14 @@ export function handleTodoNudge(pi, state, sessionId, sessionManager) {
         content: TODO_NUDGE,
         display: false,
     }, { triggerTurn: true, deliverAs: 'nextTurn' });
+    recordNudgeSent(state, sessionId, entryCount);
 }
 
 export function handleLoopNudge(pi, state, sessionId, sessionManager, isLoopActive) {
     if (!isLoopActive(sessionId)) return;
     if (hasOpenTodos(sessionManager)) return;
-    if (alreadySkipped(sessionManager, '<skip-loop-check />')) return;
+    const entryCount = currentEntryCount(sessionManager);
+    if (alreadySkippedSince(sessionManager, '<skip-loop-check />', state.lastNudgeEntryIndex.get(sessionId) ?? 0)) return;
     const now = Date.now();
     if (shouldThrottle(state.lastLoopReminderAt, sessionId, now)) return;
     pi.sendMessage({
@@ -81,6 +96,7 @@ export function handleLoopNudge(pi, state, sessionId, sessionManager, isLoopActi
         content: LOOP_NUDGE,
         display: false,
     }, { triggerTurn: true, deliverAs: 'nextTurn' });
+    recordNudgeSent(state, sessionId, entryCount);
 }
 
 export function handleRunnerNudge(pi, state, sessionId, hasRunningJob) {
@@ -95,10 +111,9 @@ export function handleRunnerNudge(pi, state, sessionId, hasRunningJob) {
 }
 
 export const _test = {
-    alreadySkipped,
+    collectAssistantText,
     createNudgeState,
     flattenTodoTasks,
     hasOpenTodos,
-    lastAssistantText,
     shouldThrottle,
 };

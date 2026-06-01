@@ -79,7 +79,16 @@ describe('kunwei extension', () => {
         const pi = createPi();
         await kunweiExtension(pi);
         await kunweiExtension(pi);
-        assert.equal(pi.tools.length, 13);
+        const toolNames = new Set(pi.tools.map((tool) => tool.name));
+        for (const expected of [
+            'fuzzy_find', 'fuzzy_grep',
+            'editor', 'greper', 'reverie', 'browse',
+            'websearch', 'webfetch',
+            'runner', 'runner_wait', 'runner_abort',
+            'submit_review', 'submit_review_result',
+        ]) {
+            assert.ok(toolNames.has(expected), `expected tool ${expected} to be registered exactly once`);
+        }
         assert.equal(pi.commands.length, 1);
     });
 

@@ -4,7 +4,10 @@ import path from 'node:path';
 const CAPS_FILE_RE = /^[A-Z][A-Z0-9_]*\.md$/;
 const CAPS_DIR_RE = /^[A-Z][A-Z0-9_]*$/;
 const EXCLUDED_FILE_NAMES = new Set(['CLAUDE.md', 'README.md']);
-const EXCLUDED_DIR_NAMES = new Set(['CLAUDE', 'NODE_MODULES']);
+const EXCLUDED_DIR_NAMES = new Set([
+    'CLAUDE', 'NODE_MODULES', '.git', 'target', 'dist', 'build', 'out',
+    '.venv', 'venv', '__pycache__', '.cache', '.next', '.turbo', '.parcel-cache',
+]);
 const MAX_CAPS_FILE_BYTES = 1_048_576;
 const HOST_AGENTS_PROMPT_RE = /<dir-context>[\s\S]*?<\/dir-context>\n?/g;
 
@@ -53,11 +56,12 @@ function collectCapsDir(rootDir, dirPath, entries) {
         return;
     }
     for (const child of children) {
-        const fullPath = path.join(dirPath, child.name);
         if (child.isDirectory()) {
-            collectCapsDir(rootDir, fullPath, entries);
+            if (EXCLUDED_DIR_NAMES.has(child.name) || child.name.startsWith('.')) continue;
+            collectCapsDir(rootDir, path.join(dirPath, child.name), entries);
             continue;
         }
+        const fullPath = path.join(dirPath, child.name);
         const label = path.relative(rootDir, fullPath);
         const block = readCapsFile(fullPath, label);
         if (block) entries.push(block);

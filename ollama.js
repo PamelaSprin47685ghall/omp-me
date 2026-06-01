@@ -6,6 +6,26 @@ export function getOllamaKey() {
     return process.env.OLLAMA_API_KEY || '';
 }
 
+function validateFetchUrl(url) {
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch {
+        return 'invalid URL';
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        return `unsupported URL scheme: ${parsed.protocol}`;
+    }
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1') {
+        return 'localhost fetch is not allowed';
+    }
+    if (/^(10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname)) {
+        return 'private network fetch is not allowed';
+    }
+    return null;
+}
+
 async function ollamaPost(pathname, body, signal) {
     const response = await fetch(`${OLLAMA_API_BASE}${pathname}`, {
         method: 'POST',
@@ -62,6 +82,8 @@ export function registerOllamaTools(pi, helpers) {
         }),
         async execute(_toolCallId, params, signal) {
             try {
+                const urlError = validateFetchUrl(params.url);
+                if (urlError) return asErrorResult(new Error(urlError));
                 const data = await ollamaPost('/web_fetch', {
                     url: params.url,
                     extract_main: params.extract_main ?? true,

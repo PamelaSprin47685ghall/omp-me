@@ -3,7 +3,7 @@ import { appendCapsContext, buildCapsContext, stripHostAgentsPrompt } from './ca
 import { _test as fuzzyTest, createFuzzyFindTool, createFuzzyGrepTool, resetFuzzyState } from './fuzzy.js';
 import { LOOP_TOOL_NAMES, registerLoopFeatures, resetReviewStates, setPendingReviewStateForTest } from './loop.js';
 import { isReviewActive } from './loop.js';
-import { handleLoopNudge, handleRunnerNudge, handleTodoNudge, createNudgeState } from './nudge.js';
+import { TODO_NUDGE, handleLoopNudge, handleRunnerNudge, handleTodoNudge, createNudgeState } from './nudge.js';
 import { getOllamaKey, OLLAMA_TOOL_NAMES, registerOllamaTools } from './ollama.js';
 import { patchDisablePrune } from './prune.js';
 import { RUNNER_TOOL_NAMES, registerRunnerTools, resetRunnerJobs, stripHeadTailPipes, hasRunningRunnerJob, setRunnerJobStateForTest } from './runner.js';
@@ -13,12 +13,7 @@ import { appendSyntaxDiagnostics } from './tree-sitter.js';
 
 const registered = new WeakSet();
 
-const TODO_NUDGE = [
-    'There are still incomplete todos. Continue working through them.',
-    'If blocked, explain the blocker and ask for guidance.',
-].join(' ');
-
-await patchDisablePrune();
+patchDisablePrune().catch(() => {});
 
 export default async function kunweiExtension(pi) {
     if (registered.has(pi)) return;
@@ -73,15 +68,16 @@ export default async function kunweiExtension(pi) {
         nudgeState.lastTodoReminderAt.delete(sessionId);
         nudgeState.lastLoopReminderAt.delete(sessionId);
         nudgeState.lastRunnerReminderAt.delete(sessionId);
+        nudgeState.lastNudgeEntryIndex.delete(sessionId);
     });
 
     pi.on('session_start', async () => {
         const keep = new Set(['read', 'find', 'fuzzy_find', 'fuzzy_grep', 'edit', 'write', 'lsp', ...SUBAGENT_TOOL_NAMES, ...RUNNER_TOOL_NAMES, ...LOOP_TOOL_NAMES, ...OLLAMA_TOOL_NAMES]);
-        const desired = pi.getActiveTools().filter((toolName) => keep.has(toolName));
-        if (!desired.includes('fuzzy_grep')) desired.push('fuzzy_grep');
-        if (!desired.includes('fuzzy_find')) desired.push('fuzzy_find');
-        if (!desired.includes('find')) desired.push('find');
-        await pi.setActiveTools([...new Set(desired)]);
+        const desired = new Set(pi.getActiveTools().filter((toolName) => keep.has(toolName)));
+        desired.add('fuzzy_grep');
+        desired.add('fuzzy_find');
+        desired.add('find');
+        await pi.setActiveTools([...desired]);
     });
 
     registerLoopFeatures(pi, sharedHelpers);

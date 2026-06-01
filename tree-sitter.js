@@ -4,10 +4,10 @@ import { createRequire } from 'node:module';
 
 const FILE_EDIT_TOOLS = new Set(['edit', 'write', 'Write', 'ast_edit', 'ast_grep_replace']);
 const SYNTAX_MARKER = '[syntax-check]';
-let wasmPack = null;
+let wasmPackPromise = null;
 
-async function ensureWasmPack() {
-    if (wasmPack) return wasmPack;
+function loadWasmPack() {
+    if (wasmPackPromise) return wasmPackPromise;
 
     const require = createRequire(import.meta.url);
     const Module = require('node:module');
@@ -76,14 +76,20 @@ async function ensureWasmPack() {
         return instance;
     };
 
-    try {
-        wasmPack = await import('@kreuzberg/tree-sitter-language-pack-wasm');
-    } finally {
-        Module.prototype.require = originalRequire;
-        WebAssembly.Instance = OriginalInstance;
-    }
+    wasmPackPromise = (async () => {
+        try {
+            return await import('@kreuzberg/tree-sitter-language-pack-wasm');
+        } finally {
+            Module.prototype.require = originalRequire;
+            WebAssembly.Instance = OriginalInstance;
+        }
+    })();
 
-    return wasmPack;
+    return wasmPackPromise;
+}
+
+async function ensureWasmPack() {
+    return loadWasmPack();
 }
 
 function findErrors(node) {

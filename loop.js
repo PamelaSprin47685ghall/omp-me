@@ -74,14 +74,14 @@ function activateReview(sessionId, task) {
     state.parentId = null;
 }
 
-function tryLockReview(sessionId) {
+function tryClaimReviewSlot(sessionId) {
     const state = reviewStates.get(sessionId);
     if (!state || state.locked) return false;
     state.locked = true;
     return true;
 }
 
-function unlockReview(sessionId) {
+function releaseReviewSlot(sessionId) {
     const state = reviewStates.get(sessionId);
     if (state) state.locked = false;
 }
@@ -100,6 +100,20 @@ function activateLoopMode(pi, sessionId, task, notify) {
         display: true,
     }, { triggerTurn: true });
     notify('loop mode is active. Finish the task and call submit_review.', 'info');
+}
+
+function handleLoopCommand(pi, sessionId, task, notify) {
+    if (!sessionId) return;
+    if (!task) {
+        deactivateReview(sessionId);
+        notify('loop mode cancelled.', 'info');
+        return;
+    }
+    if (reviewStates.get(sessionId)?.active) {
+        notify('loop mode is already active.', 'info');
+        return;
+    }
+    activateLoopMode(pi, sessionId, task, notify);
 }
 
 function attachReviewChild(parentSessionId, childSessionId, pending) {
@@ -188,19 +202,8 @@ export function registerLoopFeatures(pi, helpers) {
     pi.on('input', async (event, ctx) => {
         const text = event.text.trim();
         if (!text.startsWith(`/${LOOP_COMMAND}`)) return;
-        const args = text.slice(LOOP_COMMAND.length + 1).trim();
         const sessionId = getSessionIdFromContext(ctx);
-        if (!sessionId) return { handled: true };
-        if (!args) {
-            deactivateReview(sessionId);
-            ctx.ui.notify('loop mode cancelled.', 'info');
-            return { handled: true };
-        }
-        if (reviewStates.get(sessionId)?.active) {
-            ctx.ui.notify('loop mode is already active.', 'info');
-            return { handled: true };
-        }
-        activateLoopMode(pi, sessionId, args, ctx.ui.notify.bind(ctx.ui));
+        handleLoopCommand(pi, sessionId, text.slice(LOOP_COMMAND.length + 1).trim(), ctx.ui.notify.bind(ctx.ui));
         return { handled: true };
     });
 
@@ -208,18 +211,7 @@ export function registerLoopFeatures(pi, helpers) {
         description: 'Enable loop review mode for the current session',
         handler: async (args, ctx) => {
             const sessionId = getSessionIdFromContext(ctx);
-            if (!sessionId) return;
-            const task = args.trim();
-            if (!task) {
-                deactivateReview(sessionId);
-                ctx.ui.notify('loop mode cancelled.', 'info');
-                return;
-            }
-            if (reviewStates.get(sessionId)?.active) {
-                ctx.ui.notify('loop mode is already active.', 'info');
-                return;
-            }
-            activateLoopMode(pi, sessionId, task, ctx.ui.notify.bind(ctx.ui));
+            handleLoopCommand(pi, sessionId, args.trim(), ctx.ui.notify.bind(ctx.ui));
         },
     });
 
@@ -236,7 +228,7 @@ export function registerLoopFeatures(pi, helpers) {
             if (!sessionId || !reviewStates.get(sessionId)?.active) {
                 return { content: [{ type: 'text', text: 'Loop review is not active for this session.' }], isError: true };
             }
-            if (!tryLockReview(sessionId)) {
+            if (!tryClaimReviewSlot(sessionId)) {
                 return { content: [{ type: 'text', text: 'A review is already in progress.' }], isError: true };
             }
             try {
@@ -251,7 +243,7 @@ export function registerLoopFeatures(pi, helpers) {
                 }
                 return { content: [{ type: 'text', text: `Review feedback:\n\n${result.feedback}` }], isError: true };
             } finally {
-                unlockReview(sessionId);
+                releaseReviewSlot(sessionId);
             }
         },
     });

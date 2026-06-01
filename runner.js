@@ -10,7 +10,7 @@ const RUNNER_EARLY_TIMEOUT_MS = 5000;
 const RUNNER_MAX_WAIT_MS = 30000;
 const RUNNER_MIN_WAIT_MS = 100;
 const RUNNER_LOG_DIR = path.join(tmpdir(), 'omp-kunwei-runner');
-const HEAD_TAIL_PIPE_RE = /\s*\|\s*(head|tail)\s+(?:-n\s*|-)\d+(?=\s*(?:[;&\n#]|$))/g;
+const HEAD_TAIL_PIPE_RE = /\s*\|\s*(head|tail)(?:\s+[^\s|&;()<>\n#`>]+)*/g;
 
 const RUNNER_SYSTEM_PROMPT = [
     'You are a command output summarizer.',
@@ -24,29 +24,16 @@ export const RUNNER_LANGUAGES = ['shell', 'python', 'javascript'];
 
 function buildRunnerPrompt(language, program, dependencies, whatToSummarize, result) {
     const dependencyList = dependencies?.length ? `Dependencies: ${dependencies.join(', ')}\n\n` : '';
-    if (!result.background) {
-        return [
-            `The following ${language} program has been executed.`,
-            '',
-            'Task completed.',
-            '',
-            'Program:',
-            program,
-            '',
-            dependencyList.trimEnd(),
-            dependencyList ? '' : null,
-            'What to summarize:',
-            whatToSummarize,
-            '',
-            'Execution output:',
-            result.output,
-            result.message || null,
-        ].filter(Boolean).join('\n');
-    }
+    const headline = result.background
+        ? `The following ${language} program is running in background.`
+        : `The following ${language} program has been executed.`;
+    const nextStep = result.background
+        ? 'Use runner_wait to poll for more output or runner_abort to stop the task.'
+        : 'Task completed.';
     return [
-        `The following ${language} program is running in background.`,
+        headline,
         '',
-        'Use runner_wait to poll for more output or runner_abort to stop the task.',
+        nextStep,
         '',
         'Program:',
         program,
@@ -56,7 +43,7 @@ function buildRunnerPrompt(language, program, dependencies, whatToSummarize, res
         'What to summarize:',
         whatToSummarize,
         '',
-        'Initial output:',
+        result.background ? 'Initial output:' : 'Execution output:',
         result.output,
         result.message || null,
     ].filter(Boolean).join('\n');
@@ -76,13 +63,36 @@ function getRunnerProjectDir(sessionId) {
     return path.join(RUNNER_LOG_DIR, `runner-${sessionId}`);
 }
 
-function getRunnerTempScriptPath(cwd, sessionId, extension) {
-    return path.join(cwd, `.runner-${sessionId}.${extension}`);
+function getRunnerTempScriptPath(sessionId, extension) {
+    ensureRunnerDir();
+    return path.join(RUNNER_LOG_DIR, `.runner-${sessionId}.${extension}`);
 }
 
-function appendLogChunk(logPath, text) {
-    if (!text) return;
-    fs.appendFileSync(logPath, text, 'utf-8');
+function openLogStream(logPath) {
+    return fs.createWriteStream(logPath, { flags: 'a' });
+}
+
+function pipeToLog(logStream, source) {
+    source.on('data', (chunk) => {
+        if (logStream.destroyed || logStream.writableEnded) return;
+        const text = typeof chunk === 'string' ? chunk : chunk.toString('utf-8');
+        if (!logStream.write(text) && source.pause) source.pause();
+    });
+    logStream.on('drain', () => {
+        if (source.isPaused?.()) source.resume();
+    });
+}
+
+function closeLogStream(logStream) {
+    return new Promise((resolve) => {
+        if (!logStream || logStream.destroyed) return resolve();
+        logStream.end(() => resolve());
+    });
+}
+
+function destroyLogStream(logStream) {
+    if (!logStream || logStream.destroyed) return;
+    try { logStream.destroy(); } catch {}
 }
 
 function ensureTrailingNewline(text) {
@@ -131,15 +141,13 @@ export function cleanupRunnerJob(sessionId) {
 
     if (job.status === 'running') {
         if (job.abortController) {
-            try {
-                job.abortController.abort();
-            } catch {}
+            try { job.abortController.abort(); } catch {}
         }
-        if (job.childProcess) {
-            killProcessTree(job.childProcess);
-        }
+        if (job.childProcess) killProcessTree(job.childProcess);
         job.status = 'aborted';
     }
+
+    destroyLogStream(job.logStream);
 
     try {
         if (fs.existsSync(job.logPath)) fs.unlinkSync(job.logPath);
@@ -172,12 +180,12 @@ function createTempJavascriptScript(scriptPath, program) {
     return scriptPath;
 }
 
-function createJavascriptPrelude(cwd) {
+function createJavascriptPrelude(cwd, scriptPath) {
     return [
         'import { createRequire } from "node:module";',
         `const require = createRequire(${JSON.stringify(path.join(cwd, '__runner__.cjs'))});`,
-        `const __dirname = ${JSON.stringify(cwd)};`,
-        `const __filename = ${JSON.stringify(path.join(cwd, '__runner__.mjs'))};`,
+        `const __dirname = ${JSON.stringify(path.dirname(scriptPath))};`,
+        `const __filename = ${JSON.stringify(scriptPath)};`,
         '',
     ].join('\n');
 }
@@ -209,16 +217,10 @@ function runChildProcess({ command, args, cwd, env, signal }) {
         let stdout = '';
         let stderr = '';
 
-        childProcess.stdout?.on('data', (chunk) => {
-            stdout += chunk.toString();
-        });
-        childProcess.stderr?.on('data', (chunk) => {
-            stderr += chunk.toString();
-        });
+        childProcess.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+        childProcess.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
 
-        const onAbort = () => {
-            killProcessTree(childProcess);
-        };
+        const onAbort = () => killProcessTree(childProcess);
         signal?.addEventListener('abort', onAbort, { once: true });
 
         childProcess.on('error', (error) => {
@@ -241,9 +243,9 @@ function readCurrentOutput(logPath) {
     return fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf-8').trim() || '(no output)' : '(no output)';
 }
 
-async function executeShellProgram(options, job, appendChunk) {
+async function executeShellProgram(options, job) {
     const extension = process.platform === 'win32' ? 'ps1' : 'sh';
-    const scriptPath = createTempShellScript(getRunnerTempScriptPath(options.cwd, job.sessionId, extension), options.program);
+    const scriptPath = createTempShellScript(getRunnerTempScriptPath(job.sessionId, extension), options.program);
     job.tempPath = scriptPath;
 
     const childProcess = spawn(
@@ -261,12 +263,14 @@ async function executeShellProgram(options, job, appendChunk) {
     );
 
     job.childProcess = childProcess;
-    childProcess.stdout?.on('data', (chunk) => appendChunk(chunk.toString()));
-    childProcess.stderr?.on('data', (chunk) => appendChunk(chunk.toString()));
+    pipeToLog(job.logStream, childProcess.stdout);
+    pipeToLog(job.logStream, childProcess.stderr);
 
     return await new Promise((resolve, reject) => {
         childProcess.on('error', reject);
-        childProcess.on('close', (code) => {
+        childProcess.on('close', async (code) => {
+            await closeLogStream(job.logStream);
+            job.logStream = null;
             resolve({
                 output: readCurrentOutput(job.logPath),
                 cancelled: job.abortController.signal.aborted,
@@ -276,8 +280,8 @@ async function executeShellProgram(options, job, appendChunk) {
     });
 }
 
-async function executePythonProgram(options, job, appendChunk) {
-    const scriptPath = createTempPythonScript(getRunnerTempScriptPath(options.cwd, job.sessionId, 'py'), options.program);
+async function executePythonProgram(options, job) {
+    const scriptPath = createTempPythonScript(getRunnerTempScriptPath(job.sessionId, 'py'), options.program);
     job.tempPath = scriptPath;
 
     const args = ['--isolated'];
@@ -295,12 +299,14 @@ async function executePythonProgram(options, job, appendChunk) {
     });
 
     job.childProcess = childProcess;
-    childProcess.stdout?.on('data', (chunk) => appendChunk(chunk.toString()));
-    childProcess.stderr?.on('data', (chunk) => appendChunk(chunk.toString()));
+    pipeToLog(job.logStream, childProcess.stdout);
+    pipeToLog(job.logStream, childProcess.stderr);
 
     return await new Promise((resolve, reject) => {
         childProcess.on('error', reject);
-        childProcess.on('close', (code) => {
+        childProcess.on('close', async (code) => {
+            await closeLogStream(job.logStream);
+            job.logStream = null;
             resolve({
                 output: readCurrentOutput(job.logPath),
                 cancelled: job.abortController.signal.aborted,
@@ -310,11 +316,12 @@ async function executePythonProgram(options, job, appendChunk) {
     });
 }
 
-async function executeJavascriptProgram(options, job, appendChunk) {
+async function executeJavascriptProgram(options, job) {
     const projectDir = job.projectDir;
     await ensureJavascriptProject(projectDir, options.dependencies);
-    const scriptBody = `${createJavascriptPrelude(options.cwd)}${rewriteJavascriptModuleSpecifiers(options.program, options.cwd)}`;
-    const scriptPath = createTempJavascriptScript(getRunnerTempScriptPath(projectDir, job.sessionId, 'mts'), scriptBody);
+    const scriptPath = getRunnerTempScriptPath(job.sessionId, 'mts');
+    const scriptBody = `${createJavascriptPrelude(options.cwd, scriptPath)}${rewriteJavascriptModuleSpecifiers(options.program, options.cwd)}`;
+    createTempJavascriptScript(scriptPath, scriptBody);
     job.tempPath = scriptPath;
 
     const childProcess = spawn('npx', ['--prefix', projectDir, '--yes', '--no-install', 'tsx', scriptPath], {
@@ -326,12 +333,14 @@ async function executeJavascriptProgram(options, job, appendChunk) {
     });
 
     job.childProcess = childProcess;
-    childProcess.stdout?.on('data', (chunk) => appendChunk(chunk.toString()));
-    childProcess.stderr?.on('data', (chunk) => appendChunk(chunk.toString()));
+    pipeToLog(job.logStream, childProcess.stdout);
+    pipeToLog(job.logStream, childProcess.stderr);
 
     return await new Promise((resolve, reject) => {
         childProcess.on('error', reject);
-        childProcess.on('close', (code) => {
+        childProcess.on('close', async (code) => {
+            await closeLogStream(job.logStream);
+            job.logStream = null;
             resolve({
                 output: readCurrentOutput(job.logPath),
                 cancelled: job.abortController.signal.aborted,
@@ -351,6 +360,7 @@ async function executeRunnerJob(sessionId, options) {
     const language = options.language === 'python' || options.language === 'javascript' ? options.language : 'shell';
     const program = language === 'shell' ? stripHeadTailPipes(options.program).script : options.program;
     const logPath = getRunnerLogPath(sessionId);
+    fs.writeFileSync(logPath, '');
 
     const job = {
         sessionId,
@@ -359,6 +369,7 @@ async function executeRunnerJob(sessionId, options) {
             ? getRunnerProjectDir(sessionId)
             : null,
         tempPath: null,
+        logStream: openLogStream(logPath),
         childProcess: null,
         abortController: new AbortController(),
         bytesRead: 0,
@@ -368,40 +379,31 @@ async function executeRunnerJob(sessionId, options) {
 
     runnerJobs.set(sessionId, job);
 
-    const appendChunk = (text) => appendLogChunk(logPath, text);
-
     job.closePromise = (async () => {
         try {
             const result = language === 'shell'
-                ? await executeShellProgram({ ...options, program }, job, appendChunk)
+                ? await executeShellProgram({ ...options, program }, job)
                 : language === 'python'
-                    ? await executePythonProgram({ ...options, program }, job, appendChunk)
-                    : await executeJavascriptProgram({ ...options, program }, job, appendChunk);
+                    ? await executePythonProgram({ ...options, program }, job)
+                    : await executeJavascriptProgram({ ...options, program }, job);
 
             if (job.status === 'running') {
                 job.status = result.cancelled ? 'aborted' : 'completed';
             }
 
-            if ((result.output?.trim() || '') !== (fs.existsSync(logPath) ? fs.readFileSync(logPath, 'utf-8').trim() : '')) {
-                fs.writeFileSync(logPath, ensureTrailingNewline(result.output || '(no output)'), 'utf-8');
-            }
-
-            if (result.cancelled) {
-                job.status = 'aborted';
-            }
+            if (result.cancelled) job.status = 'aborted';
 
             if (result.exitCode !== undefined && result.exitCode !== 0) {
-                appendLogChunk(logPath, ensureTrailingNewline(`Command exited with code ${result.exitCode}`));
+                await fs.promises.appendFile(logPath, ensureTrailingNewline(`Command exited with code ${result.exitCode}`), 'utf-8');
             }
         } catch (error) {
             if (job.status === 'running') job.status = 'aborted';
-            if (!fs.existsSync(logPath)) {
-                fs.writeFileSync(logPath, ensureTrailingNewline(error instanceof Error ? error.message : String(error)), 'utf-8');
+            if (!fs.existsSync(logPath) || fs.readFileSync(logPath, 'utf-8') === '') {
+                await fs.promises.writeFile(logPath, ensureTrailingNewline(error instanceof Error ? error.message : String(error)), 'utf-8');
             }
             throw error;
         }
     })();
-    void job.closePromise.catch(() => {});
 
     try {
         const completedEarly = await Promise.race([
@@ -493,11 +495,14 @@ export function hasRunningRunnerJob(sessionId) {
 }
 
 export function setRunnerJobStateForTest(sessionId, status = 'running') {
+    const logPath = path.join(RUNNER_LOG_DIR, `test-${sessionId}.log`);
+    fs.writeFileSync(logPath, '');
     runnerJobs.set(sessionId, {
         status,
         abortController: new AbortController(),
         childProcess: null,
-        logPath: path.join(RUNNER_LOG_DIR, `test-${sessionId}.log`),
+        logPath,
+        logStream: null,
         tempPath: null,
         projectDir: null,
         bytesRead: 0,
@@ -542,7 +547,7 @@ export function registerRunnerTools(pi, helpers) {
                     });
                     await child.session.prompt(buildRunnerPrompt(language, params.program, params.dependencies, params.what_to_summarize, runResult));
                     await child.session.waitForIdle();
-                    return { content: [{ type: 'text', text: readAssistantText(child.session.sessionManager) }] };
+                    return { content: [{ type: 'text', text: readAssistantText(child.session.sessionManager) ?? '(no output)' }] };
                 } finally {
                     child.session.abort?.();
                     child.dispose?.();
