@@ -207,14 +207,14 @@ describe('kunwei helpers', () => {
         }
     });
 
-    it('builds caps context from uppercase files and dirs', () => {
+    it('builds caps context from uppercase files and dirs', async () => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kunwei-caps-'));
         fs.writeFileSync(path.join(root, 'ARCH.md'), 'arch-content');
         fs.mkdirSync(path.join(root, 'PRD'));
         fs.writeFileSync(path.join(root, 'PRD', '01.txt'), 'prd-content');
 
         try {
-            const context = _test.buildCapsContext(root);
+            const context = await _test.buildCapsContext(root);
             assert.ok(context.includes('<caps-context file="ARCH.md">'));
             assert.ok(context.includes('arch-content'));
             assert.ok(context.includes('<caps-context file="PRD/01.txt">'));
@@ -313,7 +313,7 @@ describe('kunwei helpers', () => {
 });
 
 describe('caps budget', () => {
-    it('respects depth and total byte limits', () => {
+    it('respects depth and total byte limits', async () => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kunwei-caps-budget-'));
         fs.writeFileSync(path.join(root, 'ARCH.md'), 'a'.repeat(2_000));
         fs.mkdirSync(path.join(root, 'PRD'));
@@ -326,7 +326,7 @@ describe('caps budget', () => {
         }
 
         try {
-            const context = _test.buildCapsContext(root);
+            const context = await _test.buildCapsContext(root);
             const matches = context.match(/<caps-context /g) || [];
             assert.ok(matches.length <= 200, `expected <= 200 entries, got ${matches.length}`);
         } finally {
@@ -334,14 +334,14 @@ describe('caps budget', () => {
         }
     });
 
-    it('skips excluded dir names inside caps dirs', () => {
+    it('skips excluded dir names inside caps dirs', async () => {
         const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kunwei-caps-excl-'));
         fs.mkdirSync(path.join(root, 'PRD', 'node_modules'), { recursive: true });
         fs.writeFileSync(path.join(root, 'PRD', 'node_modules', 'leak.md'), 'should-not-appear');
         fs.writeFileSync(path.join(root, 'PRD', 'real.md'), 'real-content');
 
         try {
-            const context = _test.buildCapsContext(root);
+            const context = await _test.buildCapsContext(root);
             assert.ok(context.includes('real-content'));
             assert.ok(!context.includes('should-not-appear'));
         } finally {
