@@ -5,19 +5,12 @@ import { createRequire } from 'node:module';
 const FILE_EDIT_TOOLS = new Set(['edit', 'write', 'Write', 'ast_edit', 'ast_grep_replace']);
 const SYNTAX_MARKER = '[syntax-check]';
 let wasmPackPromise = null;
+const instanceMemory = new WeakMap();
 
-function loadWasmPack() {
-    if (wasmPackPromise) return wasmPackPromise;
-
-    const require = createRequire(import.meta.url);
-    const Module = require('node:module');
-    const originalRequire = Module.prototype.require;
-    const memoryHolder = { buffer: new ArrayBuffer(0) };
-    const getMemoryView = () => new Uint8Array(memoryHolder.buffer);
-
-    const envMock = {
+function buildEnvMock(getMemory) {
+    return {
         strcmp: (leftPointer, rightPointer) => {
-            const memory = getMemoryView();
+            const memory = getMemory();
             let index = 0;
             while (true) {
                 const leftChar = memory[leftPointer + index];
@@ -28,7 +21,7 @@ function loadWasmPack() {
             }
         },
         memchr: (pointer, character, count) => {
-            const memory = getMemoryView();
+            const memory = getMemory();
             const target = character & 0xff;
             for (let index = 0; index < count; index += 1) {
                 if (memory[pointer + index] === target) return pointer + index;
@@ -61,17 +54,32 @@ function loadWasmPack() {
             }
         },
     };
+}
 
-    Module.prototype.require = function patchedRequire(id) {
-        if (id === 'env') return envMock;
+function loadWasmPack() {
+    if (wasmPackPromise) return wasmPackPromise;
+
+    const require = createRequire(import.meta.url);
+    const NodeModule = require('node:module');
+    const originalRequire = NodeModule.prototype.require;
+    const OriginalInstance = WebAssembly.Instance;
+    const OriginalModule = WebAssembly.Module;
+
+    NodeModule.prototype.require = function patchedRequire(id) {
+        if (id === 'env') {
+            const instance = OriginalInstance;
+            const lastInstance = instance.lastCreated;
+            const memory = lastInstance ? instanceMemory.get(lastInstance) : null;
+            return buildEnvMock(() => memory || new Uint8Array(0));
+        }
         return originalRequire.apply(this, arguments);
     };
 
-    const OriginalInstance = WebAssembly.Instance;
     WebAssembly.Instance = function patchedInstance(module, importObject) {
         const instance = new OriginalInstance(module, importObject);
+        OriginalInstance.lastCreated = instance;
         if (instance.exports?.memory) {
-            memoryHolder.buffer = instance.exports.memory.buffer;
+            instanceMemory.set(instance, new Uint8Array(instance.exports.memory.buffer));
         }
         return instance;
     };
@@ -80,16 +88,14 @@ function loadWasmPack() {
         try {
             return await import('@kreuzberg/tree-sitter-language-pack-wasm');
         } finally {
-            Module.prototype.require = originalRequire;
+            NodeModule.prototype.require = originalRequire;
             WebAssembly.Instance = OriginalInstance;
+            OriginalInstance.lastCreated = undefined;
+            OriginalModule; // silence unused
         }
     })();
 
     return wasmPackPromise;
-}
-
-async function ensureWasmPack() {
-    return loadWasmPack();
 }
 
 function findErrors(node) {
@@ -104,7 +110,7 @@ function findErrors(node) {
 
 export async function checkSyntax(content, filePath) {
     try {
-        const pack = await ensureWasmPack();
+        const pack = await loadWasmPack();
         const language = pack.detectLanguageFromPath(filePath);
         if (!language) return { ok: false, reason: `unsupported language: ${filePath}` };
 

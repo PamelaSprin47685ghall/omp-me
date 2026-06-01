@@ -1,15 +1,14 @@
 import { createChildSession, readAssistantText, runSubagent } from './agent-session.js';
 import { appendCapsContext, buildCapsContext, stripHostAgentsPrompt } from './caps.js';
 import { _test as fuzzyTest, createFuzzyFindTool, createFuzzyGrepTool, resetFuzzyState } from './fuzzy.js';
-import { LOOP_TOOL_NAMES, registerLoopFeatures, resetReviewStates, setPendingReviewStateForTest } from './loop.js';
-import { isReviewActive } from './loop.js';
-import { TODO_NUDGE, handleLoopNudge, handleRunnerNudge, handleTodoNudge, createNudgeState } from './nudge.js';
+import { isReviewActive, LOOP_TOOL_NAMES, registerLoopFeatures, resetReviewStates, setPendingReviewStateForTest } from './loop.js';
+import { handleLoopNudge, handleRunnerNudge, handleTodoNudge, createNudgeState, TODO_NUDGE } from './nudge.js';
 import { getOllamaKey, OLLAMA_TOOL_NAMES, registerOllamaTools } from './ollama.js';
 import { patchDisablePrune } from './prune.js';
-import { RUNNER_TOOL_NAMES, registerRunnerTools, resetRunnerJobs, stripHeadTailPipes, hasRunningRunnerJob, setRunnerJobStateForTest } from './runner.js';
+import { hasRunningRunnerJob, registerRunnerTools, resetRunnerJobs, RUNNER_TOOL_NAMES, setRunnerJobStateForTest, stripHeadTailPipes } from './runner.js';
 import { asErrorResult, getSessionIdFromContext, stringArraySchema } from './shared.js';
 import { registerSubagentTools, SUBAGENT_TOOL_NAMES } from './subagents.js';
-import { appendSyntaxDiagnostics } from './tree-sitter.js';
+import { appendSyntaxDiagnostics, checkSyntax, supportsSyntaxDiagnosticsTool } from './tree-sitter.js';
 
 const registered = new WeakSet();
 
@@ -33,9 +32,7 @@ export default async function kunweiExtension(pi) {
         systemPrompt: appendCapsContext(stripHostAgentsPrompt(event.systemPrompt), ctx.cwd),
     }));
 
-    pi.on('tool_result', async (event, ctx) => {
-        return await appendSyntaxDiagnostics(ctx.cwd, event);
-    });
+    pi.on('tool_result', (event, ctx) => appendSyntaxDiagnostics(ctx.cwd, event));
 
     pi.on('todo_reminder', (event, ctx) => {
         if (!event.todos?.length) return;
@@ -81,7 +78,6 @@ export default async function kunweiExtension(pi) {
     });
 
     registerLoopFeatures(pi, sharedHelpers);
-
     registerSubagentTools(pi, sharedHelpers);
     registerOllamaTools(pi, sharedHelpers);
 
@@ -94,18 +90,17 @@ export default async function kunweiExtension(pi) {
 export const _test = {
     appendCapsContext,
     buildCapsContext,
-    stripHostAgentsPrompt,
-    stripHeadTailPipes,
-    appendSyntaxDiagnostics,
-    checkSyntax: async (...args) => (await import('./tree-sitter.js')).checkSyntax(...args),
-    supportsSyntaxDiagnosticsTool: async (toolName) => (await import('./tree-sitter.js')).supportsSyntaxDiagnosticsTool(toolName),
+    checkSyntax,
     fuzzy: fuzzyTest,
     getOllamaKey,
-    setPendingReviewStateForTest,
-    setRunnerJobStateForTest,
     reset() {
         resetReviewStates();
         resetRunnerJobs();
         resetFuzzyState();
     },
+    setPendingReviewStateForTest,
+    setRunnerJobStateForTest,
+    stripHeadTailPipes,
+    stripHostAgentsPrompt,
+    supportsSyntaxDiagnosticsTool,
 };

@@ -234,20 +234,24 @@ describe('kunwei helpers', () => {
     });
 
     it('syntax check reports json parse errors', async () => {
-        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kunwei-syntax-'));
-        const filePath = path.join(root, 'broken.json');
-        fs.writeFileSync(filePath, '{bad');
-
-        try {
-            const result = await _test.checkSyntax('{bad', 'broken.json');
-            if (result.ok) {
-                assert.equal(result.errors.length, 1);
-            } else {
-                assert.ok(typeof result.reason === 'string');
-                assert.ok(result.reason.length > 0);
+        const result = await _test.checkSyntax('{bad', 'broken.json');
+        if (result.ok) {
+            assert.ok(result.errors.length >= 1, `expected at least 1 error, got ${result.errors.length}`);
+            for (const err of result.errors) {
+                assert.equal(err.severity, 'error');
+                assert.ok(err.line >= 1);
+                assert.ok(err.column >= 1);
             }
-        } finally {
-            fs.rmSync(root, { recursive: true, force: true });
+        } else {
+            assert.ok(typeof result.reason === 'string');
+            assert.ok(result.reason.length > 0);
+        }
+    });
+
+    it('syntax check reports no errors for valid json', async () => {
+        const result = await _test.checkSyntax('{"a": 1, "b": [1,2,3]}', 'valid.json');
+        if (result.ok) {
+            assert.equal(result.errors.length, 0);
         }
     });
 
@@ -305,5 +309,102 @@ describe('kunwei helpers', () => {
         const firstId = _test.fuzzy.storeFindCursor({ query: 'src main', pageSize: 30, pageIndex: 1 });
         assert.equal(_test.fuzzy.consumeFindCursor(firstId).pageIndex, 1);
         assert.equal(_test.fuzzy.consumeFindCursor(firstId), undefined);
+    });
+});
+
+describe('caps budget', () => {
+    it('respects depth and total byte limits', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kunwei-caps-budget-'));
+        fs.writeFileSync(path.join(root, 'ARCH.md'), 'a'.repeat(2_000));
+        fs.mkdirSync(path.join(root, 'PRD'));
+        for (let i = 0; i < 50; i += 1) {
+            const dir = path.join(root, 'PRD', `dir${i}`);
+            fs.mkdirSync(dir, { recursive: true });
+            for (let j = 0; j < 5; j += 1) {
+                fs.writeFileSync(path.join(dir, `f${j}.md`), 'x'.repeat(500));
+            }
+        }
+
+        try {
+            const context = _test.buildCapsContext(root);
+            const matches = context.match(/<caps-context /g) || [];
+            assert.ok(matches.length <= 200, `expected <= 200 entries, got ${matches.length}`);
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    it('skips excluded dir names inside caps dirs', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kunwei-caps-excl-'));
+        fs.mkdirSync(path.join(root, 'PRD', 'node_modules'), { recursive: true });
+        fs.writeFileSync(path.join(root, 'PRD', 'node_modules', 'leak.md'), 'should-not-appear');
+        fs.writeFileSync(path.join(root, 'PRD', 'real.md'), 'real-content');
+
+        try {
+            const context = _test.buildCapsContext(root);
+            assert.ok(context.includes('real-content'));
+            assert.ok(!context.includes('should-not-appear'));
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
+    it('appendCapsContext is idempotent across calls', () => {
+        const root = fs.mkdtempSync(path.join(os.tmpdir(), 'kunwei-caps-idem-'));
+        fs.writeFileSync(path.join(root, 'ARCH.md'), 'arch');
+
+        try {
+            const prompt = ['initial'];
+            const once = _test.appendCapsContext(prompt, root);
+            const twice = _test.appendCapsContext(once, root);
+            assert.equal(once, twice);
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+});
+
+describe('ollama SSRF', () => {
+    it('blocks localhost and loopback names', async () => {
+        const ollama = await import('../ollama.js');
+        const pi = {
+            typebox: {
+                Object: (p) => ({ type: 'object', properties: p }),
+                String: (o = {}) => ({ type: 'string', ...o }),
+                Number: (o = {}) => ({ type: 'number', ...o }),
+                Boolean: (o = {}) => ({ type: 'boolean', ...o }),
+                Null: (o = {}) => ({ type: 'null', ...o }),
+                Union: (items, o = {}) => ({ anyOf: items, ...o }),
+                Enum: (values, o = {}) => ({ type: 'enum', values, ...o }),
+                Array: (items) => ({ type: 'array', items }),
+                Optional: (s) => s,
+            },
+        };
+        const tools = [];
+        pi.registerTool = (t) => tools.push(t);
+        ollama.registerOllamaTools(pi, { asErrorResult: (e) => ({ content: [{ type: 'text', text: e.message }], isError: true }) });
+        const webfetch = tools.find((t) => t.name === 'webfetch');
+        assert.ok(webfetch);
+
+        const blocked = ['http://localhost/', 'http://127.0.0.1/', 'http://0.0.0.0/', 'http://[::1]/', 'http://10.0.0.1/', 'http://192.168.1.1/', 'http://169.254.169.254/'];
+        for (const url of blocked) {
+            const result = await webfetch.execute('id', { url }, undefined, undefined, {});
+            assert.equal(result.isError, true, `expected block for ${url}`);
+            assert.ok(/not allowed|invalid|scheme|resolve/i.test(result.content[0].text), `unexpected message for ${url}: ${result.content[0].text}`);
+        }
+    });
+});
+
+describe('pi-resolve', () => {
+    it('uses PI_BASE environment variable when set', async () => {
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kunwei-pi-base-'));
+        try {
+            process.env.PI_BASE = tmp;
+            const { getPiBase } = await import('../pi-resolve.js?probe=1');
+            assert.equal(getPiBase(), tmp);
+        } finally {
+            delete process.env.PI_BASE;
+            fs.rmSync(tmp, { recursive: true, force: true });
+        }
     });
 });

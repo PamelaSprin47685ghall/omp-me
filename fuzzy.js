@@ -151,7 +151,7 @@ function formatGrepOutput(result) {
     for (const match of result.items) {
         if (!match) continue;
         if (match.relativePath !== currentFile) {
-            if (lines.length > 0) lines.push('');
+            if (currentFile) lines.push('');
             currentFile = match.relativePath;
             lines.push(`${currentFile}${fileAnnotation(match)}`);
         }
@@ -336,13 +336,6 @@ export function createFuzzyGrepTool(pi) {
                     if (fuzzy?.ok && fuzzy.value?.items?.length) {
                         value = fuzzy.value;
                         fuzzyNotice = '0 exact matches. Maybe you meant this?';
-                        searchState = {
-                            ...searchState,
-                            mode: 'fuzzy',
-                            beforeContext: 0,
-                            afterContext: 0,
-                            cursor: null,
-                        };
                     }
                 }
 

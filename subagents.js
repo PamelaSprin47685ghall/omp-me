@@ -27,7 +27,7 @@ const BROWSER_PROMPT = [
 export const SUBAGENT_TOOL_NAMES = ['editor', 'greper', 'reverie', 'browse'];
 
 export function registerSubagentTools(pi, helpers) {
-    const { runSubagent } = helpers;
+    const { asErrorResult, runSubagent } = helpers;
 
     pi.registerTool({
         name: 'editor',
@@ -37,15 +37,19 @@ export function registerSubagentTools(pi, helpers) {
             intent: pi.typebox.String({ description: 'Describe the desired code changes with full context.' }),
         }),
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-            return {
-                content: [{
-                    type: 'text',
-                    text: await runSubagent(pi, ctx, {
-                        toolNames: ['read', 'edit', 'write', 'find', 'fuzzy_find', 'fuzzy_grep', 'lsp'],
-                        prompt: `${EDITOR_PROMPT}\n\n${params.intent}`,
-                    }),
-                }],
-            };
+            try {
+                return {
+                    content: [{
+                        type: 'text',
+                        text: await runSubagent(pi, ctx, {
+                            toolNames: ['read', 'edit', 'write', 'find', 'fuzzy_find', 'fuzzy_grep', 'lsp'],
+                            prompt: `${EDITOR_PROMPT}\n\n${params.intent}`,
+                        }),
+                    }],
+                };
+            } catch (error) {
+                return asErrorResult(error);
+            }
         },
     });
 
@@ -57,15 +61,19 @@ export function registerSubagentTools(pi, helpers) {
             intent: pi.typebox.String({ description: 'Describe what code or files to find with full context.' }),
         }),
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-            return {
-                content: [{
-                    type: 'text',
-                    text: await runSubagent(pi, ctx, {
-                        toolNames: ['read', 'find', 'fuzzy_find', 'fuzzy_grep'],
-                        prompt: `${GREPER_PROMPT}\n\n${params.intent}`,
-                    }),
-                }],
-            };
+            try {
+                return {
+                    content: [{
+                        type: 'text',
+                        text: await runSubagent(pi, ctx, {
+                            toolNames: ['read', 'find', 'fuzzy_find', 'fuzzy_grep'],
+                            prompt: `${GREPER_PROMPT}\n\n${params.intent}`,
+                        }),
+                    }],
+                };
+            } catch (error) {
+                return asErrorResult(error);
+            }
         },
     });
 
@@ -78,24 +86,28 @@ export function registerSubagentTools(pi, helpers) {
             files: pi.typebox.Array(pi.typebox.String({ description: 'File path to include as context.' })),
         }),
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-            const parts = await Promise.all((params.files || []).map(async (file) => {
-                const fullPath = path.resolve(ctx.cwd, file);
-                try {
-                    return `=== ${file} ===\n\n${await fs.readFile(fullPath, 'utf-8')}`;
-                } catch {
-                    return `=== ${file} ===\n\n(unable to read)`;
-                }
-            }));
-            parts.push(`Question:\n${params.intent}`);
-            return {
-                content: [{
-                    type: 'text',
-                    text: await runSubagent(pi, ctx, {
-                        toolNames: [],
-                        prompt: `${REVERIE_PROMPT}\n\n${parts.join('\n\n')}`,
-                    }),
-                }],
-            };
+            try {
+                const parts = await Promise.all((params.files || []).map(async (file) => {
+                    const fullPath = path.resolve(ctx.cwd, file);
+                    try {
+                        return `=== ${file} ===\n\n${await fs.readFile(fullPath, 'utf-8')}`;
+                    } catch {
+                        return `=== ${file} ===\n\n(unable to read)`;
+                    }
+                }));
+                parts.push(`Question:\n${params.intent}`);
+                return {
+                    content: [{
+                        type: 'text',
+                        text: await runSubagent(pi, ctx, {
+                            toolNames: [],
+                            prompt: `${REVERIE_PROMPT}\n\n${parts.join('\n\n')}`,
+                        }),
+                    }],
+                };
+            } catch (error) {
+                return asErrorResult(error);
+            }
         },
     });
 
@@ -107,18 +119,22 @@ export function registerSubagentTools(pi, helpers) {
             intent: pi.typebox.String({ description: 'Describe the web task with full context.' }),
         }),
         async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-            if (!pi.getAllTools().includes('browser')) {
-                return { content: [{ type: 'text', text: 'Built-in browser tool is unavailable in this session.' }], isError: true };
+            try {
+                if (typeof pi.getAllTools !== 'function' || !pi.getAllTools().includes('browser')) {
+                    return { content: [{ type: 'text', text: 'Built-in browser tool is unavailable in this session.' }], isError: true };
+                }
+                return {
+                    content: [{
+                        type: 'text',
+                        text: await runSubagent(pi, ctx, {
+                            toolNames: ['browser'],
+                            prompt: `${BROWSER_PROMPT}\n\n${params.intent}`,
+                        }),
+                    }],
+                };
+            } catch (error) {
+                return asErrorResult(error);
             }
-            return {
-                content: [{
-                    type: 'text',
-                    text: await runSubagent(pi, ctx, {
-                        toolNames: ['browser'],
-                        prompt: `${BROWSER_PROMPT}\n\n${params.intent}`,
-                    }),
-                }],
-            };
         },
     });
 }

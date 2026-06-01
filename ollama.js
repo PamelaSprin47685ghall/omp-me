@@ -1,3 +1,6 @@
+import { lookup } from 'node:dns/promises';
+import net from 'node:net';
+
 const OLLAMA_API_BASE = 'https://ollama.com/api';
 
 export const OLLAMA_TOOL_NAMES = ['websearch', 'webfetch'];
@@ -6,7 +9,65 @@ export function getOllamaKey() {
     return process.env.OLLAMA_API_KEY || '';
 }
 
-function validateFetchUrl(url) {
+const LOOPBACK_HOSTNAMES = new Set(['localhost', 'ip6-localhost', 'ip6-loopback']);
+
+function isPrivateIPv4(ip) {
+    const parts = ip.split('.').map(Number);
+    if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) return true;
+    if (parts[0] === 10) return true;
+    if (parts[0] === 127) return true;
+    if (parts[0] === 0) return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
+    if (parts[0] >= 224) return true;
+    return false;
+}
+
+function isPrivateIPv6(ip) {
+    const normalized = ip.toLowerCase();
+    if (normalized === '::' || normalized === '::1' || normalized === '0:0:0:0:0:0:0:1' || normalized === '0:0:0:0:0:0:0:0') return true;
+    if (normalized.startsWith('fc') || normalized.startsWith('fd')) return true;
+    if (normalized.startsWith('fe8') || normalized.startsWith('fe9') || normalized.startsWith('fea') || normalized.startsWith('feb')) return true;
+    if (normalized.startsWith('::ffff:')) {
+        const mapped = normalized.slice(7);
+        return isPrivateIPv4(mapped);
+    }
+    return false;
+}
+
+function ipIsBlocked(ip) {
+    const family = net.isIP(ip);
+    if (family === 4) return isPrivateIPv4(ip);
+    if (family === 6) return isPrivateIPv6(ip);
+    return true;
+}
+
+function validateHostname(hostname) {
+    const stripped = hostname.replace(/^\[|\]$/g, '').toLowerCase();
+    if (LOOPBACK_HOSTNAMES.has(stripped)) return 'localhost fetch is not allowed';
+    if (net.isIP(stripped)) return ipIsBlocked(stripped) ? 'private network fetch is not allowed' : null;
+    return null;
+}
+
+async function resolveAndValidate(hostname) {
+    const staticError = validateHostname(hostname);
+    if (staticError) return staticError;
+    let addresses;
+    try {
+        addresses = await lookup(hostname, { all: true, verbatim: true });
+    } catch {
+        return 'hostname could not be resolved';
+    }
+    if (!addresses.length) return 'hostname resolved to no addresses';
+    for (const { address } of addresses) {
+        if (ipIsBlocked(address)) return 'private network fetch is not allowed';
+    }
+    return null;
+}
+
+async function validateFetchUrl(url) {
     let parsed;
     try {
         parsed = new URL(url);
@@ -16,14 +77,7 @@ function validateFetchUrl(url) {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         return `unsupported URL scheme: ${parsed.protocol}`;
     }
-    const hostname = parsed.hostname.toLowerCase();
-    if (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '0.0.0.0' || hostname === '::1') {
-        return 'localhost fetch is not allowed';
-    }
-    if (/^(10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.)/.test(hostname)) {
-        return 'private network fetch is not allowed';
-    }
-    return null;
+    return await resolveAndValidate(parsed.hostname);
 }
 
 async function ollamaPost(pathname, body, signal) {
@@ -82,7 +136,7 @@ export function registerOllamaTools(pi, helpers) {
         }),
         async execute(_toolCallId, params, signal) {
             try {
-                const urlError = validateFetchUrl(params.url);
+                const urlError = await validateFetchUrl(params.url);
                 if (urlError) return asErrorResult(new Error(urlError));
                 const data = await ollamaPost('/web_fetch', {
                     url: params.url,

@@ -1,3 +1,4 @@
+import { readAssistantText } from './agent-session.js';
 import { getLatestTodoPhasesFromEntries } from './todo-state.js';
 
 const TODO_NUDGE = [
@@ -28,22 +29,8 @@ function hasOpenTodos(sessionManager) {
     return tasks.some((task) => !TERMINAL_TODO_STATUSES.has(task.status));
 }
 
-function collectAssistantText(entries, startIndex) {
-    const chunks = [];
-    for (let index = startIndex; index < entries.length; index += 1) {
-        const entry = entries[index];
-        if (entry?.type !== 'message') continue;
-        if (entry.message?.role !== 'assistant') continue;
-        for (const part of entry.message?.content || []) {
-            if (part?.type === 'text' && part.text) chunks.push(part.text);
-        }
-    }
-    return chunks.join('\n');
-}
-
 function alreadySkippedSince(sessionManager, marker, sinceIndex) {
-    const entries = sessionManager.getEntries?.() || [];
-    return collectAssistantText(entries, sinceIndex).includes(marker);
+    return Boolean(readAssistantText(sessionManager, { startIndex: sinceIndex, joiner: '\n' })?.includes(marker));
 }
 
 export function createNudgeState() {
@@ -111,7 +98,6 @@ export function handleRunnerNudge(pi, state, sessionId, hasRunningJob) {
 }
 
 export const _test = {
-    collectAssistantText,
     createNudgeState,
     flattenTodoTasks,
     hasOpenTodos,

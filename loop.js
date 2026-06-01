@@ -2,7 +2,8 @@ const reviewStates = new Map();
 
 const LOOP_COMMAND = 'loop';
 const REVIEWER_MAX_NUDGES = 3;
-const REVIEWER_GRACE_MS = 1500;
+const REVIEWER_INITIAL_GRACE_MS = 6000;
+const REVIEWER_SUBSEQUENT_GRACE_MS = 10000;
 
 const LOOP_REVIEW_INSTRUCTIONS = [
     'You are a code reviewer performing a rigorous review of submitted work.',
@@ -160,9 +161,10 @@ async function runReviewLoop(pi, sessionId, report, affectedFiles, task, ctx, he
             ]);
             if (race.type === 'done') return race.value;
             nudges += 1;
+            const graceMs = nudges === 1 ? REVIEWER_INITIAL_GRACE_MS : REVIEWER_SUBSEQUENT_GRACE_MS;
             const afterGrace = await Promise.race([
                 deferred.promise.then((value) => ({ type: 'done', value })),
-                new Promise((resolve) => setTimeout(() => resolve({ type: 'timeout' }), REVIEWER_GRACE_MS)),
+                new Promise((resolve) => setTimeout(() => resolve({ type: 'timeout' }), graceMs)),
             ]);
             if (afterGrace.type === 'done') return afterGrace.value;
             await child.session.prompt(LOOP_REVIEW_NUDGE);
